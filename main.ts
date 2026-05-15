@@ -3,6 +3,12 @@ import { define, type State } from "./utils.ts";
 
 export const app = new App<State>();
 
+app.use(async (ctx) => {
+  const res = await ctx.next();
+  res.headers.set("Access-Control-Allow-Origin", "*");
+  return res;
+});
+
 app.use(staticFiles());
 
 // Pass a shared value from a middleware
