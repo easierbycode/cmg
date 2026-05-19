@@ -1,33 +1,26 @@
-import { useSignal } from "@preact/signals";
 import { Head } from "fresh/runtime";
 import { define } from "../utils.ts";
-import Counter from "../islands/Counter.tsx";
 
-export default define.page(function Home(ctx) {
-  const count = useSignal(3);
-
-  console.log("Shared value " + ctx.state.shared);
-
+export default define.page(function Home() {
   return (
-    <div class="px-4 py-8 mx-auto fresh-gradient min-h-screen">
+    <>
       <Head>
-        <title>Fresh counter</title>
-      </Head>
-      <div class="max-w-screen-md mx-auto flex flex-col items-center justify-center">
-        <img
-          class="my-6"
-          src="/logo.svg"
-          width="128"
-          height="128"
-          alt="the Fresh logo: a sliced lemon dripping with juice"
+        <title>code monkey — dashboard</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossorigin="anonymous"
         />
-        <h1 class="text-4xl font-bold">Welcome to Fresh</h1>
-        <p class="my-4">
-          Try updating this message in the
-          <code class="mx-2">./routes/index.tsx</code> file, and refresh.
-        </p>
-        <Counter count={count} />
-      </div>
-    </div>
+        <link
+          key="fonts"
+          href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@500;700;800&display=swap"
+          rel="stylesheet"
+        />
+        <link key="dashboard-css" rel="stylesheet" href="/dashboard.css" />
+      </Head>
+      <div id="app-root"></div>
+      <script type="module" src="/dashboard.bundle.js"></script>
+    </>
   );
 });
