@@ -7,6 +7,8 @@
 
 # Fresh build directory
 _fresh/
+# Compiled Svelte dashboard bundle (built by scripts/build-dashboard.ts)
+static/dashboard.bundle.js
 # npm + other dependencies
 node_modules/
 vendor/
