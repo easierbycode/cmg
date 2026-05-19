@@ -27,6 +27,14 @@
   let gameOn = $state(false);
   let bootGone = $state(false);
   let menuEls = $state([]);
+  let gameRowEls = $state([]);
+  let gameListEl = $state(null);
+
+  $effect(() => {
+    if (screen !== 'games') return;
+    const el = gameRowEls[gameSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
 
   let currentGame = $derived(GAMES[gameSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
@@ -117,6 +125,80 @@
 
   let clockTimer;
   let bootTimer;
+  let padRaf = null;
+  let padHadConnection = false;
+  const padState = {
+    btn: new Set(),
+    axisDir: 0,
+    lastNavAt: 0,
+    initialDelayMs: 280,
+    repeatMs: 110,
+    holdingSince: 0,
+  };
+  const PAD_DEADZONE = 0.55;
+
+  function navUp() {
+    if (screen === 'dashboard') menuSel = Math.max(menuSel - 1, 0);
+    else if (screen === 'games') gameSel = Math.max(gameSel - 1, 0);
+    sfx.nav();
+  }
+  function navDown() {
+    if (screen === 'dashboard') menuSel = Math.min(menuSel + 1, MAIN_MENU.length - 1);
+    else if (screen === 'games') gameSel = Math.min(gameSel + 1, GAMES.length - 1);
+    sfx.nav();
+  }
+  function actA() {
+    if (gameOn) return;
+    if (screen === 'dashboard') pickMenu(menuSel);
+    else if (screen === 'games') launchGame(GAMES[gameSel].id);
+  }
+  function actB() {
+    if (gameOn) closeGame();
+    else if (screen === 'games') goBack();
+  }
+
+  // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
+  // is active, body.playing is set and the launcher's gamepad-support.js takes
+  // over and dispatches keys into iframe#gameframe — we yield to it.
+  function pollPad() {
+    padRaf = requestAnimationFrame(pollPad);
+    if (gameOn) { padState.btn.clear(); padState.axisDir = 0; return; }
+    const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+    let pad = null;
+    for (const p of pads) { if (p && p.connected) { pad = p; break; } }
+    if (!pad) { padState.btn.clear(); padState.axisDir = 0; return; }
+    if (!padHadConnection) { padHadConnection = true; try { getAc()?.resume(); } catch (_) {} }
+
+    const now = performance.now();
+    const ay = pad.axes[1] ?? 0;
+    const dpadUp = !!pad.buttons[12]?.pressed;
+    const dpadDown = !!pad.buttons[13]?.pressed;
+    let dir = 0;
+    if (dpadUp || ay < -PAD_DEADZONE) dir = -1;
+    else if (dpadDown || ay > PAD_DEADZONE) dir = 1;
+
+    if (dir !== 0 && dir !== padState.axisDir) {
+      if (dir < 0) navUp(); else navDown();
+      padState.holdingSince = now;
+      padState.lastNavAt = now;
+    } else if (dir !== 0 && dir === padState.axisDir) {
+      const heldFor = now - padState.holdingSince;
+      const sinceLast = now - padState.lastNavAt;
+      if (heldFor >= padState.initialDelayMs && sinceLast >= padState.repeatMs) {
+        if (dir < 0) navUp(); else navDown();
+        padState.lastNavAt = now;
+      }
+    }
+    padState.axisDir = dir;
+
+    const pressedNow = new Set();
+    pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
+    const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
+    if (justPressed(0) || justPressed(9)) actA();   // A or Start
+    if (justPressed(1) || justPressed(8)) actB();   // B or Back/Select
+    padState.btn = pressedNow;
+  }
+
   function unlockAudio() { try { getAc()?.resume(); } catch (e) { /* ignore */ } }
 
   function onKey(e) {
@@ -132,7 +214,7 @@
       if (e.key === 'ArrowDown') { gameSel = Math.min(gameSel + 1, GAMES.length - 1); sfx.nav(); }
       else if (e.key === 'ArrowUp') { gameSel = Math.max(gameSel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchGame(GAMES[gameSel].id);
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B') goBack();
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     }
   }
 
@@ -152,13 +234,23 @@
     bootTimer = setTimeout(() => { bootGone = true; }, 1600);
 
     window.addEventListener('keydown', onKey);
+    padRaf = requestAnimationFrame(pollPad);
+  });
+
+  $effect(() => {
+    // While a game iframe is active, gamepad-support.js routes gamepad → keyboard
+    // into iframe#gameframe. It only dispatches when body.playing is set.
+    if (gameOn) document.body.classList.add('playing');
+    else document.body.classList.remove('playing');
   });
 
   onDestroy(() => {
     if (clockTimer) clearInterval(clockTimer);
     if (bootTimer) clearTimeout(bootTimer);
+    if (padRaf) cancelAnimationFrame(padRaf);
     document.removeEventListener('click', unlockAudio);
     window.removeEventListener('keydown', onKey);
+    document.body.classList.remove('playing');
   });
 </script>
 
@@ -271,9 +363,10 @@
           <div class="title-bar">GAMES</div>
           <div class="counter">{counterText}</div>
         </div>
-        <div class="games-list">
+        <div class="games-list" bind:this={gameListEl}>
           {#each GAMES as g, i (g.id)}
             <div
+              bind:this={gameRowEls[i]}
               class="game-row {i === gameSel ? 'sel' : ''}"
               onmouseenter={() => { if (i !== gameSel) { gameSel = i; sfx.nav(); } }}
               onclick={() => launchGame(g.id)}
@@ -313,6 +406,7 @@
 <div class="game-iframe {gameOn ? 'on' : ''}">
   <button type="button" class="close-game" onclick={closeGame}>⨯ Close</button>
   <iframe
+    id={gameOn ? 'gameframe' : undefined}
     src={gameSrc ?? 'about:blank'}
     title="game"
     allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"

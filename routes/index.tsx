@@ -21,6 +21,7 @@ export default define.page(function Home() {
       </Head>
       <div id="app-root"></div>
       <script type="module" src="/dashboard.bundle.js"></script>
+      <script src="/gamepad-support.js" defer></script>
     </>
   );
 });
