@@ -13,3 +13,6 @@ static/dashboard.bundle.js
 node_modules/
 vendor/
 
+# macOS
+.DS_Store
+
