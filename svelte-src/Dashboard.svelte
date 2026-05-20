@@ -242,15 +242,37 @@
       return;
     }
     if (!pad) { padState.btn.clear(); padState.axisDir = 0; return; }
-    if (!padHadConnection) { padHadConnection = true; try { getAc()?.resume(); } catch (_) {} }
+    if (!padHadConnection) {
+      padHadConnection = true;
+      try { getAc()?.resume(); } catch (_) {}
+      // One-shot diagnostic: log mapping/axes/button counts so non-standard
+      // controllers (SNES → USB adapters, etc.) can be debugged remotely.
+      try {
+        console.log('[pad] connected:', pad.id, 'mapping:', pad.mapping,
+          'axes:', pad.axes.length, 'buttons:', pad.buttons.length);
+      } catch (_) {}
+    }
 
     const now = performance.now();
-    const ay = pad.axes[1] ?? 0;
+    // Standard mapping: D-pad on buttons 12 (up) / 13 (down), analog stick Y on axes[1].
+    // Non-standard SNES-style controllers often expose D-pad through axes[7]
+    // (digital -1/0/+1) or axes[9] (hat switch encoded). Try them all.
     const dpadUp = !!pad.buttons[12]?.pressed;
     const dpadDown = !!pad.buttons[13]?.pressed;
+    const ay = pad.axes[1] ?? 0;
+    const ay7 = pad.axes[7] ?? 0; // some non-standard pads put D-pad Y here
+    const hat = pad.axes[9];      // -1..1 encoded hat switch on some pads
+    const HAT_NEUTRAL = 1.28;     // > 1 sentinel used by some drivers for "no input"
     let dir = 0;
-    if (dpadUp || ay < -PAD_DEADZONE) dir = -1;
-    else if (dpadDown || ay > PAD_DEADZONE) dir = 1;
+    if (dpadUp || ay < -PAD_DEADZONE || ay7 < -PAD_DEADZONE) dir = -1;
+    else if (dpadDown || ay > PAD_DEADZONE || ay7 > PAD_DEADZONE) dir = 1;
+    // Hat switch decode: values near -0.71 / -1.0 are "up", near 0.14 / 0.43 are "down".
+    if (dir === 0 && typeof hat === 'number' && hat <= 1 && hat >= -1 && Math.abs(hat) < HAT_NEUTRAL) {
+      const angle = (hat + 1) * Math.PI;
+      const sy = -Math.cos(angle);
+      if (sy < -PAD_DEADZONE) dir = -1;
+      else if (sy > PAD_DEADZONE) dir = 1;
+    }
 
     if (dir !== 0 && dir !== padState.axisDir) {
       if (dir < 0) navUp(); else navDown();
