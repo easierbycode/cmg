@@ -63,5 +63,9 @@
     "types": [
       "vite/client"
     ]
+  },
+  "deploy": {
+    "org": "easierbycode",
+    "app": "cmg"
   }
 }

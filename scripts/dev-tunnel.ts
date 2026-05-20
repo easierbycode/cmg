@@ -9,44 +9,42 @@
 const PORT = Number(Deno.env.get("PORT") ?? "5173");
 
 async function hasDeployApp(): Promise<boolean> {
-  // `deno deploy switch` prints "No application was selected" with no stdout
-  // when nothing is set. We probe by running `--help` (always succeeds) and
-  // then checking the projects list, but the simplest reliable test is to try
-  // a no-op command and inspect output.
-  try {
-    const cmd = new Deno.Command(Deno.execPath(), {
-      args: ["deploy", "switch", "--help"],
-      stdout: "null",
-      stderr: "null",
-    });
-    const out = await cmd.output();
-    if (!out.success) return false;
-  } catch (_e) {
-    return false;
-  }
-  // Read the config that `deno deploy switch` writes to know if an app is set.
-  // Path: ~/Library/Application Support/deno/deploy.json on macOS,
-  // ~/.config/deno/deploy.json on Linux, %APPDATA%/deno/deploy.json on Windows.
-  const home = Deno.env.get("HOME") ?? "";
-  const appData = Deno.env.get("APPDATA");
-  const candidates = [
-    appData ? `${appData}/deno/deploy.json` : null,
-    `${home}/Library/Application Support/deno/deploy.json`,
-    `${home}/.config/deno/deploy.json`,
-  ].filter((p): p is string => !!p);
-  for (const path of candidates) {
+  // `deno deploy switch` writes the selected org + app into the project's
+  // deno.json (or deno.jsonc) under a `deploy` block. Check for that.
+  for (const path of ["deno.json", "deno.jsonc"]) {
     try {
       const txt = await Deno.readTextFile(path);
-      const json = JSON.parse(txt);
-      if (json && (json.app || json.application)) return true;
+      // Strip // and /* */ comments so deno.jsonc parses as JSON.
+      const stripped = txt
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1");
+      const json = JSON.parse(stripped);
+      if (json?.deploy?.app && json?.deploy?.org) return true;
     } catch (_e) {
-      // file not found / unreadable — keep looking
+      // file missing / unparseable — keep looking
     }
   }
   return false;
 }
 
-if (!(await hasDeployApp())) {
+async function readDeployConfig(): Promise<{ org: string; app: string } | null> {
+  for (const path of ["deno.json", "deno.jsonc"]) {
+    try {
+      const txt = await Deno.readTextFile(path);
+      const stripped = txt
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1");
+      const json = JSON.parse(stripped);
+      if (json?.deploy?.app && json?.deploy?.org) {
+        return { org: json.deploy.org, app: json.deploy.app };
+      }
+    } catch (_e) { /* keep looking */ }
+  }
+  return null;
+}
+
+const deploy = await readDeployConfig();
+if (!deploy) {
   console.log(
     "\n[dev:tunnel] No Deno Deploy app selected yet.\n" +
       "             Run one of these once, then re-run `deno task dev:tunnel`:\n\n" +
@@ -55,6 +53,12 @@ if (!(await hasDeployApp())) {
   );
   Deno.exit(1);
 }
+console.log(
+  `\n[dev:tunnel] Tunneling http://localhost:${PORT} via Deno Deploy.\n` +
+    `             App: ${deploy.org} / ${deploy.app}\n` +
+    `             Public URL is the app's domain on Deno Deploy — find it at\n` +
+    `             https://app.deno.com/${deploy.org}/${deploy.app}\n`,
+);
 
 const cmd = new Deno.Command(Deno.execPath(), {
   args: ["task", "--tunnel", "dev:vite", "--port", String(PORT)],
