@@ -208,6 +208,18 @@
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
     sfx.nav();
   }
+  function navTop() {
+    if (screen === 'dashboard') menuSel = 0;
+    else if (screen === 'games') gameSel = 0;
+    else if (screen === 'tg16') tg16Sel = 0;
+    sfx.nav();
+  }
+  function navBottom() {
+    if (screen === 'dashboard') menuSel = MAIN_MENU.length - 1;
+    else if (screen === 'games') gameSel = GAMES.length - 1;
+    else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
+    sfx.nav();
+  }
   function actA() {
     if (gameOn) return;
     if (screen === 'dashboard') pickMenu(menuSel);
@@ -336,6 +348,12 @@
     const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
     if (justPressed(0) || justPressed(9)) actA();   // A or Start
     if (justPressed(1) || justPressed(8)) actB();   // B or Back/Select
+    // Shoulder/trigger navigation — fallback when D-pad isn't recognized
+    // (e.g. Firefox + non-standard SNES adapters).
+    if (justPressed(5)) navDown();                  // R shoulder
+    if (justPressed(4)) navUp();                    // L shoulder
+    if (justPressed(7)) navBottom();                // R2 — jump to bottom
+    if (justPressed(6)) navTop();                   // L2 — jump to top
     padState.btn = pressedNow;
   }
 
