@@ -183,6 +183,8 @@
   let bootTimer;
   let padRaf = null;
   let padHadConnection = false;
+  const padSeenBtns = new Set();
+  const padSeenAxes = new Set();
   const padState = {
     btn: new Set(),
     axisDir: 0,
@@ -256,25 +258,63 @@
       } catch (_) {}
     }
 
+    // Diagnostic: log the first time each individual button is pressed and
+    // each individual axis crosses out of neutral, so we can see exactly which
+    // indices a quirky browser/controller is using for D-pad. Capped per index
+    // so a held button doesn't spam the console.
+    for (let i = 0; i < pad.buttons.length; i++) {
+      if (pad.buttons[i]?.pressed && !padSeenBtns.has(i)) {
+        padSeenBtns.add(i);
+        try { console.log(`[pad] button ${i} pressed`); } catch (_) {}
+      }
+    }
+    for (let i = 0; i < pad.axes.length; i++) {
+      const v = pad.axes[i];
+      if (typeof v !== 'number') continue;
+      // 0.4 * deadzone catches mild analog drift / partial D-pad pushes.
+      // Cap at 1.05 to ignore "no input" sentinels like 1.28.
+      if (Math.abs(v) > PAD_DEADZONE * 0.4 && Math.abs(v) <= 1.05 && !padSeenAxes.has(i)) {
+        padSeenAxes.add(i);
+        try { console.log(`[pad] axes[${i}] active, value=${v.toFixed(3)}`); } catch (_) {}
+      }
+    }
+
     const now = performance.now();
-    // Standard mapping: D-pad on buttons 12 (up) / 13 (down), analog stick Y on axes[1].
-    // Non-standard SNES-style controllers often expose D-pad through axes[7]
-    // (digital -1/0/+1) or axes[9] (hat switch encoded). Try them all.
-    const dpadUp = !!pad.buttons[12]?.pressed;
-    const dpadDown = !!pad.buttons[13]?.pressed;
-    const ay = pad.axes[1] ?? 0;
-    const ay7 = pad.axes[7] ?? 0; // some non-standard pads put D-pad Y here
-    const hat = pad.axes[9];      // -1..1 encoded hat switch on some pads
-    const HAT_NEUTRAL = 1.28;     // > 1 sentinel used by some drivers for "no input"
+    // Detect vertical input across as many layouts as we've seen:
+    //   - Standard mapping: D-pad on buttons 12 / 13.
+    //   - Firefox non-standard: D-pad often shifts past the face buttons
+    //     (button indices 16-19, or different ordering).
+    //   - Analog stick Y on axes[1] (or axes[3] / axes[5] on some pads).
+    //   - axes[7]: digital -1/0/+1 D-pad Y on some adapters.
+    //   - axes[9]: encoded hat switch on others.
+    const upButtonIdxs = [12, 16, 18, 20];
+    const downButtonIdxs = [13, 17, 19, 21];
+    const dpadUp = upButtonIdxs.some((i) => !!pad.buttons[i]?.pressed);
+    const dpadDown = downButtonIdxs.some((i) => !!pad.buttons[i]?.pressed);
     let dir = 0;
-    if (dpadUp || ay < -PAD_DEADZONE || ay7 < -PAD_DEADZONE) dir = -1;
-    else if (dpadDown || ay > PAD_DEADZONE || ay7 > PAD_DEADZONE) dir = 1;
-    // Hat switch decode: values near -0.71 / -1.0 are "up", near 0.14 / 0.43 are "down".
-    if (dir === 0 && typeof hat === 'number' && hat <= 1 && hat >= -1 && Math.abs(hat) < HAT_NEUTRAL) {
-      const angle = (hat + 1) * Math.PI;
-      const sy = -Math.cos(angle);
-      if (sy < -PAD_DEADZONE) dir = -1;
-      else if (sy > PAD_DEADZONE) dir = 1;
+    if (dpadUp) dir = -1;
+    else if (dpadDown) dir = 1;
+    if (dir === 0) {
+      // Iterate candidate Y axes — bail on the first one that's clearly off-neutral.
+      const yAxes = [1, 3, 5, 7];
+      for (const i of yAxes) {
+        const v = pad.axes[i];
+        if (typeof v !== 'number') continue;
+        if (Math.abs(v) > 1.05) continue; // neutral sentinel (e.g. 1.28)
+        if (v < -PAD_DEADZONE) { dir = -1; break; }
+        if (v > PAD_DEADZONE) { dir = 1; break; }
+      }
+    }
+    if (dir === 0) {
+      // Hat-switch decode: values near -0.71 / -1.0 are "up",
+      // near 0.14 / 0.43 are "down". Values > 1 are the neutral sentinel.
+      const hat = pad.axes[9];
+      if (typeof hat === 'number' && hat >= -1 && hat <= 1) {
+        const angle = (hat + 1) * Math.PI;
+        const sy = -Math.cos(angle);
+        if (sy < -PAD_DEADZONE) dir = -1;
+        else if (sy > PAD_DEADZONE) dir = 1;
+      }
     }
 
     if (dir !== 0 && dir !== padState.axisDir) {
