@@ -3,29 +3,16 @@
 // testing Gamepad API / WebUSB / other secure-context-only features on a
 // remote device.
 //
+// Deno Deploy tunnels only intercept Deno's HTTP API, so Vite's own server is
+// invisible to them (the Deploy console reports it as "Telemetry only" with
+// no URL). We spawn Vite + a small Deno-native HTTP/WS proxy in front of it
+// (scripts/tunnel-proxy.ts), then run that proxy under `deno serve --tunnel`.
+//
 // On first run Deno Deploy needs an org + app context. If `deno deploy switch`
 // hasn't been run we surface a friendly prompt instead of the bare error.
 
-const PORT = Number(Deno.env.get("PORT") ?? "5173");
-
-async function hasDeployApp(): Promise<boolean> {
-  // `deno deploy switch` writes the selected org + app into the project's
-  // deno.json (or deno.jsonc) under a `deploy` block. Check for that.
-  for (const path of ["deno.json", "deno.jsonc"]) {
-    try {
-      const txt = await Deno.readTextFile(path);
-      // Strip // and /* */ comments so deno.jsonc parses as JSON.
-      const stripped = txt
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/(^|[^:])\/\/.*$/gm, "$1");
-      const json = JSON.parse(stripped);
-      if (json?.deploy?.app && json?.deploy?.org) return true;
-    } catch (_e) {
-      // file missing / unparseable — keep looking
-    }
-  }
-  return false;
-}
+const VITE_PORT = Number(Deno.env.get("VITE_PORT") ?? "5173");
+const TUNNEL_PORT = Number(Deno.env.get("TUNNEL_PORT") ?? "8000");
 
 async function readDeployConfig(): Promise<{ org: string; app: string } | null> {
   for (const path of ["deno.json", "deno.jsonc"]) {
@@ -54,23 +41,73 @@ if (!deploy) {
   Deno.exit(1);
 }
 console.log(
-  `\n[dev:tunnel] Tunneling http://localhost:${PORT} via Deno Deploy.\n` +
+  `\n[dev:tunnel] Tunneling Vite (http://localhost:${VITE_PORT}) via Deno Deploy.\n` +
     `             App: ${deploy.org} / ${deploy.app}\n` +
     `             Public URL is the app's domain on Deno Deploy — find it at\n` +
-    `             https://app.deno.com/${deploy.org}/${deploy.app}\n`,
+    `             https://app.deno.com/${deploy.org}/${deploy.app}/tunnels\n`,
 );
 
-const cmd = new Deno.Command(Deno.execPath(), {
-  args: ["task", "--tunnel", "dev:vite", "--port", String(PORT)],
+// 1. Spawn Vite on VITE_PORT.
+const vite = new Deno.Command(Deno.execPath(), {
+  args: ["task", "dev:vite", "--port", String(VITE_PORT)],
   stdout: "inherit",
   stderr: "inherit",
-  stdin: "inherit",
-});
-const child = cmd.spawn();
+}).spawn();
 
-const cleanup = () => { try { child.kill("SIGTERM"); } catch (_e) { /* ignore */ } };
+// 2. Wait until Vite is reachable so the first tunnel request doesn't 502.
+async function waitForVite(timeoutMs = 20_000): Promise<boolean> {
+  const start = performance.now();
+  while (performance.now() - start < timeoutMs) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${VITE_PORT}/`, {
+        signal: AbortSignal.timeout(1000),
+      });
+      await r.body?.cancel();
+      return true;
+    } catch (_e) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  return false;
+}
+
+// 3. Spawn `deno serve --tunnel scripts/tunnel-proxy.ts` so Deno Deploy has a
+//    real Deno-native HTTP entrypoint to expose. The proxy forwards to Vite.
+let proxy: Deno.ChildProcess | null = null;
+
+const cleanup = () => {
+  try { proxy?.kill("SIGTERM"); } catch (_e) { /* ignore */ }
+  try { vite.kill("SIGTERM"); } catch (_e) { /* ignore */ }
+};
 Deno.addSignalListener("SIGINT", () => { cleanup(); Deno.exit(130); });
 Deno.addSignalListener("SIGTERM", () => { cleanup(); Deno.exit(143); });
 
-const status = await child.status;
+const viteReady = await waitForVite();
+if (!viteReady) {
+  console.log("[dev:tunnel] Vite did not become ready in 20s — aborting tunnel.");
+  cleanup();
+  Deno.exit(1);
+}
+
+proxy = new Deno.Command(Deno.execPath(), {
+  args: [
+    "serve",
+    "--allow-net",
+    "--allow-env",
+    "--allow-read",
+    "--tunnel",
+    "--port",
+    String(TUNNEL_PORT),
+    "scripts/tunnel-proxy.ts",
+  ],
+  stdout: "inherit",
+  stderr: "inherit",
+  env: {
+    VITE_PORT: String(VITE_PORT),
+    TUNNEL_PORT: String(TUNNEL_PORT),
+  },
+}).spawn();
+
+const status = await Promise.race([vite.status, proxy.status]);
+cleanup();
 Deno.exit(status.code);
