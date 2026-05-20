@@ -4,6 +4,7 @@
     "check": "deno fmt --check . && deno lint . && deno check",
     "dev": "deno run -A scripts/dev.ts",
     "dev:vite": "vite",
+    "dev:tunnel": "deno run -A scripts/dev-tunnel.ts",
     "build": "deno task dashboard:build && vite build",
     "dashboard:build": "deno run -A scripts/build-dashboard.ts",
     "start": "deno serve -A _fresh/server.js",
