@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>TurboGrafx-16</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; width: 100%; height: 100%; overflow: hidden; color: #9CFF6B; font-family: 'Share Tech Mono', monospace; }
+  #display { width: 100%; height: 100%; }
+  #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 2em; }
+  #err.show { display: flex; }
+  /* Hide EmulatorJS chrome by default — parent toggles `.show-controls` to reveal */
+  .ejs_menu_bar, .ejs_top_bar { opacity: 0 !important; pointer-events: none !important; transition: opacity .2s ease; }
+  body.show-controls .ejs_menu_bar,
+  body.show-controls .ejs_top_bar,
+  body.touch .ejs_menu_bar,
+  body.touch .ejs_top_bar { opacity: 1 !important; pointer-events: auto !important; }
+</style>
+</head>
+<body>
+<div id="display"></div>
+<div id="err">No ROM specified. Pass <code>?rom=&lt;filename&gt;</code>.</div>
+<script>
+  (function () {
+    var params = new URLSearchParams(location.search);
+    var rom = params.get('rom') || '';
+    if (!rom) {
+      document.getElementById('err').classList.add('show');
+      return;
+    }
+    var romUrl = '/TurboGrafx-16/' + encodeURIComponent(rom);
+    var title = rom.replace(/\.pce$/i, '');
+    document.title = title || 'TurboGrafx-16';
+
+    if ('ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0) {
+      document.body.classList.add('touch');
+    }
+
+    window.EJS_player = '#display';
+    // Full Beetle PCE / Mednafen PCE libretro core (more accurate than pce_fast).
+    window.EJS_core = 'mednafen_pce';
+    window.EJS_gameUrl = romUrl;
+    window.EJS_gameName = title;
+    window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+    window.EJS_startOnLoaded = true;
+    window.EJS_color = '#7CFF4F';
+
+    function postParent(type) {
+      try { window.parent.postMessage({ type: type }, '*'); } catch (_) {}
+    }
+
+    // Attach a parent-notify listener to the "Exit Emulation" menu button.
+    // EmulatorJS doesn't expose an exit() method, so we hook the DOM button.
+    function hookExitButton() {
+      var buttons = document.querySelectorAll('.ejs_menu_button');
+      for (var i = 0; i < buttons.length; i++) {
+        var b = buttons[i];
+        var text = (b.textContent || '').trim();
+        if (text === 'Exit Emulation' && !b.dataset.tg16Hooked) {
+          b.dataset.tg16Hooked = '1';
+          b.addEventListener('click', function () { postParent('tg16-exit'); });
+          return true;
+        }
+      }
+      return false;
+    }
+    window.EJS_ready = function () {
+      if (hookExitButton()) return;
+      // Button may render slightly after EJS_ready — observe until it appears.
+      var mo = new MutationObserver(function () {
+        if (hookExitButton()) mo.disconnect();
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+      setTimeout(function () { mo.disconnect(); }, 15000);
+    };
+
+    // Parent controls EJS chrome visibility (gamepad combo / touch).
+    window.addEventListener('message', function (e) {
+      var d = e.data || {};
+      if (d.type === 'tg16-show-controls') document.body.classList.add('show-controls');
+      else if (d.type === 'tg16-hide-controls') document.body.classList.remove('show-controls');
+    });
+
+    var s = document.createElement('script');
+    s.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+    document.body.appendChild(s);
+  })();
+</script>
+</body>
+</html>

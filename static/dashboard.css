@@ -208,7 +208,6 @@ body {
   background: linear-gradient(180deg, rgba(40, 110, 55, .5), rgba(15, 50, 25, .7));
   padding: 1.4vmin 1.8vmin; font-family: 'Share Tech Mono'; font-size: clamp(11px, 1.4vmin, 15px); line-height: 1.6;
   color: #e7ffce; letter-spacing: .05em;
-  clip-path: polygon(0 14%, 7% 0, 100% 0, 100% 86%, 93% 100%, 0 100%);
 }
 .meta .k { color: rgba(180, 255, 140, .55); margin-right: .5em; }
 .meta b { color: #fff; letter-spacing: .08em; }
@@ -216,18 +215,20 @@ body {
 .games-right { display: flex; flex-direction: column; gap: 1.6vmin; height: 100%; min-width: 0; min-height: 0; }
 .games-header { display: flex; align-items: center; gap: 1.6vmin; height: 8.5vmin; max-height: 88px; min-height: 64px; }
 .title-bar {
-  flex: 1; height: 100%;
+  flex: 1; height: 100%; min-width: 0;
   background: linear-gradient(180deg, rgba(70, 180, 90, .18), rgba(20, 60, 30, .7) 50%, rgba(20, 60, 30, .7) 50%, rgba(70, 180, 90, .05));
   border: 1px solid var(--tile-edge);
   clip-path: polygon(0 0, calc(100% - 3vmin) 0, 100% 50%, calc(100% - 3vmin) 100%, 0 100%, 3vmin 50%);
   display: flex; align-items: center; justify-content: center;
-  color: #dfffc4; font-weight: 800; font-size: clamp(22px, 3.6vmin, 42px); letter-spacing: .32em;
+  color: #dfffc4; font-weight: 800; font-size: clamp(13px, 3.6vmin, 42px); letter-spacing: .22em;
+  white-space: nowrap; overflow: hidden;
   text-shadow: 0 0 18px rgba(120, 255, 90, .55);
   box-shadow: inset 0 2px 0 rgba(180, 255, 140, .2), 0 0 30px rgba(50, 200, 80, .22);
+  padding: 0 4vmin;
 }
-.counter { font-family: 'Share Tech Mono'; font-size: clamp(12px, 1.5vmin, 16px); letter-spacing: .18em; color: rgba(220, 255, 180, .7); text-transform: uppercase; min-width: 8em; text-align: right; }
+.counter { font-family: 'Share Tech Mono'; font-size: clamp(11px, 1.5vmin, 16px); letter-spacing: .14em; color: rgba(220, 255, 180, .7); text-transform: uppercase; min-width: 5em; text-align: right; flex-shrink: 0; }
 
-.games-list { position: relative; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 1.4vmin; overflow-x: hidden; overflow-y: auto; padding: 2vmin 1vmin 2vmin 0; scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none; mask-image: linear-gradient(180deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%); -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%); }
+.games-list { position: relative; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 1.4vmin; overflow-x: visible; overflow-y: auto; padding: 2vmin 1vmin 2vmin max(1.6vmin, 32px); scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none; mask-image: linear-gradient(180deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%); -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%); }
 .games-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .game-row { flex-shrink: 0; scroll-margin: 3vmin 0; }
 
@@ -286,7 +287,7 @@ body {
 
 /* clock/info top right */
 .strip-top {
-  position: absolute; left: 25vmin; right: 2vmin; top: -1.8vmin; height: 3vmin;
+  position: absolute; left: 25vmin; right: 2vmin; top: -4.2vmin; height: 3vmin;
   display: flex; align-items: center; justify-content: flex-end; gap: 2em;
   color: rgba(220, 255, 180, .55); font-family: 'Share Tech Mono'; font-size: clamp(11px, 1.3vmin, 14px); letter-spacing: .22em; text-transform: uppercase;
 }
@@ -317,8 +318,8 @@ body {
   .dashboard { grid-template-columns: 1fr; grid-template-rows: auto 1fr; padding-top: 8vmin; }
   .orb-wrap { height: 38vmin; }
   .menu { padding: 0 6vmin; }
-  .games-panel { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .disc-col { flex-direction: row; justify-content: flex-start; padding: 0; }
+  .games-panel { grid-template-columns: 1fr; grid-template-rows: auto 1fr; padding: max(8vmin, 40px) 2vmin 2vmin max(8vmin, 40px); }
+  .disc-col { flex-direction: row; justify-content: flex-start; padding: 0; gap: 2vmin; }
   .disc { width: 14vmin; height: 14vmin; }
   .meta { flex: 1; }
 }
