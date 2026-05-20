@@ -148,7 +148,10 @@
 
   async function loadTg16List() {
     try {
-      const r = await fetch('/api/turbografx16');
+      // The manifest is generated at build time by scripts/build-tg16-manifest.ts
+      // and served as a plain static file (works on Deno Deploy where the source
+      // tree isn't readable via Deno.readDir from a runtime handler).
+      const r = await fetch('/TurboGrafx-16/manifest.json');
       if (!r.ok) return;
       const list = await r.json();
       tg16Games = Array.isArray(list) ? list : [];
