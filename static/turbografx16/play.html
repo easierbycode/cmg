@@ -82,80 +82,77 @@
     });
 
     // Nintendo Online SNES Controller (Vendor 057e Product 2017) reports its
-    // D-pad on axes[9] as a hat switch instead of on standard DPAD_* buttons.
-    // When one is connected, override EmulatorJS's default D-pad mapping so
-    // the user doesn't have to configure each button manually every time.
+    // D-pad on axes[9] as an 8-direction hat switch — a single value encoding
+    // one of 8 directions plus neutral. EmulatorJS's EXTRA_STICK mappings only
+    // check the sign of an axis, so Down/Left/Right all collide as "positive".
+    //
+    // Instead, wrap navigator.getGamepads to *decode* the hat and synthesize
+    // proper DPAD_UP/DOWN/LEFT/RIGHT button presses at indices 12-15. With
+    // those buttons in place, EmulatorJS's stock defaults just work and so do
+    // diagonals.
     var SNES_RE = /SNES Controller|057e.{0,8}2017/i;
-    function hasSnesPad() {
-      try {
-        var pads = navigator.getGamepads && navigator.getGamepads();
-        if (!pads) return false;
-        for (var i = 0; i < pads.length; i++) {
-          var p = pads[i];
-          if (p && p.connected && SNES_RE.test(p.id || '')) return true;
-        }
-      } catch (_) {}
-      return false;
-    }
-    function snesDefaultControls() {
-      // Same layout as EmulatorJS's built-in defaultControllers, but D-pad
-      // (retropad indices 4-7) is routed through EXTRA_STICK_9 so the SNES
-      // hat axis is recognized as up/down/left/right.
+
+    function decodeHat(v) {
+      var none = { up: false, down: false, left: false, right: false };
+      if (typeof v !== 'number' || v < -1.05 || v > 1.05) return none;
+      // Standard 8-direction hat encoding: -1..1 mapped to 8 slots.
+      //   -7/7 = Up, -5/7 = Up-Right, -3/7 = Right, -1/7 = Down-Right,
+      //    1/7 = Down,  3/7 = Down-Left,  5/7 = Left,  7/7 = Up-Left.
+      var pos = Math.round((v + 1) * 3.5); // 0..7
+      var labels = ['up','upright','right','downright','down','downleft','left','upleft'];
+      var d = labels[pos] || '';
       return {
-        0: {
-          0:  { value: 'x',          value2: 'BUTTON_2' },
-          1:  { value: 's',          value2: 'BUTTON_4' },
-          2:  { value: 'v',          value2: 'SELECT' },
-          3:  { value: 'enter',      value2: 'START' },
-          4:  { value: 'up arrow',    value2: 'EXTRA_STICK_9:-1' },
-          5:  { value: 'down arrow',  value2: 'EXTRA_STICK_9:+1' },
-          6:  { value: 'left arrow',  value2: 'EXTRA_STICK_9:+1' },
-          7:  { value: 'right arrow', value2: 'EXTRA_STICK_9:+1' },
-          8:  { value: 'z',          value2: 'BUTTON_1' },
-          9:  { value: 'a',          value2: 'BUTTON_3' },
-          10: { value: 'q',          value2: 'LEFT_TOP_SHOULDER' },
-          11: { value: 'e',          value2: 'RIGHT_TOP_SHOULDER' },
-          12: { value: 'tab',        value2: 'LEFT_BOTTOM_SHOULDER' },
-          13: { value: 'r',          value2: 'RIGHT_BOTTOM_SHOULDER' },
-          14: { value: '',           value2: 'LEFT_STICK' },
-          15: { value: '',           value2: 'RIGHT_STICK' },
-          16: { value: 'h',          value2: 'LEFT_STICK_X:+1' },
-          17: { value: 'f',          value2: 'LEFT_STICK_X:-1' },
-          18: { value: 'g',          value2: 'LEFT_STICK_Y:+1' },
-          19: { value: 't',          value2: 'LEFT_STICK_Y:-1' },
-          20: { value: 'l',          value2: 'RIGHT_STICK_X:+1' },
-          21: { value: 'j',          value2: 'RIGHT_STICK_X:-1' },
-          22: { value: 'k',          value2: 'RIGHT_STICK_Y:+1' },
-          23: { value: 'i',          value2: 'RIGHT_STICK_Y:-1' },
-          24: { value: '1' },
-          25: { value: '2' },
-          26: { value: '3' }
-        },
-        1: {}, 2: {}, 3: {}
+        up:    d === 'up'    || d === 'upright'    || d === 'upleft',
+        down:  d === 'down'  || d === 'downright'  || d === 'downleft',
+        left:  d === 'left'  || d === 'downleft'   || d === 'upleft',
+        right: d === 'right' || d === 'upright'    || d === 'downright',
       };
     }
 
-    function loadLoader() {
-      if (hasSnesPad() && !window.EJS_defaultControls) {
-        window.EJS_defaultControls = snesDefaultControls();
-        try { console.log('[tg16] SNES controller detected — applying SNES default controls'); } catch (_) {}
-      }
-      var s = document.createElement('script');
-      s.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
-      document.body.appendChild(s);
+    function mkBtn(pressed) {
+      return { pressed: pressed, touched: pressed, value: pressed ? 1 : 0 };
     }
 
-    if (hasSnesPad()) {
-      loadLoader();
-    } else {
-      // Wait briefly for `gamepadconnected` in case the browser hasn't surfaced
-      // the pad yet (e.g. needs a user gesture). Falls back to loading after
-      // 250ms with whatever's connected by then.
-      var loaded = false;
-      var fire = function () { if (loaded) return; loaded = true; loadLoader(); };
-      window.addEventListener('gamepadconnected', function () { setTimeout(fire, 50); });
-      setTimeout(fire, 250);
+    function wrapSnesPad(p) {
+      // Use a Proxy so EmulatorJS sees a fresh `buttons` array each frame with
+      // synthesized D-pad entries at 12-15. All other properties pass through.
+      return new Proxy(p, {
+        get: function (t, prop) {
+          if (prop === 'buttons') {
+            var dirs = decodeHat(t.axes[9]);
+            var orig = t.buttons;
+            var out = new Array(Math.max(orig.length, 16));
+            for (var i = 0; i < out.length; i++) {
+              out[i] = orig[i] || mkBtn(false);
+            }
+            if (dirs.up)    out[12] = mkBtn(true);
+            if (dirs.down)  out[13] = mkBtn(true);
+            if (dirs.left)  out[14] = mkBtn(true);
+            if (dirs.right) out[15] = mkBtn(true);
+            return out;
+          }
+          var v = t[prop];
+          return typeof v === 'function' ? v.bind(t) : v;
+        }
+      });
     }
+
+    var origGetGamepads = navigator.getGamepads.bind(navigator);
+    navigator.getGamepads = function () {
+      var pads = origGetGamepads() || [];
+      // Returning an Array is fine; EmulatorJS iterates by index + length.
+      var out = [];
+      for (var i = 0; i < pads.length; i++) {
+        var p = pads[i];
+        if (p && p.connected && SNES_RE.test(p.id || '')) out.push(wrapSnesPad(p));
+        else out.push(p);
+      }
+      return out;
+    };
+
+    var s = document.createElement('script');
+    s.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+    document.body.appendChild(s);
   })();
 </script>
 </body>
