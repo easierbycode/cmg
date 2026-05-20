@@ -240,15 +240,18 @@
     let pad = null;
     for (const p of pads) { if (p && p.connected) { pad = p; break; } }
     if (gameOn) {
-      // Yield navigation to gamepad-support.js, but still detect Down + SELECT
-      // to toggle the close button + in-iframe EmulatorJS controls.
+      // Yield navigation to gamepad-support.js, but still detect a chord to
+      // toggle the close button + in-iframe EmulatorJS controls. Primary
+      // chord is SELECT + R shoulder (works on SNES adapters whose D-pad
+      // isn't recognized); we also accept SELECT + Down for full-size pads.
       padState.btn.clear();
       padState.axisDir = 0;
       if (!pad) { padState.comboLatched = false; return; }
+      const selectBtn = !!pad.buttons[8]?.pressed;
+      const rShoulder = !!pad.buttons[5]?.pressed;
       const dpadDown = !!pad.buttons[13]?.pressed;
       const ayDown = (pad.axes[1] ?? 0) > PAD_DEADZONE;
-      const selectBtn = !!pad.buttons[8]?.pressed;
-      const combo = (dpadDown || ayDown) && selectBtn;
+      const combo = selectBtn && (rShoulder || dpadDown || ayDown);
       if (combo && !padState.comboLatched) {
         padState.comboLatched = true;
         controlsShown = !controlsShown;
