@@ -27,31 +27,11 @@
     var params = new URLSearchParams(location.search);
     var rom = params.get('rom') || '';
     var byod = params.get('byod') === '1';
-    var gameUrl = '';
-    var title = 'PlayStation';
 
-    if (byod) {
-      try {
-        var raw = sessionStorage.getItem('psx-byod');
-        if (!raw) throw new Error('No BYOD payload in sessionStorage');
-        var payload = JSON.parse(raw);
-        gameUrl = payload.gameUrl;
-        title = payload.name || 'PlayStation';
-        if (!gameUrl) throw new Error('BYOD payload missing gameUrl');
-      } catch (e) {
-        document.getElementById('err').textContent = 'BYOD failed: ' + e.message;
-        document.getElementById('err').classList.add('show');
-        return;
-      }
-    } else if (rom) {
-      gameUrl = '/PlayStation/' + encodeURIComponent(rom);
-      title = rom.replace(/\.(pbp|chd|iso|bin|cue|m3u)$/i, '');
-    } else {
+    if (!byod && !rom) {
       document.getElementById('err').classList.add('show');
       return;
     }
-
-    document.title = title;
 
     if ('ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0) {
       document.body.classList.add('touch');
@@ -68,51 +48,8 @@
     window.addEventListener('gamepaddisconnected', refreshPadClass);
     refreshPadClass();
 
-    window.EJS_player = '#display';
-    // pcsx_rearmed has the best speed/compat trade-off for PSX in browser.
-    window.EJS_core = 'psx';
-    window.EJS_gameUrl = gameUrl;
-    window.EJS_gameName = title;
-    // US BIOS by default — handles most NTSC discs. (JP=5500, EU=5502.)
-    window.EJS_biosUrl = '/bios/scph5501.bin';
-    window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
-    window.EJS_startOnLoaded = true;
-    window.EJS_color = '#7CFF4F';
-
-    function postParent(type) {
-      try { window.parent.postMessage({ type: type }, '*'); } catch (_) {}
-    }
-
-    function hookExitButton() {
-      var buttons = document.querySelectorAll('.ejs_menu_button');
-      for (var i = 0; i < buttons.length; i++) {
-        var b = buttons[i];
-        var text = (b.textContent || '').trim();
-        if (text === 'Exit Emulation' && !b.dataset.psxHooked) {
-          b.dataset.psxHooked = '1';
-          b.addEventListener('click', function () { postParent('tg16-exit'); });
-          return true;
-        }
-      }
-      return false;
-    }
-    window.EJS_ready = function () {
-      if (hookExitButton()) return;
-      var mo = new MutationObserver(function () {
-        if (hookExitButton()) mo.disconnect();
-      });
-      mo.observe(document.body, { childList: true, subtree: true });
-      setTimeout(function () { mo.disconnect(); }, 15000);
-    };
-
-    window.addEventListener('message', function (e) {
-      var d = e.data || {};
-      if (d.type === 'tg16-show-controls') document.body.classList.add('show-controls');
-      else if (d.type === 'tg16-hide-controls') document.body.classList.remove('show-controls');
-    });
-
-    // SNES adapter hat-axis decode (mirrors TG-16 page) — synthesizes proper
-    // DPAD button presses at indices 12-15 so EmulatorJS's stock mapping works.
+    // SNES adapter hat-axis decode — synthesise DPAD presses at indices 12-15
+    // so EmulatorJS's stock mapping works for SNES → USB controllers.
     var SNES_RE = /SNES Controller|057e.{0,8}2017/i;
     function decodeHat(v) {
       var none = { up: false, down: false, left: false, right: false };
@@ -159,9 +96,80 @@
       return out;
     };
 
-    var s = document.createElement('script');
-    s.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
-    document.body.appendChild(s);
+    // Parent controls EJS chrome visibility (gamepad combo / touch).
+    window.addEventListener('message', function (e) {
+      var d = e.data || {};
+      if (d.type === 'tg16-show-controls') document.body.classList.add('show-controls');
+      else if (d.type === 'tg16-hide-controls') document.body.classList.remove('show-controls');
+    });
+
+    function postParent(type) {
+      try { window.parent.postMessage({ type: type }, '*'); } catch (_) {}
+    }
+
+    function hookExitButton() {
+      var buttons = document.querySelectorAll('.ejs_menu_button');
+      for (var i = 0; i < buttons.length; i++) {
+        var b = buttons[i];
+        var text = (b.textContent || '').trim();
+        if (text === 'Exit Emulation' && !b.dataset.psxHooked) {
+          b.dataset.psxHooked = '1';
+          b.addEventListener('click', function () { postParent('tg16-exit'); });
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function boot(gameUrl, title) {
+      document.title = title;
+      window.EJS_player = '#display';
+      window.EJS_core = 'psx';
+      window.EJS_gameUrl = gameUrl;
+      window.EJS_gameName = title;
+      // US BIOS by default — handles most NTSC discs. (JP=5500, EU=5502.)
+      window.EJS_biosUrl = '/bios/scph5501.bin';
+      window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+      window.EJS_startOnLoaded = true;
+      window.EJS_color = '#7CFF4F';
+      window.EJS_ready = function () {
+        if (hookExitButton()) return;
+        var mo = new MutationObserver(function () {
+          if (hookExitButton()) mo.disconnect();
+        });
+        mo.observe(document.body, { childList: true, subtree: true });
+        setTimeout(function () { mo.disconnect(); }, 15000);
+      };
+      var s = document.createElement('script');
+      s.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+      document.body.appendChild(s);
+    }
+
+    if (byod) {
+      // BYOD: parent (Dashboard) sends the disc File via postMessage so
+      // EmulatorJS sees a File in *this* realm. (A parent-realm File would
+      // fail EmulatorJS's `instanceof File` check.) We boot only after the
+      // file arrives.
+      var booted = false;
+      window.addEventListener('message', function (ev) {
+        if (booted) return;
+        if (!ev.data || ev.data.type !== 'psx-byod-file') return;
+        if (!ev.data.file) return;
+        booted = true;
+        var t = ev.data.name || ev.data.file.name.replace(/\.[^.]+$/, '');
+        boot(ev.data.file, t);
+      });
+      try { window.parent.postMessage({ type: 'psx-byod-ready' }, '*'); } catch (_) {}
+      setTimeout(function () {
+        if (booted) return;
+        document.getElementById('err').textContent = 'BYOD failed: parent did not deliver disc file (10s).';
+        document.getElementById('err').classList.add('show');
+      }, 10000);
+    } else {
+      var url = '/PlayStation/' + encodeURIComponent(rom);
+      var t = rom.replace(/\.(pbp|chd|iso|bin|cue|m3u)$/i, '');
+      boot(url, t);
+    }
   })();
 </script>
 </body>
