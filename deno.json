@@ -5,9 +5,11 @@
     "dev": "deno run -A scripts/dev.ts",
     "dev:vite": "vite",
     "dev:tunnel": "deno run -A scripts/dev-tunnel.ts",
-    "build": "deno task tg16:manifest && deno task dashboard:build && vite build",
+    "build": "deno task tg16:manifest && deno task psx:manifest && deno task dashboard:build && vite build",
+    "build:mac": "deno task build && deno compile -A --target aarch64-apple-darwin --include _fresh --include static --output dist/cmg-mac-arm64 scripts/launch-mac.ts",
     "dashboard:build": "deno run -A scripts/build-dashboard.ts",
     "tg16:manifest": "deno run -A scripts/build-tg16-manifest.ts",
+    "psx:manifest": "deno run -A scripts/build-psx-manifest.ts",
     "start": "deno serve -A _fresh/server.js",
     "update": "deno run -A -r jsr:@fresh/update ."
   },
