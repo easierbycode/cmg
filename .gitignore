@@ -16,3 +16,16 @@ vendor/
 # macOS
 .DS_Store
 
+# Compiled Mac binary
+dist/
+
+# PSX ROM library — local-only. Fresh deploys keep these out so the dashboard
+# falls back to BYOD (Bring Your Own Disc). Drop files here for a self-
+# contained Mac binary via `deno task build:mac`.
+static/PlayStation/*
+!static/PlayStation/manifest.json
+
+# PSX BIOS (copyrighted). Keep out of public git by default — commit
+# explicitly if your deployment target needs them.
+static/bios/
+

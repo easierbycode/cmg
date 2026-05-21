@@ -8,6 +8,7 @@
   ];
 
   const TG16_ID = '__tg16__';
+  const PSX_ID  = '__psx__';
   const GAMES = [
     { id: '2019-es7',                                              name: '2028',                title: '2028',                sub: 'ES7 // Phaser 3', icon: '/icons/2028-icon.png',                size: '12.4 MB', date: '07.28.22' },
     { id: 'evil-invaders',                                         name: 'Peachy Skies',        title: 'PEACHY SKIES',        sub: 'Turbo + Audio',   icon: '/icons/headphone-invader-icon.png',   size: '8.2 MB',  date: '10.13.24' },
@@ -18,6 +19,7 @@
     { id: 'pacman-halloween-2025',                                 name: 'PAC-MAN Halloween',   title: 'PAC-MAN: HALLOWEEN',  sub: 'Seasonal',        icon: null,                                   size: '14.2 MB', date: '10.31.25' },
     { id: 'shmup-party-phaser3',                                   name: 'Sh’M↑ Party',         title: 'SH\'M↑ PARTY',        sub: 'Multiplayer',     icon: '/icons/shmup-party-icon.png',          size: '7.9 MB',  date: '02.14.24' },
     { id: 'monkey-kombat',                                         name: 'Monkey Kombat',       title: 'MONKEY KOMBAT',       sub: '🐵ᕗ ─=≡ΣO))',     icon: null,                                   size: '6.4 MB',  date: '05.19.26' },
+    { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
     { id: TG16_ID,                                                 name: 'TurboGrafx-16',       title: 'TURBOGRAFX-16',       sub: 'PCE // submenu',  icon: null,                                   size: '— MB',    date: 'PCE',     submenu: true },
   ];
 
@@ -35,10 +37,22 @@
   let tg16Games = $state([]);
   let tg16Sel = $state(0);
   let tg16RowEls = $state([]);
+  let psxGames = $state([]);
+  let psxSel = $state(0);
+  let psxRowEls = $state([]);
+  let psxByodError = $state('');
+  let psxFileInput = $state(null);
+  let psxByodBtnEl = $state(null);
   let isTouch = $state(false);
   let controlsShown = $state(false);
-  let isTg16Game = $derived(typeof gameSrc === 'string' && gameSrc.startsWith('/turbografx16/'));
+  let padHadConnection = $state(false);
+  let padConnected = $state(false);
+  let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/')));
   let showCloseBtn = $derived(gameOn && (isTouch || controlsShown));
+  let showOsd = $derived(gameOn && (controlsShown || (isTouch && !padHadConnection)));
+
+  function osdCloseGame() { closeGame(); }
+  function osdHide() { controlsShown = false; }
 
   $effect(() => {
     if (screen !== 'games') return;
@@ -52,8 +66,25 @@
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 
+  $effect(() => {
+    if (screen !== 'psx') return;
+    const el = psxRowEls[psxSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  // Auto-focus the BYOD button when entering the empty PSX screen so gamepad
+  // A can click it. Note: browsers require a *user* gesture to open the native
+  // file picker — gamepad input doesn't count. Focusing means a real keyboard
+  // Enter on a USB keyboard will trigger the picker; programmatic .click()
+  // from gamepad polling will be silently denied in some browsers.
+  $effect(() => {
+    if (screen !== 'psx' || psxGames.length !== 0) return;
+    queueMicrotask(() => { try { psxByodBtnEl?.focus(); } catch (_) {} });
+  });
+
   let currentGame = $derived(GAMES[gameSel]);
   let currentTg16 = $derived(tg16Games[tg16Sel]);
+  let currentPsx = $derived(psxGames[psxSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
   let counterText = $derived(
     String(gameSel + 1).padStart(2, '0') + ' / ' + String(GAMES.length).padStart(2, '0')
@@ -62,6 +93,11 @@
     tg16Games.length === 0
       ? '00 / 00'
       : String(tg16Sel + 1).padStart(2, '0') + ' / ' + String(tg16Games.length).padStart(2, '0')
+  );
+  let psxCounterText = $derived(
+    psxGames.length === 0
+      ? '00 / 00'
+      : String(psxSel + 1).padStart(2, '0') + ' / ' + String(psxGames.length).padStart(2, '0')
   );
 
   // WebAudio blips
@@ -124,7 +160,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'tg16') screen = 'games';
+    if (screen === 'tg16' || screen === 'psx') screen = 'games';
     else screen = 'dashboard';
   }
 
@@ -132,6 +168,11 @@
     if (id === TG16_ID) {
       sfx.enter();
       screen = 'tg16';
+      return;
+    }
+    if (id === PSX_ID) {
+      sfx.enter();
+      screen = 'psx';
       return;
     }
     sfx.enter();
@@ -146,9 +187,19 @@
     setTimeout(() => { gameOn = true; }, 30);
   }
 
+  function launchPsx(file) {
+    if (!file) return;
+    sfx.enter();
+    gameSrc = '/psx/play.html?rom=' + encodeURIComponent(file);
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
   async function loadTg16List() {
     try {
-      const r = await fetch('/api/turbografx16');
+      // The manifest is generated at build time by scripts/build-tg16-manifest.ts
+      // and served as a plain static file (works on Deno Deploy where the source
+      // tree isn't readable via Deno.readDir from a runtime handler).
+      const r = await fetch('/TurboGrafx-16/manifest.json');
       if (!r.ok) return;
       const list = await r.json();
       tg16Games = Array.isArray(list) ? list : [];
@@ -156,6 +207,160 @@
     } catch (_e) {
       tg16Games = [];
     }
+  }
+
+  async function loadPsxList() {
+    try {
+      const r = await fetch('/PlayStation/manifest.json');
+      if (!r.ok) return;
+      const list = await r.json();
+      psxGames = Array.isArray(list) ? list : [];
+      if (psxSel >= psxGames.length) psxSel = 0;
+    } catch (_e) {
+      psxGames = [];
+    }
+  }
+
+  // BYOD — Bring Your Own Disc.
+  // The user can upload PSX images via the file input that appears when the
+  // PlayStation list is empty. Single-file formats (.pbp / .chd / .iso) load
+  // directly via an object URL. For .cue + .bin or .m3u + .cue + .bin, we
+  // rewrite filename references inside the text files so they point at the
+  // companion blob URLs — then we hand the rewritten m3u/cue to EmulatorJS.
+  function basename(p) { return String(p).split(/[\\/]/).pop() || ''; }
+  function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  async function readAsText(file) { return await file.text(); }
+  function blobUrlFromText(text, type) {
+    return URL.createObjectURL(new Blob([text], { type: type || 'text/plain' }));
+  }
+
+  async function handleByodFiles(files) {
+    psxByodError = '';
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+
+    // Build a {basename -> File} map (case-insensitive lookup).
+    const byName = new Map();
+    for (const f of list) byName.set(basename(f.name).toLowerCase(), f);
+
+    // Pick the primary entry — prefer m3u, then cue, then pbp/chd/iso, then bin.
+    const order = [/\.m3u$/i, /\.cue$/i, /\.pbp$/i, /\.chd$/i, /\.iso$/i, /\.bin$/i];
+    let main = null;
+    for (const re of order) {
+      main = list.find((f) => re.test(f.name));
+      if (main) break;
+    }
+    if (!main) {
+      psxByodError = 'Pick a .pbp, .chd, .iso, .cue (+ .bin), or .m3u file.';
+      return;
+    }
+
+    // Create blob URLs for every uploaded file.
+    const blobs = new Map(); // basename(lc) -> objectURL
+    for (const [name, file] of byName) blobs.set(name, URL.createObjectURL(file));
+
+    // Rewrite text-format entry files (m3u/cue) so internal references resolve.
+    function rewriteText(text) {
+      let out = text;
+      // Replace longest filenames first so substrings don't clobber.
+      const names = Array.from(byName.keys()).sort((a, b) => b.length - a.length);
+      for (const name of names) {
+        const blob = blobs.get(name);
+        if (!blob) continue;
+        const re = new RegExp(escapeRegex(name), 'gi');
+        out = out.replace(re, blob);
+      }
+      return out;
+    }
+
+    // Validate that companion files referenced by m3u/cue are also in the
+    // upload — without them EmulatorJS will silently fail to load.
+    function refsInCue(text) {
+      const out = [];
+      const re = /^\s*FILE\s+(?:"([^"]+)"|(\S+))/gim;
+      let m;
+      while ((m = re.exec(text)) !== null) out.push(m[1] || m[2]);
+      return out;
+    }
+    function refsInM3u(text) {
+      return text.split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'));
+    }
+
+    const missing = [];
+    let gameUrl;
+    try {
+      if (/\.m3u$/i.test(main.name)) {
+        const m3uText = await readAsText(main);
+        const cueRefs = refsInM3u(m3uText);
+        const replaced = [];
+        for (const raw of m3uText.split(/\r?\n/)) {
+          const line = raw.trim();
+          if (!line || line.startsWith('#')) { replaced.push(raw); continue; }
+          const cueFile = byName.get(basename(line).toLowerCase());
+          if (!cueFile) { missing.push(line); replaced.push(raw); continue; }
+          const cueText = await readAsText(cueFile);
+          for (const r of refsInCue(cueText)) {
+            if (!byName.has(basename(r).toLowerCase())) missing.push(r);
+          }
+          const newCueUrl = blobUrlFromText(rewriteText(cueText), 'text/plain');
+          replaced.push(newCueUrl);
+        }
+        if (cueRefs.length === 0) missing.push('(m3u has no disc entries)');
+        gameUrl = blobUrlFromText(replaced.join('\n'), 'text/plain');
+      } else if (/\.cue$/i.test(main.name)) {
+        const cueText = await readAsText(main);
+        for (const r of refsInCue(cueText)) {
+          if (!byName.has(basename(r).toLowerCase())) missing.push(r);
+        }
+        gameUrl = blobUrlFromText(rewriteText(cueText), 'text/plain');
+      } else {
+        gameUrl = blobs.get(basename(main.name).toLowerCase());
+      }
+    } catch (e) {
+      psxByodError = 'Could not parse files: ' + (e && e.message ? e.message : e);
+      return;
+    }
+
+    if (missing.length > 0) {
+      psxByodError = 'Missing companion files for ' + main.name + ': ' +
+        missing.slice(0, 4).join(', ') +
+        (missing.length > 4 ? `, +${missing.length - 4} more` : '') +
+        '. Re-select with all referenced files.';
+      return;
+    }
+
+    if (!gameUrl) {
+      psxByodError = 'Could not resolve a game URL from those files.';
+      return;
+    }
+
+    const name = main.name.replace(/\.[^.]+$/, '');
+    try {
+      sessionStorage.setItem('psx-byod', JSON.stringify({ gameUrl, name }));
+    } catch (e) {
+      psxByodError = 'sessionStorage write failed: ' + (e && e.message ? e.message : e);
+      return;
+    }
+
+    sfx.enter();
+    gameSrc = '/psx/play.html?byod=1';
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function onByodChange(e) {
+    const input = e.currentTarget;
+    handleByodFiles(input.files);
+    // Allow re-picking the same set after a cancel by clearing the value.
+    setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
+  }
+
+  function openByodPicker() {
+    // Click the visible button (rather than the hidden input) so the activation
+    // context is anchored to a user-visible element. Falls back to the input.
+    try { psxByodBtnEl?.click(); return; } catch (_) {}
+    try { psxFileInput?.click(); } catch (_) {}
   }
 
   function closeGame() {
@@ -179,7 +384,8 @@
   let clockTimer;
   let bootTimer;
   let padRaf = null;
-  let padHadConnection = false;
+  const padSeenBtns = new Set();
+  const padSeenAxes = new Set();
   const padState = {
     btn: new Set(),
     axisDir: 0,
@@ -195,12 +401,28 @@
     if (screen === 'dashboard') menuSel = Math.max(menuSel - 1, 0);
     else if (screen === 'games') gameSel = Math.max(gameSel - 1, 0);
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Sel - 1, 0);
+    else if (screen === 'psx') psxSel = Math.max(psxSel - 1, 0);
     sfx.nav();
   }
   function navDown() {
     if (screen === 'dashboard') menuSel = Math.min(menuSel + 1, MAIN_MENU.length - 1);
     else if (screen === 'games') gameSel = Math.min(gameSel + 1, GAMES.length - 1);
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
+    else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
+    sfx.nav();
+  }
+  function navTop() {
+    if (screen === 'dashboard') menuSel = 0;
+    else if (screen === 'games') gameSel = 0;
+    else if (screen === 'tg16') tg16Sel = 0;
+    else if (screen === 'psx') psxSel = 0;
+    sfx.nav();
+  }
+  function navBottom() {
+    if (screen === 'dashboard') menuSel = MAIN_MENU.length - 1;
+    else if (screen === 'games') gameSel = GAMES.length - 1;
+    else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
+    else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
     sfx.nav();
   }
   function actA() {
@@ -208,10 +430,14 @@
     if (screen === 'dashboard') pickMenu(menuSel);
     else if (screen === 'games') launchGame(GAMES[gameSel].id);
     else if (screen === 'tg16') launchTg16(tg16Games[tg16Sel]?.file);
+    else if (screen === 'psx') {
+      if (psxGames.length === 0) openByodPicker();
+      else launchPsx(psxGames[psxSel]?.file);
+    }
   }
   function actB() {
     if (gameOn) closeGame();
-    else if (screen === 'games' || screen === 'tg16') goBack();
+    else if (screen === 'games' || screen === 'tg16' || screen === 'psx') goBack();
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -223,15 +449,21 @@
     let pad = null;
     for (const p of pads) { if (p && p.connected) { pad = p; break; } }
     if (gameOn) {
-      // Yield navigation to gamepad-support.js, but still detect Down + SELECT
-      // to toggle the close button + in-iframe EmulatorJS controls.
-      padState.btn.clear();
+      // Yield navigation to gamepad-support.js, but still detect a chord to
+      // toggle the close button + in-iframe EmulatorJS controls. Primary
+      // chord is SELECT + R shoulder (works on SNES adapters whose D-pad
+      // isn't recognized); we also accept SELECT + Down for full-size pads.
       padState.axisDir = 0;
-      if (!pad) { padState.comboLatched = false; return; }
+      if (!pad) {
+        padState.btn.clear();
+        padState.comboLatched = false;
+        return;
+      }
+      const selectBtn = !!pad.buttons[8]?.pressed;
+      const rShoulder = !!pad.buttons[5]?.pressed;
       const dpadDown = !!pad.buttons[13]?.pressed;
       const ayDown = (pad.axes[1] ?? 0) > PAD_DEADZONE;
-      const selectBtn = !!pad.buttons[8]?.pressed;
-      const combo = (dpadDown || ayDown) && selectBtn;
+      const combo = selectBtn && (rShoulder || dpadDown || ayDown);
       if (combo && !padState.comboLatched) {
         padState.comboLatched = true;
         controlsShown = !controlsShown;
@@ -239,18 +471,91 @@
       } else if (!combo) {
         padState.comboLatched = false;
       }
+      // When the OSD is visible, capture A/B face presses to close OSD/game
+      // before gamepad-support.js forwards them into the iframe.
+      if (controlsShown) {
+        const pressedNow = new Set();
+        pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
+        const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
+        if (justPressed(0)) { closeGame(); }
+        else if (justPressed(1)) { controlsShown = false; sfx.back(); }
+        padState.btn = pressedNow;
+      } else {
+        padState.btn.clear();
+      }
       return;
     }
-    if (!pad) { padState.btn.clear(); padState.axisDir = 0; return; }
-    if (!padHadConnection) { padHadConnection = true; try { getAc()?.resume(); } catch (_) {} }
+    if (!pad) { padState.btn.clear(); padState.axisDir = 0; if (padConnected) padConnected = false; return; }
+    if (!padConnected) padConnected = true;
+    if (!padHadConnection) {
+      padHadConnection = true;
+      try { getAc()?.resume(); } catch (_) {}
+      // One-shot diagnostic: log mapping/axes/button counts so non-standard
+      // controllers (SNES → USB adapters, etc.) can be debugged remotely.
+      try {
+        console.log('[pad] connected:', pad.id, 'mapping:', pad.mapping,
+          'axes:', pad.axes.length, 'buttons:', pad.buttons.length);
+      } catch (_) {}
+    }
+
+    // Diagnostic: log the first time each individual button is pressed and
+    // each individual axis crosses out of neutral, so we can see exactly which
+    // indices a quirky browser/controller is using for D-pad. Capped per index
+    // so a held button doesn't spam the console.
+    for (let i = 0; i < pad.buttons.length; i++) {
+      if (pad.buttons[i]?.pressed && !padSeenBtns.has(i)) {
+        padSeenBtns.add(i);
+        try { console.log(`[pad] button ${i} pressed`); } catch (_) {}
+      }
+    }
+    for (let i = 0; i < pad.axes.length; i++) {
+      const v = pad.axes[i];
+      if (typeof v !== 'number') continue;
+      // 0.4 * deadzone catches mild analog drift / partial D-pad pushes.
+      // Cap at 1.05 to ignore "no input" sentinels like 1.28.
+      if (Math.abs(v) > PAD_DEADZONE * 0.4 && Math.abs(v) <= 1.05 && !padSeenAxes.has(i)) {
+        padSeenAxes.add(i);
+        try { console.log(`[pad] axes[${i}] active, value=${v.toFixed(3)}`); } catch (_) {}
+      }
+    }
 
     const now = performance.now();
-    const ay = pad.axes[1] ?? 0;
-    const dpadUp = !!pad.buttons[12]?.pressed;
-    const dpadDown = !!pad.buttons[13]?.pressed;
+    // Detect vertical input across as many layouts as we've seen:
+    //   - Standard mapping: D-pad on buttons 12 / 13.
+    //   - Firefox non-standard: D-pad often shifts past the face buttons
+    //     (button indices 16-19, or different ordering).
+    //   - Analog stick Y on axes[1] (or axes[3] / axes[5] on some pads).
+    //   - axes[7]: digital -1/0/+1 D-pad Y on some adapters.
+    //   - axes[9]: encoded hat switch on others.
+    const upButtonIdxs = [12, 16, 18, 20];
+    const downButtonIdxs = [13, 17, 19, 21];
+    const dpadUp = upButtonIdxs.some((i) => !!pad.buttons[i]?.pressed);
+    const dpadDown = downButtonIdxs.some((i) => !!pad.buttons[i]?.pressed);
     let dir = 0;
-    if (dpadUp || ay < -PAD_DEADZONE) dir = -1;
-    else if (dpadDown || ay > PAD_DEADZONE) dir = 1;
+    if (dpadUp) dir = -1;
+    else if (dpadDown) dir = 1;
+    if (dir === 0) {
+      // Iterate candidate Y axes — bail on the first one that's clearly off-neutral.
+      const yAxes = [1, 3, 5, 7];
+      for (const i of yAxes) {
+        const v = pad.axes[i];
+        if (typeof v !== 'number') continue;
+        if (Math.abs(v) > 1.05) continue; // neutral sentinel (e.g. 1.28)
+        if (v < -PAD_DEADZONE) { dir = -1; break; }
+        if (v > PAD_DEADZONE) { dir = 1; break; }
+      }
+    }
+    if (dir === 0) {
+      // Hat-switch decode: values near -0.71 / -1.0 are "up",
+      // near 0.14 / 0.43 are "down". Values > 1 are the neutral sentinel.
+      const hat = pad.axes[9];
+      if (typeof hat === 'number' && hat >= -1 && hat <= 1) {
+        const angle = (hat + 1) * Math.PI;
+        const sy = -Math.cos(angle);
+        if (sy < -PAD_DEADZONE) dir = -1;
+        else if (sy > PAD_DEADZONE) dir = 1;
+      }
+    }
 
     if (dir !== 0 && dir !== padState.axisDir) {
       if (dir < 0) navUp(); else navDown();
@@ -271,6 +576,12 @@
     const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
     if (justPressed(0) || justPressed(9)) actA();   // A or Start
     if (justPressed(1) || justPressed(8)) actB();   // B or Back/Select
+    // Shoulder/trigger navigation — fallback when D-pad isn't recognized
+    // (e.g. Firefox + non-standard SNES adapters).
+    if (justPressed(5)) navDown();                  // R shoulder
+    if (justPressed(4)) navUp();                    // L shoulder
+    if (justPressed(7)) navBottom();                // R2 — jump to bottom
+    if (justPressed(6)) navTop();                   // L2 — jump to top
     padState.btn = pressedNow;
   }
 
@@ -294,6 +605,14 @@
       if (e.key === 'ArrowDown') { tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0)); sfx.nav(); }
       else if (e.key === 'ArrowUp') { tg16Sel = Math.max(tg16Sel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchTg16(tg16Games[tg16Sel]?.file);
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'psx') {
+      if (e.key === 'ArrowDown') { psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0)); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { psxSel = Math.max(psxSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') {
+        if (psxGames.length === 0) openByodPicker();
+        else launchPsx(psxGames[psxSel]?.file);
+      }
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     }
   }
@@ -322,9 +641,27 @@
 
     window.addEventListener('keydown', onKey);
     window.addEventListener('message', onWindowMessage);
+    window.addEventListener('gamepadconnected', onPadConnect);
+    window.addEventListener('gamepaddisconnected', onPadDisconnect);
+    refreshPadConnected();
     padRaf = requestAnimationFrame(pollPad);
 
     loadTg16List();
+    loadPsxList();
+  });
+
+  function refreshPadConnected() {
+    const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+    let any = false;
+    for (const p of pads) { if (p && p.connected) { any = true; break; } }
+    padConnected = any;
+  }
+  function onPadConnect() { padHadConnection = true; refreshPadConnected(); }
+  function onPadDisconnect() { refreshPadConnected(); }
+
+  $effect(() => {
+    if (padConnected) document.body.classList.add('pad-on');
+    else document.body.classList.remove('pad-on');
   });
 
   $effect(() => {
@@ -346,7 +683,10 @@
     document.removeEventListener('click', unlockAudio);
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('message', onWindowMessage);
+    window.removeEventListener('gamepadconnected', onPadConnect);
+    window.removeEventListener('gamepaddisconnected', onPadDisconnect);
     document.body.classList.remove('playing');
+    document.body.classList.remove('pad-on');
   });
 </script>
 
@@ -541,7 +881,85 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'tg16'}
+  <div class="games-screen {screen === 'psx' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // psx</span>
+        <span>emulatorjs</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{currentPsx ? currentPsx.name : '—'}</b></div>
+          <div><span class="k">size</span><b>{currentPsx ? currentPsx.size : '—'}</b></div>
+          <div><span class="k">type</span><b>PSX / DISC</b></div>
+          <div><span class="k">date</span><b>{currentPsx ? currentPsx.date : '—'}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">PLAYSTATION</div>
+          <div class="counter">{psxCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#if psxGames.length === 0}
+            <div class="byod">
+              <div class="byod-title">BYOD — Bring Your Own Disc</div>
+              <div class="byod-sub">No PSX images in <code>static/PlayStation/</code>. Pick a disc image from disk:</div>
+              <input
+                type="file"
+                bind:this={psxFileInput}
+                multiple
+                accept=".pbp,.chd,.iso,.cue,.bin,.m3u,application/octet-stream"
+                onchange={onByodChange}
+                class="byod-input"
+              />
+              <button
+                type="button"
+                class="byod-btn"
+                bind:this={psxByodBtnEl}
+                onclick={() => { try { psxFileInput?.click(); } catch (_) {} }}
+              >
+                <span class="byod-btn-icon">⬆</span>
+                <span>Choose disc files…</span>
+              </button>
+              <div class="byod-hint">
+                .pbp · .chd · .iso load directly.<br>
+                .cue / .m3u need their companion .bin files selected together.
+              </div>
+              {#if psxByodError}
+                <div class="byod-err">{psxByodError}</div>
+              {/if}
+            </div>
+          {:else}
+            {#each psxGames as g, i (g.file)}
+              <div
+                bind:this={psxRowEls[i]}
+                class="game-row {i === psxSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== psxSel) { psxSel = i; sfx.nav(); } }}
+                onclick={() => launchPsx(g.file)}
+              >
+                <div class="game-icon">
+                  <div class="glass">
+                    <span class="ph">{initial(g.name)}</span>
+                  </div>
+                </div>
+                <div class="game-bar">
+                  <span class="name">{g.name.toUpperCase()}</span>
+                  <span class="sub">{g.size}</span>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {#if screen === 'games' || screen === 'tg16' || screen === 'psx'}
     <div class="footer left">
       <div class="btn-hint b">B</div>
       <span style="cursor:pointer" onclick={goBack}>Back</span>
@@ -549,13 +967,30 @@
   {/if}
   <div class="footer">
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'tg16' ? 'Launch' : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'tg16' ? 'Launch' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
 </div>
 
 <div class="game-iframe {gameOn ? 'on' : ''}">
   {#if showCloseBtn}
     <button type="button" class="close-game" onclick={closeGame}>⨯ Close</button>
+  {/if}
+  {#if showOsd}
+    <div class="pad-osd">
+      <div class="osd-card">
+        <div class="osd-label">Controller</div>
+        <div class="osd-diamond">
+          <div class="osd-btn top" aria-hidden="true">X</div>
+          <button type="button" class="osd-btn right tap" aria-label="Hide controls" onclick={osdHide}>A</button>
+          <button type="button" class="osd-btn bottom press tap" aria-label="Close game" onclick={osdCloseGame}>B</button>
+          <div class="osd-btn left" aria-hidden="true">Y</div>
+        </div>
+        <div class="osd-legend">
+          <div><span class="dot press"></span>B&nbsp;·&nbsp;Close game</div>
+          <div><span class="dot"></span>A&nbsp;·&nbsp;Hide</div>
+        </div>
+      </div>
+    </div>
   {/if}
   <iframe
     id={gameOn ? 'gameframe' : undefined}
