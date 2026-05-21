@@ -222,16 +222,108 @@
   }
 
   // BYOD — Bring Your Own Disc.
+  //
   // The user can upload PSX images via the file input that appears when the
-  // PlayStation list is empty. Single-file formats (.pbp / .chd / .iso) load
-  // directly via an object URL. For .cue + .bin or .m3u + .cue + .bin, we
-  // rewrite filename references inside the text files so they point at the
-  // companion blob URLs — then we hand the rewritten m3u/cue to EmulatorJS.
+  // PlayStation list is empty. We hand EmulatorJS a real File object (rather
+  // than a blob URL) because EmulatorJS uses `file.name` to detect the format
+  // — a blob URL has no extension, which makes pcsx_rearmed reject the data
+  // as an unknown format.
+  //
+  // Single-file formats (.pbp / .chd / .iso / lone .bin) pass through directly.
+  // Multi-file uploads (.cue + .bin, or .m3u + .cue + .bin) get bundled into a
+  // STORE-mode zip in-browser; EmulatorJS extracts the zip into its in-memory
+  // FS so the libretro core finds every track.
   function basename(p) { return String(p).split(/[\\/]/).pop() || ''; }
-  function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-  async function readAsText(file) { return await file.text(); }
-  function blobUrlFromText(text, type) {
-    return URL.createObjectURL(new Blob([text], { type: type || 'text/plain' }));
+
+  function refsInCue(text) {
+    const out = [];
+    const re = /^\s*FILE\s+(?:"([^"]+)"|(\S+))/gim;
+    let m;
+    while ((m = re.exec(text)) !== null) out.push(m[1] || m[2]);
+    return out;
+  }
+  function refsInM3u(text) {
+    return text.split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#'));
+  }
+
+  // Minimal STORE-mode (uncompressed) ZIP writer. Files are bundled at the
+  // archive root with their original basenames so a .cue's `FILE "track.bin"`
+  // reference resolves once EmulatorJS extracts everything.
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1));
+      t[i] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = (c >>> 8) ^ CRC_TABLE[(c ^ bytes[i]) & 0xFF];
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function makeStoreZip(entries /* [{ name, data: Uint8Array }] */) {
+    const enc = new TextEncoder();
+    const localHeaders = [];
+    const centralEntries = [];
+    let offset = 0;
+    for (const e of entries) {
+      const nameBytes = enc.encode(e.name);
+      const c = crc32(e.data);
+      const lfh = new Uint8Array(30 + nameBytes.length);
+      const lv = new DataView(lfh.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint16(4, 0x14, true);
+      lv.setUint16(6, 0, true);
+      lv.setUint16(8, 0, true);          // method = store
+      lv.setUint16(10, 0, true);
+      lv.setUint16(12, 0x21, true);      // date = 1980-01-01
+      lv.setUint32(14, c, true);
+      lv.setUint32(18, e.data.length, true);
+      lv.setUint32(22, e.data.length, true);
+      lv.setUint16(26, nameBytes.length, true);
+      lv.setUint16(28, 0, true);
+      lfh.set(nameBytes, 30);
+      localHeaders.push(lfh, e.data);
+
+      const cdh = new Uint8Array(46 + nameBytes.length);
+      const cv = new DataView(cdh.buffer);
+      cv.setUint32(0, 0x02014b50, true);
+      cv.setUint16(4, 0x14, true);
+      cv.setUint16(6, 0x14, true);
+      cv.setUint16(8, 0, true);
+      cv.setUint16(10, 0, true);
+      cv.setUint16(12, 0, true);
+      cv.setUint16(14, 0x21, true);
+      cv.setUint32(16, c, true);
+      cv.setUint32(20, e.data.length, true);
+      cv.setUint32(24, e.data.length, true);
+      cv.setUint16(28, nameBytes.length, true);
+      cv.setUint16(30, 0, true);
+      cv.setUint16(32, 0, true);
+      cv.setUint16(34, 0, true);
+      cv.setUint16(36, 0, true);
+      cv.setUint32(38, 0, true);
+      cv.setUint32(42, offset, true);
+      cdh.set(nameBytes, 46);
+      centralEntries.push(cdh);
+
+      offset += lfh.length + e.data.length;
+    }
+    const cdSize = centralEntries.reduce((s, c) => s + c.length, 0);
+    const cdOffset = offset;
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, entries.length, true);
+    ev.setUint16(10, entries.length, true);
+    ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, cdOffset, true);
+    ev.setUint16(20, 0, true);
+    return new Blob([...localHeaders, ...centralEntries, eocd], { type: 'application/zip' });
   }
 
   async function handleByodFiles(files) {
@@ -239,7 +331,6 @@
     const list = Array.from(files || []);
     if (list.length === 0) return;
 
-    // Build a {basename -> File} map (case-insensitive lookup).
     const byName = new Map();
     for (const f of list) byName.set(basename(f.name).toLowerCase(), f);
 
@@ -255,74 +346,31 @@
       return;
     }
 
-    // Create blob URLs for every uploaded file.
-    const blobs = new Map(); // basename(lc) -> objectURL
-    for (const [name, file] of byName) blobs.set(name, URL.createObjectURL(file));
-
-    // Rewrite text-format entry files (m3u/cue) so internal references resolve.
-    function rewriteText(text) {
-      let out = text;
-      // Replace longest filenames first so substrings don't clobber.
-      const names = Array.from(byName.keys()).sort((a, b) => b.length - a.length);
-      for (const name of names) {
-        const blob = blobs.get(name);
-        if (!blob) continue;
-        const re = new RegExp(escapeRegex(name), 'gi');
-        out = out.replace(re, blob);
-      }
-      return out;
-    }
-
-    // Validate that companion files referenced by m3u/cue are also in the
-    // upload — without them EmulatorJS will silently fail to load.
-    function refsInCue(text) {
-      const out = [];
-      const re = /^\s*FILE\s+(?:"([^"]+)"|(\S+))/gim;
-      let m;
-      while ((m = re.exec(text)) !== null) out.push(m[1] || m[2]);
-      return out;
-    }
-    function refsInM3u(text) {
-      return text.split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l && !l.startsWith('#'));
-    }
-
+    // Validate companion files referenced by m3u/cue are also in the upload.
     const missing = [];
-    let gameUrl;
     try {
       if (/\.m3u$/i.test(main.name)) {
-        const m3uText = await readAsText(main);
+        const m3uText = await main.text();
         const cueRefs = refsInM3u(m3uText);
-        const replaced = [];
-        for (const raw of m3uText.split(/\r?\n/)) {
-          const line = raw.trim();
-          if (!line || line.startsWith('#')) { replaced.push(raw); continue; }
-          const cueFile = byName.get(basename(line).toLowerCase());
-          if (!cueFile) { missing.push(line); replaced.push(raw); continue; }
-          const cueText = await readAsText(cueFile);
+        if (cueRefs.length === 0) missing.push('(m3u has no disc entries)');
+        for (const ref of cueRefs) {
+          const cueFile = byName.get(basename(ref).toLowerCase());
+          if (!cueFile) { missing.push(ref); continue; }
+          const cueText = await cueFile.text();
           for (const r of refsInCue(cueText)) {
             if (!byName.has(basename(r).toLowerCase())) missing.push(r);
           }
-          const newCueUrl = blobUrlFromText(rewriteText(cueText), 'text/plain');
-          replaced.push(newCueUrl);
         }
-        if (cueRefs.length === 0) missing.push('(m3u has no disc entries)');
-        gameUrl = blobUrlFromText(replaced.join('\n'), 'text/plain');
       } else if (/\.cue$/i.test(main.name)) {
-        const cueText = await readAsText(main);
+        const cueText = await main.text();
         for (const r of refsInCue(cueText)) {
           if (!byName.has(basename(r).toLowerCase())) missing.push(r);
         }
-        gameUrl = blobUrlFromText(rewriteText(cueText), 'text/plain');
-      } else {
-        gameUrl = blobs.get(basename(main.name).toLowerCase());
       }
     } catch (e) {
       psxByodError = 'Could not parse files: ' + (e && e.message ? e.message : e);
       return;
     }
-
     if (missing.length > 0) {
       psxByodError = 'Missing companion files for ' + main.name + ': ' +
         missing.slice(0, 4).join(', ') +
@@ -331,16 +379,39 @@
       return;
     }
 
-    if (!gameUrl) {
-      psxByodError = 'Could not resolve a game URL from those files.';
+    // Resolve to a single File EmulatorJS can ingest:
+    //   - Single-file formats → pass through unchanged so file.name keeps its extension.
+    //   - Multi-file → bundle into a STORE-mode zip; EmulatorJS extracts it.
+    const isMulti = /\.(m3u|cue)$/i.test(main.name);
+    let psxFile;
+    try {
+      if (!isMulti) {
+        psxFile = main;
+      } else {
+        const entries = [];
+        // Place the entry file (m3u/cue) first so EmulatorJS picks it as the boot file.
+        entries.push({ name: main.name, data: new Uint8Array(await main.arrayBuffer()) });
+        for (const [key, file] of byName) {
+          if (key === main.name.toLowerCase()) continue;
+          entries.push({ name: file.name, data: new Uint8Array(await file.arrayBuffer()) });
+        }
+        const zipBlob = makeStoreZip(entries);
+        const zipName = main.name.replace(/\.[^.]+$/, '.zip');
+        psxFile = new File([zipBlob], zipName, { type: 'application/zip' });
+      }
+    } catch (e) {
+      psxByodError = 'Could not bundle files: ' + (e && e.message ? e.message : e);
       return;
     }
 
-    const name = main.name.replace(/\.[^.]+$/, '');
+    // Stash the File on window so play.html (same-origin iframe) can read it
+    // directly. EmulatorJS accepts a File for EJS_gameUrl and uses file.name
+    // to detect the ROM format.
     try {
-      sessionStorage.setItem('psx-byod', JSON.stringify({ gameUrl, name }));
+      window.__psxByodFile = psxFile;
+      sessionStorage.setItem('psx-byod', JSON.stringify({ name: main.name.replace(/\.[^.]+$/, '') }));
     } catch (e) {
-      psxByodError = 'sessionStorage write failed: ' + (e && e.message ? e.message : e);
+      psxByodError = 'BYOD handoff failed: ' + (e && e.message ? e.message : e);
       return;
     }
 
@@ -367,12 +438,14 @@
     gameOn = false;
     controlsShown = false;
     setTimeout(() => { gameSrc = null; }, 500);
+    try { delete window.__psxByodFile; } catch (_) {}
+    try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
     sfx.back();
   }
 
   function postToGameframe(type) {
     const iframe = document.getElementById('gameframe');
-    try { iframe?.contentWindow?.postMessage({ type }, '*'); } catch (_e) { /* ignore */ }
+    try { iframe?.contentWindow?.postMessage({ type }, window.location.origin); } catch (_e) { /* ignore */ }
   }
 
   function onIconError(e, name) {
@@ -617,9 +690,32 @@
     }
   }
 
+  function isMessageFromOwnGameIframe(e) {
+    // Only trust messages from the game iframe we mounted. Without this guard,
+    // any cross-origin window holding a reference to us (e.g. one that opened
+    // this tab) could trigger BYOD file exfiltration or remote closeGame().
+    if (e.origin && e.origin !== window.location.origin) return false;
+    const iframe = document.querySelector('.game-iframe iframe');
+    return !!iframe && e.source === iframe.contentWindow;
+  }
+
   function onWindowMessage(e) {
+    if (!isMessageFromOwnGameIframe(e)) return;
     const d = e?.data || {};
     if (d.type === 'tg16-exit') closeGame();
+    else if (d.type === 'psx-byod-ready') {
+      // Send the BYOD disc File over to the play iframe via structured clone
+      // so EmulatorJS receives a same-realm File (its `instanceof File` check
+      // would fail for a cross-realm reference).
+      const file = window.__psxByodFile;
+      if (!file) return;
+      let name = file.name.replace(/\.[^.]+$/, '');
+      try {
+        const raw = sessionStorage.getItem('psx-byod');
+        if (raw) name = JSON.parse(raw).name || name;
+      } catch (_) {}
+      try { e.source.postMessage({ type: 'psx-byod-file', file, name }, window.location.origin); } catch (_) {}
+    }
   }
 
   onMount(() => {
