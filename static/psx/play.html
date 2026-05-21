@@ -96,15 +96,20 @@
       return out;
     };
 
-    // Parent controls EJS chrome visibility (gamepad combo / touch).
+    // Only accept control / file messages from our own parent (same-origin).
+    function isFromOwnParent(e) {
+      if (e.origin && e.origin !== window.location.origin) return false;
+      return e.source === window.parent;
+    }
     window.addEventListener('message', function (e) {
+      if (!isFromOwnParent(e)) return;
       var d = e.data || {};
       if (d.type === 'tg16-show-controls') document.body.classList.add('show-controls');
       else if (d.type === 'tg16-hide-controls') document.body.classList.remove('show-controls');
     });
 
     function postParent(type) {
-      try { window.parent.postMessage({ type: type }, '*'); } catch (_) {}
+      try { window.parent.postMessage({ type: type }, window.location.origin); } catch (_) {}
     }
 
     function hookExitButton() {
@@ -149,17 +154,18 @@
       // BYOD: parent (Dashboard) sends the disc File via postMessage so
       // EmulatorJS sees a File in *this* realm. (A parent-realm File would
       // fail EmulatorJS's `instanceof File` check.) We boot only after the
-      // file arrives.
+      // file arrives — and we only accept the message from our own parent.
       var booted = false;
       window.addEventListener('message', function (ev) {
         if (booted) return;
+        if (!isFromOwnParent(ev)) return;
         if (!ev.data || ev.data.type !== 'psx-byod-file') return;
         if (!ev.data.file) return;
         booted = true;
         var t = ev.data.name || ev.data.file.name.replace(/\.[^.]+$/, '');
         boot(ev.data.file, t);
       });
-      try { window.parent.postMessage({ type: 'psx-byod-ready' }, '*'); } catch (_) {}
+      try { window.parent.postMessage({ type: 'psx-byod-ready' }, window.location.origin); } catch (_) {}
       setTimeout(function () {
         if (booted) return;
         document.getElementById('err').textContent = 'BYOD failed: parent did not deliver disc file (10s).';

@@ -445,7 +445,7 @@
 
   function postToGameframe(type) {
     const iframe = document.getElementById('gameframe');
-    try { iframe?.contentWindow?.postMessage({ type }, '*'); } catch (_e) { /* ignore */ }
+    try { iframe?.contentWindow?.postMessage({ type }, window.location.origin); } catch (_e) { /* ignore */ }
   }
 
   function onIconError(e, name) {
@@ -690,7 +690,17 @@
     }
   }
 
+  function isMessageFromOwnGameIframe(e) {
+    // Only trust messages from the game iframe we mounted. Without this guard,
+    // any cross-origin window holding a reference to us (e.g. one that opened
+    // this tab) could trigger BYOD file exfiltration or remote closeGame().
+    if (e.origin && e.origin !== window.location.origin) return false;
+    const iframe = document.querySelector('.game-iframe iframe');
+    return !!iframe && e.source === iframe.contentWindow;
+  }
+
   function onWindowMessage(e) {
+    if (!isMessageFromOwnGameIframe(e)) return;
     const d = e?.data || {};
     if (d.type === 'tg16-exit') closeGame();
     else if (d.type === 'psx-byod-ready') {
@@ -704,7 +714,7 @@
         const raw = sessionStorage.getItem('psx-byod');
         if (raw) name = JSON.parse(raw).name || name;
       } catch (_) {}
-      try { e.source?.postMessage({ type: 'psx-byod-file', file, name }, '*'); } catch (_) {}
+      try { e.source.postMessage({ type: 'psx-byod-file', file, name }, window.location.origin); } catch (_) {}
     }
   }
 
