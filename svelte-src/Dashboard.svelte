@@ -1081,10 +1081,6 @@
           <button type="button" class="osd-btn bottom press tap" aria-label="Close game" onclick={osdCloseGame}>B</button>
           <div class="osd-btn left" aria-hidden="true">Y</div>
         </div>
-        <div class="osd-legend">
-          <div><span class="dot press"></span>B&nbsp;·&nbsp;Close game</div>
-          <div><span class="dot"></span>A&nbsp;·&nbsp;Hide</div>
-        </div>
       </div>
     </div>
   {/if}
