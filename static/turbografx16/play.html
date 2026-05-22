@@ -81,6 +81,19 @@
       else if (d.type === 'tg16-hide-controls') document.body.classList.remove('show-controls');
     });
 
+    // First touch inside the game iframe tells the parent to drop its close
+    // button + controller-legend overlay so they don't obscure play.
+    var touchReported = false;
+    function reportFirstTouch() {
+      if (touchReported) return;
+      touchReported = true;
+      try { window.parent.postMessage({ type: 'tg16-first-touch' }, window.location.origin); } catch (_) {}
+      window.removeEventListener('touchstart', reportFirstTouch, true);
+      window.removeEventListener('pointerdown', reportFirstTouch, true);
+    }
+    window.addEventListener('touchstart', reportFirstTouch, { capture: true, passive: true });
+    window.addEventListener('pointerdown', reportFirstTouch, { capture: true, passive: true });
+
     // Nintendo Online SNES Controller (Vendor 057e Product 2017) reports its
     // D-pad on axes[9] as an 8-direction hat switch — a single value encoding
     // one of 8 directions plus neutral. EmulatorJS's EXTRA_STICK mappings only

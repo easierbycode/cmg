@@ -48,11 +48,14 @@
   let padHadConnection = $state(false);
   let padConnected = $state(false);
   let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/')));
-  let showCloseBtn = $derived(gameOn && (isTouch || controlsShown));
-  let showOsd = $derived(gameOn && (controlsShown || (isTouch && !padHadConnection)));
+  // On touch devices the close button + OSD legend cover the game; first touch
+  // dismisses both so they don't obscure play. Reset on every game launch.
+  let chromeDismissed = $state(false);
+  let showCloseBtn = $derived(gameOn && (isTouch || controlsShown) && !chromeDismissed);
+  let showOsd = $derived(gameOn && (controlsShown || (isTouch && !padHadConnection)) && !chromeDismissed);
 
   function osdCloseGame() { closeGame(); }
-  function osdHide() { controlsShown = false; }
+  function osdHide() { controlsShown = false; chromeDismissed = true; }
 
   $effect(() => {
     if (screen !== 'games') return;
@@ -176,6 +179,7 @@
       return;
     }
     sfx.enter();
+    chromeDismissed = false;
     gameSrc = 'https://easierbycode.com/' + id;
     setTimeout(() => { gameOn = true; }, 30);
   }
@@ -183,6 +187,7 @@
   function launchTg16(file) {
     if (!file) return;
     sfx.enter();
+    chromeDismissed = false;
     gameSrc = '/turbografx16/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
   }
@@ -190,6 +195,7 @@
   function launchPsx(file) {
     if (!file) return;
     sfx.enter();
+    chromeDismissed = false;
     gameSrc = '/psx/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
   }
@@ -416,6 +422,7 @@
     }
 
     sfx.enter();
+    chromeDismissed = false;
     gameSrc = '/psx/play.html?byod=1';
     setTimeout(() => { gameOn = true; }, 30);
   }
@@ -437,6 +444,7 @@
   function closeGame() {
     gameOn = false;
     controlsShown = false;
+    chromeDismissed = false;
     setTimeout(() => { gameSrc = null; }, 500);
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
@@ -703,6 +711,7 @@
     if (!isMessageFromOwnGameIframe(e)) return;
     const d = e?.data || {};
     if (d.type === 'tg16-exit') closeGame();
+    else if (d.type === 'tg16-first-touch') chromeDismissed = true;
     else if (d.type === 'psx-byod-ready') {
       // Send the BYOD disc File over to the play iframe via structured clone
       // so EmulatorJS receives a same-realm File (its `instanceof File` check
@@ -1056,12 +1065,12 @@
   </div>
 
   {#if screen === 'games' || screen === 'tg16' || screen === 'psx'}
-    <div class="footer left">
+    <div class="footer left tap" onclick={goBack}>
       <div class="btn-hint b">B</div>
-      <span style="cursor:pointer" onclick={goBack}>Back</span>
+      <span>Back</span>
     </div>
   {/if}
-  <div class="footer">
+  <div class="footer tap" onclick={actA}>
     <div class="btn-hint">A</div>
     <span>{screen === 'games' || screen === 'tg16' ? 'Launch' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
