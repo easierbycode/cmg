@@ -9,6 +9,12 @@
 
   const TG16_ID = '__tg16__';
   const PSX_ID  = '__psx__';
+  const DEMOS_ID = '__demos__';
+  // Demos are Phaser scenes hosted in this repo (vs. external games served from
+  // easierbycode.com). Each entry's `url` is the page the iframe loads.
+  const DEMOS = [
+    { id: 'goofy-game', name: 'Goofy Game', title: 'GOOFY GAME', sub: 'multiplayer · WS', size: '— MB', date: 'demo', url: '/demos/goofy-game' },
+  ];
   const GAMES = [
     { id: '2019-es7',                                              name: '2028',                title: '2028',                sub: 'ES7 // Phaser 3', icon: '/icons/2028-icon.png',                size: '12.4 MB', date: '07.28.22' },
     { id: 'evil-invaders',                                         name: 'Peachy Skies',        title: 'PEACHY SKIES',        sub: 'Turbo + Audio',   icon: '/icons/headphone-invader-icon.png',   size: '8.2 MB',  date: '10.13.24' },
@@ -19,6 +25,7 @@
     { id: 'pacman-halloween-2025',                                 name: 'PAC-MAN Halloween',   title: 'PAC-MAN: HALLOWEEN',  sub: 'Seasonal',        icon: null,                                   size: '14.2 MB', date: '10.31.25' },
     { id: 'shmup-party-phaser3',                                   name: 'Sh’M↑ Party',         title: 'SH\'M↑ PARTY',        sub: 'Multiplayer',     icon: '/icons/shmup-party-icon.png',          size: '7.9 MB',  date: '02.14.24' },
     { id: 'monkey-kombat',                                         name: 'Monkey Kombat',       title: 'MONKEY KOMBAT',       sub: '🐵ᕗ ─=≡ΣO))',     icon: null,                                   size: '6.4 MB',  date: '05.19.26' },
+    { id: DEMOS_ID,                                                name: 'Demos',               title: 'DEMOS',               sub: 'DEMO // submenu', icon: null,                                   size: '— MB',    date: 'DEMO',    submenu: true },
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
     { id: TG16_ID,                                                 name: 'TurboGrafx-16',       title: 'TURBOGRAFX-16',       sub: 'PCE // submenu',  icon: null,                                   size: '— MB',    date: 'PCE',     submenu: true },
   ];
@@ -43,6 +50,8 @@
   let psxByodError = $state('');
   let psxFileInput = $state(null);
   let psxByodBtnEl = $state(null);
+  let demosSel = $state(0);
+  let demosRowEls = $state([]);
   let isTouch = $state(false);
   let controlsShown = $state(false);
   let padHadConnection = $state(false);
@@ -75,6 +84,12 @@
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 
+  $effect(() => {
+    if (screen !== 'demos') return;
+    const el = demosRowEls[demosSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
   // Auto-focus the BYOD button when entering the empty PSX screen so gamepad
   // A can click it. Note: browsers require a *user* gesture to open the native
   // file picker — gamepad input doesn't count. Focusing means a real keyboard
@@ -88,6 +103,7 @@
   let currentGame = $derived(GAMES[gameSel]);
   let currentTg16 = $derived(tg16Games[tg16Sel]);
   let currentPsx = $derived(psxGames[psxSel]);
+  let currentDemo = $derived(DEMOS[demosSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
   let counterText = $derived(
     String(gameSel + 1).padStart(2, '0') + ' / ' + String(GAMES.length).padStart(2, '0')
@@ -101,6 +117,9 @@
     psxGames.length === 0
       ? '00 / 00'
       : String(psxSel + 1).padStart(2, '0') + ' / ' + String(psxGames.length).padStart(2, '0')
+  );
+  let demosCounterText = $derived(
+    String(demosSel + 1).padStart(2, '0') + ' / ' + String(DEMOS.length).padStart(2, '0')
   );
 
   // WebAudio blips
@@ -163,7 +182,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'tg16' || screen === 'psx') screen = 'games';
+    if (screen === 'tg16' || screen === 'psx' || screen === 'demos') screen = 'games';
     else screen = 'dashboard';
   }
 
@@ -178,9 +197,23 @@
       screen = 'psx';
       return;
     }
+    if (id === DEMOS_ID) {
+      sfx.enter();
+      screen = 'demos';
+      return;
+    }
     sfx.enter();
     chromeDismissed = false;
     gameSrc = 'https://easierbycode.com/' + id;
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function launchDemo(url) {
+    if (!url) return;
+    sfx.enter();
+    // Demos are hosted in-repo (Fresh routes under /demos/*) so they can
+    // reach the same-origin WebSocket relay at /api/ws-goofy.
+    gameSrc = url;
     setTimeout(() => { gameOn = true; }, 30);
   }
 
@@ -483,6 +516,7 @@
     else if (screen === 'games') gameSel = Math.max(gameSel - 1, 0);
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Sel - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxSel - 1, 0);
+    else if (screen === 'demos') demosSel = Math.max(demosSel - 1, 0);
     sfx.nav();
   }
   function navDown() {
@@ -490,6 +524,7 @@
     else if (screen === 'games') gameSel = Math.min(gameSel + 1, GAMES.length - 1);
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
     else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
+    else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
     sfx.nav();
   }
   function navTop() {
@@ -497,6 +532,7 @@
     else if (screen === 'games') gameSel = 0;
     else if (screen === 'tg16') tg16Sel = 0;
     else if (screen === 'psx') psxSel = 0;
+    else if (screen === 'demos') demosSel = 0;
     sfx.nav();
   }
   function navBottom() {
@@ -504,6 +540,7 @@
     else if (screen === 'games') gameSel = GAMES.length - 1;
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
+    else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
     sfx.nav();
   }
   function actA() {
@@ -515,10 +552,11 @@
       if (psxGames.length === 0) openByodPicker();
       else launchPsx(psxGames[psxSel]?.file);
     }
+    else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
   }
   function actB() {
     if (gameOn) closeGame();
-    else if (screen === 'games' || screen === 'tg16' || screen === 'psx') goBack();
+    else if (screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos') goBack();
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -694,6 +732,11 @@
         if (psxGames.length === 0) openByodPicker();
         else launchPsx(psxGames[psxSel]?.file);
       }
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'demos') {
+      if (e.key === 'ArrowDown') { demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0)); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { demosSel = Math.max(demosSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') launchDemo(DEMOS[demosSel]?.url);
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     }
   }
@@ -1064,7 +1107,54 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'tg16' || screen === 'psx'}
+  <div class="games-screen {screen === 'demos' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // phaser4</span>
+        <span>demo // multiplayer</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{currentDemo ? currentDemo.name : '—'}</b></div>
+          <div><span class="k">size</span><b>{currentDemo ? currentDemo.size : '—'}</b></div>
+          <div><span class="k">type</span><b>DEMO / PHASER4</b></div>
+          <div><span class="k">date</span><b>{currentDemo ? currentDemo.date : '—'}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">DEMOS</div>
+          <div class="counter">{demosCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#each DEMOS as d, i (d.id)}
+            <div
+              bind:this={demosRowEls[i]}
+              class="game-row {i === demosSel ? 'sel' : ''}"
+              onmouseenter={() => { if (i !== demosSel) { demosSel = i; sfx.nav(); } }}
+              onclick={() => launchDemo(d.url)}
+            >
+              <div class="game-icon">
+                <div class="glass">
+                  <span class="ph">{initial(d.name)}</span>
+                </div>
+              </div>
+              <div class="game-bar">
+                <span class="name">{d.title}</span>
+                <span class="sub">{d.sub}</span>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {#if screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos'}
     <div class="footer left tap" onclick={goBack}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -1072,7 +1162,7 @@
   {/if}
   <div class="footer tap" onclick={actA}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'tg16' ? 'Launch' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
 </div>
 
