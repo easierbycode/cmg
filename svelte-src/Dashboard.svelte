@@ -57,11 +57,14 @@
   let padHadConnection = $state(false);
   let padConnected = $state(false);
   let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/')));
+  // The Goofy demo has its own on-screen controls; suppress the dashboard's
+  // controller-legend OSD so it doesn't overlay the demo.
+  let isGoofyGame = $derived(typeof gameSrc === 'string' && gameSrc.startsWith('/demos/goofy-game'));
   // On touch devices the close button + OSD legend cover the game; first touch
   // dismisses both so they don't obscure play. Reset on every game launch.
   let chromeDismissed = $state(false);
   let showCloseBtn = $derived(gameOn && (isTouch || controlsShown) && !chromeDismissed);
-  let showOsd = $derived(gameOn && (controlsShown || (isTouch && !padHadConnection)) && !chromeDismissed);
+  let showOsd = $derived(gameOn && (controlsShown || (isTouch && !padHadConnection)) && !chromeDismissed && !isGoofyGame);
 
   function osdCloseGame() { closeGame(); }
   function osdHide() { controlsShown = false; chromeDismissed = true; }

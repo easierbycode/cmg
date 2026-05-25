@@ -1,13 +1,19 @@
 // Goofy Game — Phaser 4 scene with WebSocket multiplayer.
 //
-// First client to connect to /api/ws-goofy is P1, second is P2. Each client
-// simulates its own goofy locally and broadcasts its position state at ~30 Hz;
-// the remote goofy on the peer's screen is interpolated visually from those
-// updates. Touch tap and gamepad bottom face button both trigger jump;
-// d-pad / left-stick set walk direction. Inputs only affect the LOCAL goofy.
+// /api/ws-goofy is a dumb fan-out relay (see routes/api/ws-goofy.ts). Each
+// client owns one goofy, simulates it locally, and broadcasts its position at
+// ~30 Hz tagged with a unique CLIENT_ID. Peers are discovered implicitly from
+// the messages they send and rendered as interpolated remote goofies; a peer
+// that goes quiet for REMOTE_STALE_MS is dropped. Roles are derived
+// client-side by sorting the live ids — the lowest sorts to P1 (untinted);
+// everyone else gets a cycling HSV tint so players stay visually distinct.
 //
-// P2's goofy gets a per-frame HSV tint that cycles through the color wheel so
-// the two players are visually distinct.
+// Coins: popping a block banks COINS_PER_POP coins for that player. When a
+// block launches a player out the top, a random number of *their* banked coins
+// are ejected out the bottom onto the globe, where they slowly orbit until a
+// walking goofy collects them. Each player's coins are tracked and shown in the
+// scoreboard. Ejected coins are authored/arbitrated by the player who ejected
+// them, so collection credit can't be double-counted across clients.
 
 const ASSET_BASE =
   'https://raw.githubusercontent.com/easierbycode/monkey-kombat/main/assets';
@@ -59,7 +65,24 @@ const LAUNCH_FLIGHT_MS = 1400;
 
 // Net constants.
 const NET_SEND_MS = 33;          // ~30 Hz broadcast rate for local state.
+const NET_COINS_MS = 66;         // ~15 Hz broadcast rate for orbiting-coin positions.
 const REMOTE_LERP = 0.35;        // Visual smoothing for incoming peer state.
+const REMOTE_STALE_MS = 2500;    // Drop a peer / its coins after this long with no update.
+
+// Coin constants.
+const COINS_PER_POP = 4;         // Coins a player banks each time they pop a block.
+const ORBIT_SURFACE_OFFSET = 4;  // Orbiting coins sit just above the globe surface.
+const COIN_SETTLE_MS = 650;      // Time for ejected coins to fall from the box to the surface.
+const COIN_COLLECT_PX = 16;      // A walking goofy collects a coin within this distance.
+const ORBIT_MIN_SPEED = 0.08;    // rad/s — slow drift around the globe.
+const ORBIT_MAX_SPEED = 0.22;
+const MAX_EJECT_COINS = 10;      // Cap the burst so a big stash doesn't spawn hundreds of coins.
+
+// Per-client identity. Every message is tagged with this so peers can be
+// distinguished and roles derived deterministically (lowest id sorts to P1).
+const CLIENT_ID = (globalThis.crypto && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : `c${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 
 const LETTER_PATTERNS = {
   'A': ['.X.', 'X.X', 'XXX', 'X.X', 'X.X'],
@@ -136,6 +159,31 @@ function setBadge(text, cls) {
   el.className = cls || '';
 }
 
+// Render the per-player coin scoreboard. `rows` is an ordered list of
+// { label, isMe, coins, tint } (tint is an int color or null).
+function renderScoreboard(rows) {
+  const el = document.getElementById('scoreboard');
+  if (!el) return;
+  el.innerHTML = '';
+  for (const r of rows) {
+    const row = document.createElement('div');
+    row.className = 'score-row' + (r.isMe ? ' me' : '');
+    const swatch = document.createElement('span');
+    swatch.className = 'score-swatch';
+    swatch.style.background = r.tint == null
+      ? '#f4f4f4'
+      : '#' + (r.tint & 0xffffff).toString(16).padStart(6, '0');
+    const name = document.createElement('span');
+    name.className = 'score-name';
+    name.textContent = r.label + (r.isMe ? ' (you)' : '');
+    const coins = document.createElement('span');
+    coins.className = 'score-coins';
+    coins.textContent = '🪙 ' + r.coins;
+    row.append(swatch, name, coins);
+    el.appendChild(row);
+  }
+}
+
 class GoofyMultiplayerScene extends Phaser.Scene {
   constructor() {
     super({ key: 'GoofyMultiplayer' });
@@ -172,10 +220,16 @@ class GoofyMultiplayerScene extends Phaser.Scene {
 
     // Local goofy — controlled by this client's inputs.
     this.local = this.makeGoofy();
-    // Remote goofy — only visible once the peer connects. Hidden initially.
-    this.remote = this.makeGoofy();
-    this.remote.sprite.setVisible(false);
-    this.remote.connected = false;
+
+    // Remote peers, keyed by CLIENT_ID. Orbiting coins this client authored
+    // (myOrbit) vs. peers' coins we only render as ghosts (ghostOrbit).
+    this.remotes = new Map();
+    this.myOrbit = new Map();
+    this.ghostOrbit = new Map();
+    this._coinSeq = 0;
+    this._scoreKey = '';
+    this.netLastCoinsAt = 0;
+    this._sentCoins = false;
 
     this.phaseTexts = buildPhaseTexts();
     this.phaseIndex = 0;
@@ -206,7 +260,6 @@ class GoofyMultiplayerScene extends Phaser.Scene {
     }
 
     this.positionGoofy(this.local);
-    this.positionGoofy(this.remote);
 
     this.cameras.main.startFollow(this.local.sprite, true, 0.12, 0.12);
     this.cameras.main.centerOn(this.local.sprite.x, this.local.sprite.y);
@@ -214,8 +267,7 @@ class GoofyMultiplayerScene extends Phaser.Scene {
     this.connectMultiplayer();
   }
 
-  // Allocates one goofy. role is filled in once a multiplayer assignment
-  // arrives; until then we render as P1-style (no tint cycle).
+  // Allocates the local goofy controlled by this client's inputs.
   makeGoofy() {
     const sprite = this.add.sprite(0, 0, GOOFY_KEY, 'atlas_s0');
     sprite.setOrigin(0.5, 1);
@@ -229,10 +281,28 @@ class GoofyMultiplayerScene extends Phaser.Scene {
       state: STATE_WALKING,
       jumpElapsed: 0,
       jumpRadius: 0,
-      // Visual smoothing target for remote players.
+      coins: 0,
+    };
+  }
+
+  // Allocates a remote peer's goofy, keyed by its CLIENT_ID. Position is
+  // interpolated toward the last state we received.
+  makeRemote() {
+    const sprite = this.add.sprite(0, 0, GOOFY_KEY, 'atlas_s0');
+    sprite.setOrigin(0.5, 1);
+    sprite.setScale(GOOFY_SCALE);
+    sprite.setDepth(3);
+    sprite.play(GOOFY_WALK_ANIM);
+    return {
+      sprite,
+      angle: -Math.PI / 2,
       targetAngle: -Math.PI / 2,
-      targetJumpRadius: 0,
-      role: null,
+      radius: this.globeRadius,
+      targetRadius: this.globeRadius,
+      direction: 1,
+      state: STATE_WALKING,
+      coins: 0,
+      lastSeen: this.time.now,
     };
   }
 
@@ -252,58 +322,119 @@ class GoofyMultiplayerScene extends Phaser.Scene {
     this.netLastSendAt = 0;
 
     ws.addEventListener('open', () => {
-      // The server sends a 'hello' with our role next; nothing to do here.
+      setBadge('online · solo', '');
     });
 
     ws.addEventListener('message', (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch (_) { return; }
-      if (msg.type === 'hello') {
-        this.local.role = msg.role;
-        setBadge(`you are ${msg.role.toUpperCase()}`, '');
-      } else if (msg.type === 'peer-joined') {
-        this.remote.role = msg.role;
-        this.remote.connected = true;
-        this.remote.sprite.setVisible(true);
-      } else if (msg.type === 'peer-left') {
-        this.remote.connected = false;
-        this.remote.sprite.setVisible(false);
-        this.remote.sprite.clearTint();
-      } else if (msg.type === 'state') {
-        // Remote authoritative state for the peer's goofy.
-        this.remote.targetAngle = msg.angle;
-        this.remote.targetJumpRadius = msg.jumpRadius;
-        this.remote.direction = msg.direction;
-        this.remote.state = msg.state;
-        if (!this.remote.connected) {
-          this.remote.connected = true;
-          this.remote.sprite.setVisible(true);
-        }
-        // Swap the texture/anim to reflect jumping vs walking.
-        if (msg.state === STATE_WALKING && this.remote.sprite.texture.key !== GOOFY_KEY) {
-          this.remote.sprite.setTexture(GOOFY_KEY, 'atlas_s0');
-          this.remote.sprite.play(GOOFY_WALK_ANIM);
-        } else if (msg.state !== STATE_WALKING && this.remote.sprite.texture.key !== GOOFY_JUMP_KEY) {
-          this.remote.sprite.anims.stop();
-          this.remote.sprite.setTexture(GOOFY_JUMP_KEY, 'atlas_s0');
-        }
-      } else if (msg.type === 'full') {
-        // Latch so the imminent server close doesn't clobber this reason
-        // with a generic 'disconnected'.
-        this.roomFull = true;
-        setBadge('room full (max 2)', 'full');
+      if (!msg || msg.id === CLIENT_ID) return; // ignore our own echoes
+      switch (msg.t) {
+        case 'state': this.onRemoteState(msg); break;
+        case 'coins': this.onRemoteCoins(msg); break;
+        case 'coin-claim': this.onCoinClaim(msg); break;
+        case 'coin-award': this.onCoinAward(msg); break;
+        case 'leave': this.onPeerLeave(msg.id); break;
       }
     });
 
     ws.addEventListener('close', () => {
-      if (!this.roomFull) setBadge('disconnected', 'full');
-      this.remote.connected = false;
-      this.remote.sprite.setVisible(false);
+      setBadge('disconnected', 'full');
     });
 
     ws.addEventListener('error', () => {
       setBadge('ws error', 'full');
     });
+
+    // Best-effort goodbye so peers drop us promptly instead of waiting for the
+    // stale timeout.
+    globalThis.addEventListener('pagehide', () => {
+      try { this.net({ t: 'leave' }); } catch (_) { /* drop */ }
+    });
+  }
+
+  // Tag and send a message. CLIENT_ID lets peers attribute it to us.
+  net(obj) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    obj.id = CLIENT_ID;
+    try { this.ws.send(JSON.stringify(obj)); } catch (_) { /* drop */ }
+  }
+
+  onRemoteState(msg) {
+    let r = this.remotes.get(msg.id);
+    if (!r) {
+      r = this.makeRemote();
+      r.angle = msg.angle;
+      r.radius = msg.radius;
+      this.remotes.set(msg.id, r);
+    }
+    r.targetAngle = msg.angle;
+    r.targetRadius = msg.radius;
+    r.direction = msg.direction;
+    r.state = msg.state;
+    r.coins = msg.coins | 0;
+    r.lastSeen = this.time.now;
+
+    // Swap texture/anim to reflect jumping/launching vs walking.
+    const walking = msg.state === STATE_WALKING;
+    if (walking && r.sprite.texture.key !== GOOFY_KEY) {
+      r.sprite.setTexture(GOOFY_KEY, 'atlas_s0');
+      r.sprite.play(GOOFY_WALK_ANIM);
+    } else if (!walking && r.sprite.texture.key !== GOOFY_JUMP_KEY) {
+      r.sprite.anims.stop();
+      r.sprite.setTexture(GOOFY_JUMP_KEY, 'atlas_s0');
+    }
+  }
+
+  // Reconcile the ghost coins authored by a peer against the list they sent.
+  // Coins present in the list are created/updated; coins they authored that
+  // are absent have been collected/removed, so we drop them.
+  onRemoteCoins(msg) {
+    const now = this.time.now;
+    const seen = new Set();
+    for (const item of (msg.list || [])) {
+      seen.add(item.c);
+      let g = this.ghostOrbit.get(item.c);
+      if (!g) {
+        g = { sprite: this.makeCoinSprite(), author: msg.id, angle: item.a, targetAngle: item.a, claimPending: false };
+        this.ghostOrbit.set(item.c, g);
+      }
+      g.author = msg.id;
+      g.targetAngle = item.a;
+      g.lastSeen = now;
+    }
+    for (const [cid, g] of this.ghostOrbit) {
+      if (g.author === msg.id && !seen.has(cid)) {
+        g.sprite.destroy();
+        this.ghostOrbit.delete(cid);
+      }
+    }
+  }
+
+  // A peer claims one of the coins WE authored. We're the arbiter: if it still
+  // exists, remove it and award the claimant so credit can't be duplicated.
+  onCoinClaim(msg) {
+    const coin = this.myOrbit.get(msg.c);
+    if (!coin) return;
+    coin.sprite.destroy();
+    this.myOrbit.delete(msg.c);
+    this.net({ t: 'coin-award', c: msg.c, to: msg.id });
+  }
+
+  // The author confirmed a coin was collected. Remove any local representation;
+  // if we're the recipient, bank it.
+  onCoinAward(msg) {
+    const g = this.ghostOrbit.get(msg.c);
+    if (g) { g.sprite.destroy(); this.ghostOrbit.delete(msg.c); }
+    if (msg.to === CLIENT_ID) this.local.coins++;
+  }
+
+  onPeerLeave(id) {
+    const r = this.remotes.get(id);
+    if (r) { r.sprite.destroy(); this.remotes.delete(id); }
+    for (const [cid, g] of this.ghostOrbit) {
+      if (g.author === id) { g.sprite.destroy(); this.ghostOrbit.delete(cid); }
+    }
   }
 
   createAnimations() {
@@ -546,6 +677,7 @@ class GoofyMultiplayerScene extends Phaser.Scene {
 
   update(_, deltaMs) {
     const dt = deltaMs / 1000;
+    const now = this.time.now;
 
     // Local simulation — physics, input polling, world collisions.
     if (this.local.state !== STATE_LAUNCHING) {
@@ -576,46 +708,52 @@ class GoofyMultiplayerScene extends Phaser.Scene {
       this.positionGoofy(this.local);
     }
 
-    // Remote — interpolate visually toward the last received state.
-    if (this.remote.connected) {
-      this.remote.angle = Phaser.Math.Angle.RotateTo(
-        this.remote.angle,
-        this.remote.targetAngle,
-        Math.PI * REMOTE_LERP * dt * 8,
-      );
-      this.remote.jumpRadius += (this.remote.targetJumpRadius - this.remote.jumpRadius) * REMOTE_LERP;
-      this.positionGoofy(this.remote);
-
-      // P2 visual: cycle the goofy tint through hues.
-      if (this.remote.role === 'p2') {
-        const t = (this.time.now / 1000) * 0.5;
-        this.remote.sprite.setTint(hsvToColor(t % 1, 1, 1));
-      } else if (this.local.role === 'p2') {
-        // If WE are p2, the LOCAL goofy is the color-rotating one.
-        const t = (this.time.now / 1000) * 0.5;
-        this.local.sprite.setTint(hsvToColor(t % 1, 1, 1));
-      } else {
-        this.remote.sprite.clearTint();
+    // Remote peers — interpolate toward last received state; drop stale ones.
+    for (const [id, r] of this.remotes) {
+      if (now - r.lastSeen > REMOTE_STALE_MS) {
+        this.onPeerLeave(id);
+        continue;
       }
-    } else if (this.local.role === 'p2') {
-      const t = (this.time.now / 1000) * 0.5;
-      this.local.sprite.setTint(hsvToColor(t % 1, 1, 1));
+      r.angle = Phaser.Math.Angle.RotateTo(r.angle, r.targetAngle, Math.PI * REMOTE_LERP * dt * 8);
+      r.radius += (r.targetRadius - r.radius) * REMOTE_LERP;
+      r.sprite.x = this.globe.x + Math.cos(r.angle) * r.radius;
+      r.sprite.y = this.globe.y + Math.sin(r.angle) * r.radius;
+      r.sprite.rotation = r.angle + Math.PI / 2;
+      r.sprite.setFlipX(r.direction < 0);
     }
 
-    // Broadcast our state at a fixed rate.
+    // Coins: simulate ours, interpolate peers', collect with the local goofy.
+    this.updateMyCoins(dt);
+    this.updateGhostCoins(dt, now);
+    this.checkCoinCollection();
+
+    // Roles / colors / scoreboard derived from the live id set.
+    this.refreshRoles();
+
+    // Broadcast our state at a fixed rate, plus our coin positions a bit slower.
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const now = performance.now();
-      if (now - this.netLastSendAt >= NET_SEND_MS) {
-        this.netLastSendAt = now;
-        try {
-          this.ws.send(JSON.stringify({
-            type: 'state',
-            angle: this.local.angle,
-            jumpRadius: this.local.state === STATE_JUMPING ? this.local.jumpRadius : this.globeRadius,
-            direction: this.local.direction,
-            state: this.local.state,
-          }));
-        } catch (_) { /* drop */ }
+      const wall = performance.now();
+      if (wall - this.netLastSendAt >= NET_SEND_MS) {
+        this.netLastSendAt = wall;
+        const dx = this.local.sprite.x - this.globe.x;
+        const dy = this.local.sprite.y - this.globe.y;
+        this.net({
+          t: 'state',
+          angle: Math.atan2(dy, dx),
+          radius: Math.hypot(dx, dy),
+          direction: this.local.direction,
+          state: this.local.state,
+          coins: this.local.coins,
+        });
+      }
+      if (wall - this.netLastCoinsAt >= NET_COINS_MS) {
+        this.netLastCoinsAt = wall;
+        if (this.myOrbit.size > 0 || this._sentCoins) {
+          const list = [];
+          for (const [cid, c] of this.myOrbit) list.push({ c: cid, a: c.angle });
+          this.net({ t: 'coins', list });
+          this._sentCoins = this.myOrbit.size > 0;
+        }
       }
     }
   }
@@ -651,8 +789,13 @@ class GoofyMultiplayerScene extends Phaser.Scene {
   hitBlock(c, g) {
     c.hits++;
     if (c.hits === 1) this.onConsumed();
-    if (c.hits > c.coinHitLimit) this.launchGoofyFromBlock(c, g);
-    else this.popBlock(c);
+    if (c.hits > c.coinHitLimit) {
+      this.launchGoofyFromBlock(c, g);
+    } else {
+      // Banked coins fund the burst that gets ejected on the launch hit.
+      g.coins += COINS_PER_POP;
+      this.popBlock(c);
+    }
   }
 
   onConsumed() {
@@ -798,6 +941,10 @@ class GoofyMultiplayerScene extends Phaser.Scene {
     const boxAngle = Math.atan2(c.worldY - cy, c.worldX - cx);
     const targetAngle = boxAngle + Math.PI;
 
+    // As the box fires the player out the top, a random number of their banked
+    // coins spill out the bottom onto the globe.
+    this.ejectCoinsFromBlock(c, g);
+
     g.sprite.setScale(GOOFY_SCALE);
     g.sprite.setVisible(true);
     g.sprite.setFlipY(true);
@@ -863,6 +1010,143 @@ class GoofyMultiplayerScene extends Phaser.Scene {
     g.sprite.y = cy + Math.sin(g.angle) * r;
     g.sprite.rotation = g.angle + Math.PI / 2;
     g.sprite.setFlipX(g.direction < 0);
+  }
+
+  makeCoinSprite() {
+    const s = this.add.sprite(0, 0, COIN_KEY, 'atlas_s0');
+    s.setScale(0.6);
+    s.setDepth(6);
+    s.play(COIN_SPIN_ANIM);
+    return s;
+  }
+
+  // Eject a random number of the launched player's banked coins out the bottom
+  // of the box and onto the globe to orbit.
+  ejectCoinsFromBlock(c, g) {
+    const have = g.coins;
+    if (have <= 0) return;
+    const count = Phaser.Math.Between(1, Math.min(have, MAX_EJECT_COINS));
+    g.coins -= count;
+    this.spawnOrbitCoins(c.worldX, c.worldY, count);
+  }
+
+  // Coins are born at the box, then fall to the globe surface near the box's
+  // foot and drift slowly around it.
+  spawnOrbitCoins(boxX, boxY, count) {
+    const cx = this.globe.x;
+    const cy = this.globe.y;
+    const boxAngle = Math.atan2(boxY - cy, boxX - cx);
+    const boxRadius = Math.hypot(boxX - cx, boxY - cy);
+    for (let i = 0; i < count; i++) {
+      const cid = `${CLIENT_ID}:${this._coinSeq++}`;
+      const angle = boxAngle + (Math.random() - 0.5) * 0.7;
+      const speed = ORBIT_MIN_SPEED + Math.random() * (ORBIT_MAX_SPEED - ORBIT_MIN_SPEED);
+      const sprite = this.makeCoinSprite();
+      const coin = {
+        sprite,
+        angle,
+        angularVel: speed * (Math.random() < 0.5 ? -1 : 1),
+        radiusStart: boxRadius,
+        settleT: 0,
+        settling: true,
+      };
+      this.myOrbit.set(cid, coin);
+    }
+  }
+
+  updateMyCoins(dt) {
+    const cx = this.globe.x;
+    const cy = this.globe.y;
+    const surfaceR = this.globeRadius + ORBIT_SURFACE_OFFSET;
+    for (const coin of this.myOrbit.values()) {
+      let r = surfaceR;
+      if (coin.settling) {
+        coin.settleT += (dt * 1000) / COIN_SETTLE_MS;
+        if (coin.settleT >= 1) { coin.settleT = 1; coin.settling = false; }
+        const e = 1 - (1 - coin.settleT) * (1 - coin.settleT); // ease-out
+        r = Phaser.Math.Linear(coin.radiusStart, surfaceR, e);
+      } else {
+        coin.angle += coin.angularVel * dt;
+      }
+      coin.sprite.x = cx + Math.cos(coin.angle) * r;
+      coin.sprite.y = cy + Math.sin(coin.angle) * r;
+    }
+  }
+
+  updateGhostCoins(dt, now) {
+    const cx = this.globe.x;
+    const cy = this.globe.y;
+    const surfaceR = this.globeRadius + ORBIT_SURFACE_OFFSET;
+    for (const [cid, g] of this.ghostOrbit) {
+      if (now - g.lastSeen > REMOTE_STALE_MS) {
+        g.sprite.destroy();
+        this.ghostOrbit.delete(cid);
+        continue;
+      }
+      g.angle = Phaser.Math.Angle.RotateTo(g.angle, g.targetAngle, Math.PI * REMOTE_LERP * dt * 8);
+      g.sprite.x = cx + Math.cos(g.angle) * surfaceR;
+      g.sprite.y = cy + Math.sin(g.angle) * surfaceR;
+    }
+  }
+
+  // The local goofy collects coins it walks over. Our own coins are banked
+  // immediately; a peer's coin is claimed and banked only once its author
+  // confirms, so the same coin can't be credited twice.
+  checkCoinCollection() {
+    if (this.local.state !== STATE_WALKING) return;
+    const gx = this.local.sprite.x;
+    const gy = this.local.sprite.y;
+    const thresholdSq = COIN_COLLECT_PX * COIN_COLLECT_PX;
+
+    for (const [cid, coin] of this.myOrbit) {
+      if (coin.settling) continue;
+      const dx = coin.sprite.x - gx;
+      const dy = coin.sprite.y - gy;
+      if (dx * dx + dy * dy >= thresholdSq) continue;
+      coin.sprite.destroy();
+      this.myOrbit.delete(cid);
+      this.local.coins++;
+    }
+
+    for (const [cid, g] of this.ghostOrbit) {
+      if (g.claimPending) continue;
+      const dx = g.sprite.x - gx;
+      const dy = g.sprite.y - gy;
+      if (dx * dx + dy * dy >= thresholdSq) continue;
+      g.claimPending = true;
+      this.net({ t: 'coin-claim', c: cid });
+    }
+  }
+
+  // Derive roles from the sorted set of live ids (lowest = P1, untinted),
+  // tint each goofy accordingly, and refresh the scoreboard.
+  refreshRoles() {
+    const ids = [CLIENT_ID, ...this.remotes.keys()].sort();
+    const t = (this.time.now / 1000) * 0.5;
+    const rows = [];
+    ids.forEach((id, i) => {
+      const isMe = id === CLIENT_ID;
+      const tint = i === 0 ? null : hsvToColor((t + i * 0.17) % 1, 1, 1);
+      const sprite = isMe ? this.local.sprite : this.remotes.get(id)?.sprite;
+      if (sprite) { if (tint == null) sprite.clearTint(); else sprite.setTint(tint); }
+      if (isMe) this._myRole = `P${i + 1}`;
+      rows.push({ label: `P${i + 1}`, isMe, coins: isMe ? this.local.coins : (this.remotes.get(id)?.coins ?? 0), tint });
+    });
+
+    const key = rows.map((r) => `${r.label}:${r.isMe ? 1 : 0}:${r.coins}`).join('|');
+    if (key !== this._scoreKey) {
+      this._scoreKey = key;
+      renderScoreboard(rows);
+    }
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const peers = ids.length - 1;
+      const status = `you are ${this._myRole}` + (peers > 0 ? ` · ${peers} peer${peers > 1 ? 's' : ''}` : ' · solo');
+      if (status !== this._badgeText) {
+        this._badgeText = status;
+        setBadge(status, '');
+      }
+    }
   }
 }
 
