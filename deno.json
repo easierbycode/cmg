@@ -36,7 +36,9 @@
     "@types/babel__core": "npm:@types/babel__core@^7.20.5",
     "svelte": "npm:svelte@^5.16.0",
     "esbuild": "npm:esbuild@^0.24.0",
-    "esbuild-svelte": "npm:esbuild-svelte@^0.9.0"
+    "esbuild-svelte": "npm:esbuild-svelte@^0.9.0",
+    "ws": "npm:ws@^8.18.0",
+    "@types/ws": "npm:@types/ws@^8.5.10"
   },
   "compilerOptions": {
     "lib": [
