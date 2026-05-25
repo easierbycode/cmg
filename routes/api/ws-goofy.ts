@@ -1,30 +1,45 @@
-// WebSocket relay for the Goofy multiplayer demo. Pairs the first two clients
-// that connect into the same isolate as P1 / P2 and forwards any messages each
-// sends to the other. State is per-isolate by design — Deno Deploy may serve
-// users from different isolates, in which case each one becomes a P1 waiting
-// for a peer. Fine for a demo.
+// WebSocket relay for the Goofy multiplayer demo.
+//
+// This is a dumb fan-out relay: every message a client sends is forwarded
+// verbatim to every *other* connected client. All room/role/coin logic lives
+// client-side, keyed by a per-client id, so the relay holds no game state of
+// its own beyond the set of live sockets.
+//
+// Cross-isolate: Deno Deploy may place clients in different isolates, where
+// module-level state is NOT shared — that's why the old pair-by-isolate scheme
+// made every client think it was P1 (each was alone in its own isolate). To
+// bridge isolates we relay through a BroadcastChannel, which IS shared across
+// isolates of the same deployment: each isolate fans local messages out to its
+// own sockets and republishes them on the channel; channel messages from other
+// isolates get fanned out to local sockets.
 
 import { define } from "../../utils.ts";
 
-type Role = "p1" | "p2";
+const sockets = new Set<WebSocket>();
 
-interface Client {
-  socket: WebSocket;
-  role: Role;
+// Identifies this isolate so we can ignore the echo of our own publishes.
+const ISOLATE_ID = crypto.randomUUID();
+
+let channel: BroadcastChannel | null = null;
+try {
+  channel = new BroadcastChannel("goofy-room");
+  channel.onmessage = (e: MessageEvent) => {
+    const payload = e.data as { from?: string; data?: string } | undefined;
+    if (!payload || payload.from === ISOLATE_ID || !payload.data) return;
+    fanOutLocal(payload.data);
+  };
+} catch (_) {
+  // BroadcastChannel unavailable in this runtime — single-isolate only.
+  channel = null;
 }
 
-let p1: Client | null = null;
-let p2: Client | null = null;
-
-function send(socket: WebSocket, payload: unknown) {
-  if (socket.readyState !== WebSocket.OPEN) return;
-  try {
-    socket.send(JSON.stringify(payload));
-  } catch (_) { /* peer is closing — drop */ }
-}
-
-function peerOf(role: Role): Client | null {
-  return role === "p1" ? p2 : p1;
+function fanOutLocal(data: string, except?: WebSocket) {
+  for (const s of sockets) {
+    if (s === except || s.readyState !== WebSocket.OPEN) continue;
+    try {
+      s.send(data);
+    } catch (_) { /* peer closing — drop */ }
+  }
 }
 
 export const handler = define.handlers({
@@ -36,51 +51,25 @@ export const handler = define.handlers({
 
     const { socket, response } = Deno.upgradeWebSocket(ctx.req);
 
-    let role: Role | null = null;
-
     socket.onopen = () => {
-      if (p1 === null) {
-        role = "p1";
-        p1 = { socket, role };
-      } else if (p2 === null) {
-        role = "p2";
-        p2 = { socket, role };
-      } else {
-        // Room is full — let the third joiner know and close.
-        send(socket, { type: "full" });
-        try { socket.close(1000, "room full"); } catch (_) {}
-        return;
-      }
-
-      send(socket, { type: "hello", role });
-
-      const peer = peerOf(role);
-      if (peer) {
-        send(peer.socket, { type: "peer-joined", role });
-        // Tell the freshly-joined client that a peer is already here so it
-        // can render the remote goofy immediately, even before any state
-        // message arrives.
-        send(socket, { type: "peer-joined", role: peer.role });
-      }
+      sockets.add(socket);
     };
 
     socket.onmessage = (e) => {
-      if (!role) return;
-      const peer = peerOf(role);
-      if (!peer) return;
-      // Forward as-is. We don't parse — the protocol lives in the client.
-      try {
-        peer.socket.send(typeof e.data === "string" ? e.data : e.data);
-      } catch (_) { /* drop */ }
+      const data = typeof e.data === "string" ? e.data : "";
+      if (!data) return;
+      // Everyone else in this isolate...
+      fanOutLocal(data, socket);
+      // ...plus sockets living in other isolates.
+      if (channel) {
+        try {
+          channel.postMessage({ from: ISOLATE_ID, data });
+        } catch (_) { /* drop */ }
+      }
     };
 
     const cleanup = () => {
-      if (!role) return;
-      if (role === "p1" && p1?.socket === socket) p1 = null;
-      if (role === "p2" && p2?.socket === socket) p2 = null;
-      const peer = peerOf(role);
-      if (peer) send(peer.socket, { type: "peer-left", role });
-      role = null;
+      sockets.delete(socket);
     };
     socket.onclose = cleanup;
     socket.onerror = cleanup;

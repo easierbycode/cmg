@@ -47,10 +47,43 @@ export default define.page(function GoofyGame() {
           }
           #role-badge.connecting { color: #888; border-color: #666; }
           #role-badge.full { color: #ff7070; border-color: #aa4040; }
+          #scoreboard {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 13px;
+            color: #f4f4f4;
+            pointer-events: none;
+          }
+          #scoreboard .score-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            padding: 4px 9px;
+            border-radius: 6px;
+            letter-spacing: 0.06em;
+          }
+          #scoreboard .score-row.me { border-color: rgba(210, 172, 56, 0.85); }
+          #scoreboard .score-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+          }
+          #scoreboard .score-name { min-width: 56px; }
+          #scoreboard .score-coins { margin-left: auto; color: #ffd95a; }
         `}</style>
       </Head>
       <div id="phaser-example"></div>
       <div id="role-badge" class="connecting">connecting…</div>
+      <div id="scoreboard"></div>
       <script
         src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"
         defer
