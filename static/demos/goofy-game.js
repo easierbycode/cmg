@@ -288,12 +288,15 @@ class GoofyMultiplayerScene extends Phaser.Scene {
           this.remote.sprite.setTexture(GOOFY_JUMP_KEY, 'atlas_s0');
         }
       } else if (msg.type === 'full') {
+        // Latch so the imminent server close doesn't clobber this reason
+        // with a generic 'disconnected'.
+        this.roomFull = true;
         setBadge('room full (max 2)', 'full');
       }
     });
 
     ws.addEventListener('close', () => {
-      setBadge('disconnected', 'full');
+      if (!this.roomFull) setBadge('disconnected', 'full');
       this.remote.connected = false;
       this.remote.sprite.setVisible(false);
     });
