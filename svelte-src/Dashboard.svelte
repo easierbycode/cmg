@@ -17,6 +17,7 @@
   ];
   const GAMES = [
     { id: '2019-es7',                                              name: '2028',                title: '2028',                sub: 'ES7 // Phaser 3', icon: '/icons/2028-icon.png',                size: '12.4 MB', date: '07.28.22' },
+    { id: 'games/2028-ai',                                         name: '2028.Ai',             title: '2028.AI',             sub: 'Phaser 4 // offline', icon: '/icons/2028-icon.png',            size: '21 MB',   date: '05.28.26', url: '/games/2028-ai' },
     { id: 'evil-invaders',                                         name: 'Peachy Skies',        title: 'PEACHY SKIES',        sub: 'Turbo + Audio',   icon: '/icons/headphone-invader-icon.png',   size: '8.2 MB',  date: '10.13.24' },
     { id: 'games/evil-invaders/index.html?turbo=1&audio=1',        name: 'Evil Invaders',       title: 'EVIL INVADERS',       sub: 'Classic',         icon: '/icons/evil-invaders-icon.png',       size: '9.6 MB',  date: '04.04.23' },
     { id: 'hellophaser/v3',                                        name: 'RonaGun',             title: 'RONAGUN',             sub: 'Phaser v3 demo',  icon: null,                                   size: '3.1 MB',  date: '08.08.22' },
@@ -207,7 +208,10 @@
     }
     sfx.enter();
     chromeDismissed = false;
-    gameSrc = 'https://easierbycode.com/' + id;
+    // In-repo games carry an explicit `url` (Fresh route); everything else is
+    // served externally from easierbycode.com keyed by `id`.
+    const item = GAMES.find((g) => g.id === id);
+    gameSrc = item && item.url ? item.url : ('https://easierbycode.com/' + id);
     setTimeout(() => { gameOn = true; }, 30);
   }
 
