@@ -27,7 +27,10 @@ import { PhaserEndingScene } from "../../../2019-es7/src/phaser/EndingScene.js";
 import { PhaserForgeScene } from "../../../2019-es7/src/phaser/ForgeScene.js";
 
 const ASSET_BASE = "/games/2028-ai/";
-const LEVEL_DATA_URL = ASSET_BASE + "level-data.json";
+// Primary level source is the deployed copy; fall back to the same-origin file
+// so the game still boots in local dev / offline.
+const LEVEL_DATA_URL = "https://cmg.easierbycode.deno.net/games/2028-ai/foo.json";
+const LEVEL_DATA_FALLBACK_URL = ASSET_BASE + "foo.json";
 
 function parseStageId(value) {
     const stageId = Number(value);
@@ -133,6 +136,15 @@ function create2028Game() {
     const game = new Phaser.Game(config);
     globalThis.__PHASER_4_GAME__ = game;
     console.log("[2028.Ai] Phaser game started");
+
+    // Fit the canvas to the viewport + fix input mapping under CSS scale/
+    // rotation. These helpers are installed by the host page (route); the
+    // page's MutationObserver also fires on canvas creation, so this is a
+    // belt-and-suspenders call.
+    if (typeof window !== "undefined") {
+        if (typeof window.__fitCanvas === "function") window.__fitCanvas();
+        if (typeof window.__fixPhaserTransform === "function") window.__fixPhaserTransform();
+    }
     return game;
 }
 
@@ -149,16 +161,22 @@ function whenPhaserReady(cb) {
     }, 20);
 }
 
+async function fetchLevel(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
+    return res.json();
+}
+
 async function main() {
     try {
-        const res = await fetch(LEVEL_DATA_URL);
-        if (res.ok) {
-            globalThis.__OFFLINE_LEVEL__ = await res.json();
-        } else {
-            console.warn("[2028.Ai] level-data.json HTTP " + res.status + " — falling back to base recipe");
-        }
+        globalThis.__OFFLINE_LEVEL__ = await fetchLevel(LEVEL_DATA_URL);
     } catch (err) {
-        console.warn("[2028.Ai] level-data.json fetch failed — falling back to base recipe", err);
+        console.warn("[2028.Ai] foo.json fetch failed (" + LEVEL_DATA_URL + ") — trying fallback", err);
+        try {
+            globalThis.__OFFLINE_LEVEL__ = await fetchLevel(LEVEL_DATA_FALLBACK_URL);
+        } catch (err2) {
+            console.warn("[2028.Ai] fallback foo.json fetch failed — using base recipe", err2);
+        }
     }
     whenPhaserReady(create2028Game);
 }

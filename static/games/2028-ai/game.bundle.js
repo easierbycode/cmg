@@ -7915,7 +7915,8 @@
 
   // scripts/2028-ai/boot-entry.js
   var ASSET_BASE = "/games/2028-ai/";
-  var LEVEL_DATA_URL = ASSET_BASE + "level-data.json";
+  var LEVEL_DATA_URL = "https://cmg.easierbycode.deno.net/games/2028-ai/foo.json";
+  var LEVEL_DATA_FALLBACK_URL = ASSET_BASE + "foo.json";
   function parseStageId3(value) {
     const stageId = Number(value);
     if (!Number.isFinite(stageId)) return 0;
@@ -8003,6 +8004,10 @@
     const game = new Phaser.Game(config);
     globalThis.__PHASER_4_GAME__ = game;
     console.log("[2028.Ai] Phaser game started");
+    if (typeof window !== "undefined") {
+      if (typeof window.__fitCanvas === "function") window.__fitCanvas();
+      if (typeof window.__fixPhaserTransform === "function") window.__fixPhaserTransform();
+    }
     return game;
   }
   function whenPhaserReady(cb) {
@@ -8017,16 +8022,21 @@
       }
     }, 20);
   }
+  async function fetchLevel2(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
+    return res.json();
+  }
   async function main() {
     try {
-      const res = await fetch(LEVEL_DATA_URL);
-      if (res.ok) {
-        globalThis.__OFFLINE_LEVEL__ = await res.json();
-      } else {
-        console.warn("[2028.Ai] level-data.json HTTP " + res.status + " — falling back to base recipe");
-      }
+      globalThis.__OFFLINE_LEVEL__ = await fetchLevel2(LEVEL_DATA_URL);
     } catch (err) {
-      console.warn("[2028.Ai] level-data.json fetch failed — falling back to base recipe", err);
+      console.warn("[2028.Ai] foo.json fetch failed (" + LEVEL_DATA_URL + ") — trying fallback", err);
+      try {
+        globalThis.__OFFLINE_LEVEL__ = await fetchLevel2(LEVEL_DATA_FALLBACK_URL);
+      } catch (err2) {
+        console.warn("[2028.Ai] fallback foo.json fetch failed — using base recipe", err2);
+      }
     }
     whenPhaserReady(create2028Game);
   }
