@@ -11,6 +11,21 @@ app.use(async (ctx) => {
 
 app.use(staticFiles());
 
+// The Linux launcher (.AppImage, ~150 MB) is built in CI and published to
+// GitHub Releases — far too large to live in git or the Deno Deploy bundle.
+// Expose a stable download URL by redirecting to the latest release asset.
+// See .github/workflows/build-appimage.yml and `deno task build:linux`.
+const APPIMAGE_URL =
+  "https://github.com/easierbycode/cmg/releases/latest/download/cmg-x86_64.AppImage";
+// Build the redirect by hand rather than Response.redirect(): the latter
+// returns a response with immutable headers, which the CORS middleware above
+// cannot amend (it would throw "headers are immutable").
+app.get(
+  "/app.AppImage",
+  () =>
+    new Response(null, { status: 302, headers: { location: APPIMAGE_URL } }),
+);
+
 // Pass a shared value from a middleware
 app.use(async (ctx) => {
   ctx.state.shared = "hello";

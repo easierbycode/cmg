@@ -1,0 +1,46 @@
+name: Build Linux AppImage
+
+# Builds the Linux launcher AppImage on a Linux runner (where AppImage tooling
+# is native) and publishes it to GitHub Releases. The deployed site serves it at
+# /app.AppImage by redirecting to the latest release asset (see main.ts).
+#
+# Push a tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to cut a release,
+# or run the workflow manually and supply the tag to publish under.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish the AppImage under (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write # create releases and upload assets
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # nodeModulesDir is "manual", so npm deps (vite, esbuild, svelte) must be
+      # installed explicitly before `deno task build` runs.
+      - name: Install npm dependencies
+        run: deno install --allow-scripts
+
+      - name: Build AppImage
+        run: deno task build:linux
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/cmg-x86_64.AppImage
+          fail_on_unmatched_files: true
