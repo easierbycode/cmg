@@ -3,13 +3,16 @@
 // Ported from the original Phaser 3 CodePen to run on Phaser 4.1.0 (loaded as a
 // browser global from the CDN by routes/demos/headphones-recommended.tsx, same
 // as the goofy-game demo). Phaser 4.1.0 keeps every API this scene uses —
-// dynamicBitmapText, RetroFont.Parse/TEXT_SET3, the 3.60-style particle
+// bitmapText, RetroFont.Parse/TEXT_SET3, the 3.60-style particle
 // emitter, per-sprite local anims (AnimationState.create), getLeftCenter/
 // getRightCenter/getTopCenter and the animationcomplete-<key> events — so the
 // port is mostly packaging. Behavioural fixes vs. the original: alpha uses
 // FloatBetween (Between floored the 0.75–0.85 range to ints), startFullscreen
-// is guarded (it rejects inside a sandboxed launcher iframe), and tints are set
-// via setTint() to match the rest of the repo's Phaser 4 code.
+// is guarded (it rejects inside a sandboxed launcher iframe), tints are set via
+// setTint() to match the rest of the repo's Phaser 4 code, and the title's
+// RetroFont glyph frames are inset half a texel (with plain bitmapText) so the
+// gutterless atlas doesn't bleed adjacent cells into the title's top/bottom at
+// Scale.FIT.
 //
 // Assets are pulled from the original author's CodePen asset host.
 
@@ -269,15 +272,30 @@ class GameScene extends Phaser.Scene {
       charsPerRow: 6,
     };
 
-    this.cache.bitmapFont.add(
-      "font",
-      Phaser.GameObjects.RetroFont.Parse(this, fontConfig),
-    );
+    // RetroFont packs the glyphs as a gutterless 16×16 grid. At Scale.FIT's
+    // fractional display scale the NEAREST sampler would otherwise grab a sliver
+    // of the neighbouring cell — clipping each glyph's top and bleeding the cell
+    // below in at the bottom. Inset every glyph frame by half a texel so
+    // sampling stays inside its cell (no visible glyph pixels are lost).
+    // RetroFont.Parse returns { data, frame, texture }; the glyph rects live in
+    // data.chars (keyed by char code).
+    const fontData = Phaser.GameObjects.RetroFont.Parse(this, fontConfig);
+    for (const code in fontData.data.chars) {
+      const c = fontData.data.chars[code];
+      c.x += 0.5;
+      c.y += 0.5;
+      c.width -= 1;
+      c.height -= 1;
+    }
+    this.cache.bitmapFont.add("font", fontData);
 
     const { x, y } = this.titleBack.getTopCenter();
 
+    // Plain bitmapText (the scene needs no per-glyph callback or scrolling, so
+    // dynamicBitmapText buys nothing); the atlas-bleed fix is the glyph-frame
+    // inset above.
     this.text = this.add
-      .dynamicBitmapText(x, y / 2, "font", "HEADPHONES RECOMMENDED")
+      .bitmapText(x, y / 2, "font", "HEADPHONES RECOMMENDED")
       .setOrigin(0.5);
 
     this.input.on("pointerdown", () => {
