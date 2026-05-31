@@ -1,6 +1,12 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
 
+  // Primary game-list source is the deployed app's manifest. A launcher binary
+  // serves its own embedded copy from localhost, so it must reach out to the
+  // deploy to learn about newly-added games — same deployed-URL-first approach
+  // as scripts/2028-ai/boot-entry.js uses for foo.json.
+  const DEPLOY_ORIGIN = 'https://cmg.easierbycode.deno.net';
+
   const MAIN_MENU = [
     { id: 'memory',   label: 'Memory',   tag: '01 / sys.core', num: '0x01' },
     { id: 'games',    label: 'Games',    tag: '02 / disc.io',  num: '0x02' },
@@ -10,12 +16,22 @@
   const TG16_ID = '__tg16__';
   const PSX_ID  = '__psx__';
   const DEMOS_ID = '__demos__';
-  // Demos are Phaser scenes hosted in this repo (vs. external games served from
-  // easierbycode.com). Each entry's `url` is the page the iframe loads.
-  const DEMOS = [
+  // Baked-in fallback snapshot of the Demos list (Games → Demos). At runtime
+  // loadManifest() replaces it with the manifest's `demos` (OTA), so adding a
+  // demo to data/demos.json + pushing reaches every launcher with no rebuild.
+  // Demos are Fresh routes under /demos/*; their `url` resolves against the
+  // manifest origin, so the demo page stays co-origin with /api/ws-goofy.
+  const SEED_DEMOS = [
     { id: 'goofy-game', name: 'Goofy Game', title: 'GOOFY GAME', sub: 'multiplayer · WS', size: '— MB', date: 'demo', url: '/demos/goofy-game' },
+    { id: 'headphones-recommended', name: 'Headphones Recommended', title: 'HEADPHONES RECOMMENDED', sub: 'Phaser 4.1.0 · idle', size: '— MB', date: 'demo', url: '/demos/headphones-recommended' },
   ];
-  const GAMES = [
+  // Baked-in fallback snapshot of the game list — the offline / pre-manifest
+  // seed. At runtime loadManifest() replaces it with the deployed OTA manifest
+  // (static/games.manifest.json, generated from data/games.json by
+  // scripts/build-games-manifest.ts). To add or edit a game, change
+  // data/games.json — that is what deploys to every launcher; this inline copy
+  // only renders when both manifest fetches fail (fully offline).
+  const SEED_GAMES = [
     { id: '2019-es7',                                              name: '2028',                title: '2028',                sub: 'ES7 // Phaser 3', icon: '/icons/2028-icon.png',                size: '12.4 MB', date: '07.28.22' },
     { id: 'games/2028-ai',                                         name: '2028.Ai',             title: '2028.AI',             sub: 'Phaser 4 // offline', icon: '/icons/2028-icon.png',            size: '21 MB',   date: '05.28.26', url: '/games/2028-ai' },
     { id: '2019-pixi',                                             name: '2019',                title: '2019',                sub: 'Pixi.js',         icon: null,                                   size: '— MB',    date: '05.29.26' },
@@ -31,6 +47,20 @@
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
     { id: TG16_ID,                                                 name: 'TurboGrafx-16',       title: 'TURBOGRAFX-16',       sub: 'PCE // submenu',  icon: null,                                   size: '— MB',    date: 'PCE',     submenu: true },
   ];
+
+  // Submenu tiles (Demos / PlayStation / TurboGrafx-16) are fixed client
+  // features, not OTA games — the manifest carries only real games — so we take
+  // them from the seed and re-append them after each manifest load.
+  const SUBMENUS = SEED_GAMES.filter((g) => g.submenu);
+  // Reactive game list: starts as the baked seed, then replaced at runtime by
+  // the fetched manifest (see loadManifest). Every read of GAMES below reacts.
+  let GAMES = $state(SEED_GAMES);
+  // Origin the active manifest came from; in-repo game `url`s resolve against it
+  // ('' = same-origin / relative — the seed and same-origin fallback case).
+  let manifestOrigin = $state('');
+  // Reactive Demos list (Games → Demos) — seeded, then replaced by the
+  // manifest's `demos`. Same OTA path as GAMES.
+  let DEMOS = $state(SEED_DEMOS);
 
   let screen = $state('dashboard'); // 'dashboard' | 'games' | 'tg16'
   let menuSel = $state(1);           // start on Games
@@ -210,18 +240,28 @@
     sfx.enter();
     chromeDismissed = false;
     // In-repo games carry an explicit `url` (Fresh route); everything else is
-    // served externally from easierbycode.com keyed by `id`.
+    // served externally from easierbycode.com keyed by `id`. Resolve in-repo
+    // URLs against the origin the manifest came from, so a launcher on an older
+    // binary still loads a newly-added in-repo game from the deploy; offline it
+    // falls back to its embedded same-origin copy.
     const item = GAMES.find((g) => g.id === id);
-    gameSrc = item && item.url ? item.url : ('https://easierbycode.com/' + id);
+    if (item && item.url) {
+      gameSrc = manifestOrigin ? new URL(item.url, manifestOrigin).href : item.url;
+    } else {
+      gameSrc = 'https://easierbycode.com/' + id;
+    }
     setTimeout(() => { gameOn = true; }, 30);
   }
 
   function launchDemo(url) {
     if (!url) return;
     sfx.enter();
-    // Demos are hosted in-repo (Fresh routes under /demos/*) so they can
-    // reach the same-origin WebSocket relay at /api/ws-goofy.
-    gameSrc = url;
+    chromeDismissed = false;
+    // Resolve against the manifest origin (like launchGame) so a newly-added
+    // demo loads from the deploy on an existing launcher binary. The demo page
+    // stays co-origin with the /api/ws-goofy relay either way (goofy connects to
+    // location.host), so multiplayer keeps working over the deploy's relay.
+    gameSrc = manifestOrigin ? new URL(url, manifestOrigin).href : url;
     setTimeout(() => { gameOn = true; }, 30);
   }
 
@@ -239,6 +279,39 @@
     chromeDismissed = false;
     gameSrc = '/psx/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  async function loadManifest() {
+    // OTA launcher content (games + demos). Prefer the deployed manifest (so a
+    // launcher binary learns about newly-added games/demos over the network),
+    // then the same-origin copy (the web app, and an offline launcher's embedded
+    // fallback), else keep the baked seeds. Deployed-URL-first, like boot-entry.js.
+    const asList = (v) => (Array.isArray(v) ? v : null);
+    const tryFetch = async (base) => {
+      const r = await fetch(base + '/games.manifest.json?ts=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      // Accept { games, demos } or a bare games array (older manifest shape).
+      const games = asList(data) || asList(data && data.games);
+      if (!games || !games.length) throw new Error('empty manifest');
+      const demos = asList(data && data.demos) || [];
+      return { games, demos, base };
+    };
+    let res = null;
+    try {
+      res = await tryFetch(DEPLOY_ORIGIN);
+    } catch (_e1) {
+      try {
+        res = await tryFetch('');
+      } catch (_e2) {
+        return; // both sources failed — keep the baked-in seeds
+      }
+    }
+    manifestOrigin = res.base;
+    GAMES = [...res.games, ...SUBMENUS];
+    if (res.demos.length) DEMOS = res.demos;
+    if (gameSel >= GAMES.length) gameSel = 0;
+    if (demosSel >= DEMOS.length) demosSel = 0;
   }
 
   async function loadTg16List() {
@@ -802,6 +875,7 @@
     refreshPadConnected();
     padRaf = requestAnimationFrame(pollPad);
 
+    loadManifest();
     loadTg16List();
     loadPsxList();
   });
