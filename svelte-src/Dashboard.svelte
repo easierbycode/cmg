@@ -1267,6 +1267,18 @@
 <div class="game-iframe {gameOn ? 'on' : ''}">
   {#if showCloseBtn}
     <button type="button" class="close-game" onclick={closeGame}>⨯ Close</button>
+    <!-- Touch back affordance: the yellow B, bottom-left, above the game
+         iframe. Mirrors the in-menu .footer.left B (which the full-screen
+         iframe covers during play) so touchscreen players can go back/exit. -->
+    <button
+      type="button"
+      class="game-back tap"
+      aria-label="Back"
+      onclick={closeGame}
+    >
+      <span class="btn-hint b">B</span>
+      <span>Back</span>
+    </button>
   {/if}
   <iframe
     id={gameOn ? 'gameframe' : undefined}
