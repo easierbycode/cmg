@@ -3,20 +3,34 @@
 // `deno task build:linux` compiles this into a self-contained binary that
 // embeds the built Fresh app (_fresh) and static assets, then packages it as an
 // AppImage. At runtime it serves the embedded Fresh app on localhost and opens
-// Chrome/Chromium in kiosk mode pointing at it.
+// a Chrome/Chromium-family browser in kiosk mode pointing at it.
 //
-// Browser discovery honors $CMG_BROWSER first, then falls back to the common
-// Chrome/Chromium executable names and locations.
+// Browser selection is resilient. It tries, in order:
+//   1. $CMG_BROWSER — a full launch command (e.g. "flatpak run com.google.Chrome"
+//      or "/usr/bin/chromium").
+//   2. Native Chrome/Chromium/Brave/Edge binaries found on PATH.
+//   3. Flatpak browsers, launched correctly via `flatpak run <app-id>`.
+// Flatpak-exported inner binaries are never executed directly — doing so bypasses
+// the Flatpak sandbox and fails with errors like "/etc/opt/chrome/policies:
+// permission denied" or "cobalt not found" (common on immutable distros such as
+// SteamOS / Steam Deck). Each candidate is launched and given a short grace
+// period; if it exits immediately with an error, the next candidate is tried.
 
 import server from "../_fresh/server.js";
 
 const PORT = Number(Deno.env.get("PORT") ?? 8000);
 const TARGET_URL = `http://localhost:${PORT}`;
-
 const home = Deno.env.get("HOME") ?? "";
 const profileDir = `${home}/.config/cmg-chrome-profile`;
+const GRACE_MS = 2500;
 
-/** Resolve a command to an absolute path, mirroring `which`. */
+interface Candidate {
+  argv: string[]; // [program, ...leading args] (kiosk flags + URL appended later)
+  flatpak: boolean;
+  label: string;
+}
+
+/** Resolve a bare command to an absolute path via PATH, skipping Flatpak exports. */
 function which(cmd: string): string | null {
   if (cmd.includes("/")) {
     try {
@@ -26,40 +40,124 @@ function which(cmd: string): string | null {
   }
   for (const dir of (Deno.env.get("PATH") ?? "").split(":")) {
     if (!dir) continue;
+    const full = `${dir}/${cmd}`;
+    // Flatpak-exported wrappers must be run via `flatpak run`, not directly.
+    if (full.includes("/flatpak/")) continue;
     try {
-      if (Deno.statSync(`${dir}/${cmd}`).isFile) return `${dir}/${cmd}`;
+      if (Deno.statSync(full).isFile) return full;
     } catch { /* not here */ }
   }
   return null;
 }
 
-function findBrowser(): string | null {
-  const candidates = [
-    Deno.env.get("CMG_BROWSER") ?? "",
-    "google-chrome-stable",
-    "google-chrome",
-    "chromium",
-    "chromium-browser",
-    "brave-browser",
-    "microsoft-edge",
-    "/snap/bin/chromium",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    const found = which(candidate);
-    if (found) return found;
+function flatpakHas(appId: string): boolean {
+  try {
+    return new Deno.Command("flatpak", {
+      args: ["info", appId],
+      stdout: "null",
+      stderr: "null",
+    }).outputSync().success;
+  } catch {
+    return false; // flatpak not installed
   }
-  return null;
 }
 
-const browser = findBrowser();
-if (!browser) {
+function buildCandidates(): Candidate[] {
+  const list: Candidate[] = [];
+
+  // 1) Explicit override — a full command line.
+  const override = (Deno.env.get("CMG_BROWSER") ?? "").trim();
+  if (override) {
+    const argv = override.split(/\s+/);
+    list.push({ argv, flatpak: argv[0] === "flatpak", label: override });
+  }
+
+  // 2) Native binaries on PATH.
+  for (
+    const name of [
+      "google-chrome-stable",
+      "google-chrome",
+      "chromium",
+      "chromium-browser",
+      "brave-browser",
+      "microsoft-edge-stable",
+      "microsoft-edge",
+      "vivaldi-stable",
+    ]
+  ) {
+    const path = which(name);
+    if (path) list.push({ argv: [path], flatpak: false, label: path });
+  }
+
+  // 3) Flatpak browsers, run through the sandbox.
+  const seen = new Set<string>();
+  for (
+    const id of [
+      "com.google.Chrome",
+      "org.chromium.Chromium",
+      "com.brave.Browser",
+      "com.microsoft.Edge",
+      "io.github.ungoogled_software.ungoogled_chromium",
+    ]
+  ) {
+    const key = id.toLowerCase();
+    if (seen.has(key) || !flatpakHas(id)) continue;
+    seen.add(key);
+    list.push({
+      argv: ["flatpak", "run", id],
+      flatpak: true,
+      label: `flatpak run ${id}`,
+    });
+  }
+
+  return list;
+}
+
+function kioskArgs(flatpak: boolean): string[] {
+  const args = ["--kiosk", "--no-first-run", "--no-default-browser-check"];
+  // A custom --user-data-dir usually isn't writable inside a Flatpak sandbox;
+  // let Flatpak Chrome use its own profile instead.
+  if (!flatpak) args.push(`--user-data-dir=${profileDir}`);
+  args.push(TARGET_URL);
+  return args;
+}
+
+/** Launch a candidate; return the child if it stays up, else null. */
+async function tryLaunch(c: Candidate): Promise<Deno.ChildProcess | null> {
+  let child: Deno.ChildProcess;
+  try {
+    child = new Deno.Command(c.argv[0], {
+      args: [...c.argv.slice(1), ...kioskArgs(c.flatpak)],
+    }).spawn();
+  } catch (err) {
+    console.error(
+      `CMG: could not start ${c.label}: ${
+        err instanceof Error ? err.message : err
+      }`,
+    );
+    return null;
+  }
+  // If it dies immediately with an error, it didn't really start.
+  const early = await Promise.race([
+    child.status,
+    new Promise<null>((r) => setTimeout(() => r(null), GRACE_MS)),
+  ]);
+  if (early && early.code !== 0) {
+    console.error(
+      `CMG: ${c.label} exited immediately (code ${early.code}) — trying next browser`,
+    );
+    return null;
+  }
+  return child;
+}
+
+const candidates = buildCandidates();
+if (candidates.length === 0) {
   console.error(
-    "CMG: no Chrome/Chromium found. Install Google Chrome or Chromium, or set " +
-      "CMG_BROWSER to the browser executable path.",
+    "CMG: no browser found. Install Chrome/Chromium (native or Flatpak), or set\n" +
+      "CMG_BROWSER to a launch command, e.g.\n" +
+      "  CMG_BROWSER='flatpak run com.google.Chrome'\n" +
+      "  CMG_BROWSER=/usr/bin/chromium",
   );
   Deno.exit(1);
 }
@@ -69,18 +167,27 @@ const httpServer = Deno.serve(
   { port: PORT, signal: ac.signal, onListen: () => {} },
   (server as { fetch: (req: Request) => Response | Promise<Response> }).fetch,
 );
-
 await new Promise((r) => setTimeout(r, 300));
 
-const chrome = new Deno.Command(browser, {
-  args: [
-    "--kiosk",
-    `--user-data-dir=${profileDir}`,
-    "--no-first-run",
-    "--no-default-browser-check",
-    TARGET_URL,
-  ],
-}).spawn();
+let chrome: Deno.ChildProcess | null = null;
+for (const candidate of candidates) {
+  console.log(`CMG: launching ${candidate.label}`);
+  chrome = await tryLaunch(candidate);
+  if (chrome) break;
+}
+
+if (!chrome) {
+  console.error(
+    "CMG: every browser candidate failed to start. If you use Flatpak Chrome on\n" +
+      "an immutable distro (e.g. SteamOS / Steam Deck), confirm it runs:\n" +
+      "  flatpak run com.google.Chrome --version\n" +
+      "and reinstall if needed:\n" +
+      "  flatpak install --reinstall flathub com.google.Chrome",
+  );
+  ac.abort();
+  await httpServer.finished.catch(() => {});
+  Deno.exit(1);
+}
 
 const status = await chrome.status;
 ac.abort();
