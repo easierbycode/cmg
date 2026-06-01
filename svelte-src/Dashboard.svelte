@@ -796,6 +796,7 @@
       // game iframe has focus and posts tg16-toggle-controls back.
       if (e.code === 'Backquote' || e.key === '`' || e.key === '~' || e.keyCode === 192) {
         e.preventDefault();
+        e.stopImmediatePropagation();
         if (isTg16Game) { chromeDismissed = false; controlsShown = !controlsShown; sfx.nav(); }
         return;
       }

@@ -180,7 +180,10 @@
             e.code === "Backquote" || e.key === "`" || e.key === "~" ||
             e.keyCode === 192
           ) {
+            // Capture phase + stopImmediatePropagation so EmulatorJS (which
+            // listens on document) never also acts on this key.
             e.preventDefault();
+            e.stopImmediatePropagation();
             postParent("tg16-toggle-controls");
           }
         }, true);
