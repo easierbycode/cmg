@@ -1276,15 +1276,22 @@
   </div>
 </div>
 
-<div class="game-iframe {gameOn ? 'on' : ''}">
-  {#if showCloseBtn}
-    <button type="button" class="close-game" onclick={closeGame}>⨯ Close</button>
-  {/if}
-  <iframe
-    id={gameOn ? 'gameframe' : undefined}
-    src={gameSrc ?? 'about:blank'}
-    title="game"
-    allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
-    allowfullscreen
-  ></iframe>
-</div>
+<!-- Only mount the overlay while a game is active. Leaving a navigated,
+     full-screen iframe in the DOM (even hidden via opacity:0 + pointer-events:none)
+     keeps a touch/scroll-capturing region over the games list on mobile WebKit,
+     which kills swipe-scroll after returning to the menu. gameSrc stays set for
+     500ms after closeGame() so the fade-out still plays before it unmounts. -->
+{#if gameSrc}
+  <div class="game-iframe {gameOn ? 'on' : ''}">
+    {#if showCloseBtn}
+      <button type="button" class="close-game" onclick={closeGame}>⨯ Close</button>
+    {/if}
+    <iframe
+      id={gameOn ? 'gameframe' : undefined}
+      src={gameSrc}
+      title="game"
+      allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
+      allowfullscreen
+    ></iframe>
+  </div>
+{/if}
