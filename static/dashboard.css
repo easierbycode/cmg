@@ -172,7 +172,12 @@ body.pad-on, body.pad-on * { cursor: none !important; }
 }
 
 /* === Footer === */
-.footer { position: absolute; right: 5vmin; bottom: 4vmin; z-index: 3; display: flex; align-items: center; gap: 1vmin; font-family: 'Share Tech Mono'; letter-spacing: .2em; color: #dfffc4; text-transform: uppercase; font-size: clamp(12px, 1.5vmin, 16px); }
+/* z-index above .games-screen (5) so the tappable A/Back buttons aren't
+   occluded by the full-viewport games overlay / its panel. Without this, a real
+   touch lands on .games-panel and the footer's onpointerup never fires (PR #27's
+   handler is correct but unreachable). Stays below .game-iframe (99, outside
+   .stage) so the footers remain hidden while a game is playing. */
+.footer { position: absolute; right: 5vmin; bottom: 4vmin; z-index: 6; display: flex; align-items: center; gap: 1vmin; font-family: 'Share Tech Mono'; letter-spacing: .2em; color: #dfffc4; text-transform: uppercase; font-size: clamp(12px, 1.5vmin, 16px); }
 .footer.left { left: 5vmin; right: auto; }
 .footer.tap { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
 .footer.tap:active { transform: scale(.96); }
