@@ -151,6 +151,42 @@ async function tryLaunch(c: Candidate): Promise<Deno.ChildProcess | null> {
   return child;
 }
 
+/** Extract the Flatpak app-id from a candidate's argv (the arg after `run`). */
+function flatpakAppId(argv: string[]): string | null {
+  const runIdx = argv.indexOf("run");
+  if (runIdx === -1) return null;
+  for (let i = runIdx + 1; i < argv.length; i++) {
+    if (!argv[i].startsWith("-")) return argv[i];
+  }
+  return null;
+}
+
+// Flatpak Chrome/Chromium can't see gamepads by default: the sandbox blocks
+// /run/udev, so navigator.getGamepads() returns nothing (no menu nav, dead
+// emulator input). This is the documented fix — grant read-only udev access.
+// The override persists, so this is idempotent; we apply it on every launch so
+// a fresh install or reset is healed automatically.
+// See https://github.com/flathub/com.google.Chrome/issues/29
+function grantFlatpakGamepadAccess(appId: string): void {
+  try {
+    const r = new Deno.Command("flatpak", {
+      args: ["override", "--user", "--filesystem=/run/udev:ro", appId],
+      stdout: "null",
+      stderr: "piped",
+    }).outputSync();
+    if (r.success) {
+      console.log(`CMG: granted gamepad (udev) access to ${appId}`);
+    } else {
+      console.warn(
+        `CMG: could not grant udev access to ${appId} (gamepads may not work): ` +
+          new TextDecoder().decode(r.stderr).trim(),
+      );
+    }
+  } catch {
+    // flatpak not present — native browser path, nothing to do.
+  }
+}
+
 const candidates = buildCandidates();
 if (candidates.length === 0) {
   console.error(
@@ -171,6 +207,10 @@ await new Promise((r) => setTimeout(r, 300));
 
 let chrome: Deno.ChildProcess | null = null;
 for (const candidate of candidates) {
+  if (candidate.flatpak) {
+    const appId = flatpakAppId(candidate.argv);
+    if (appId) grantFlatpakGamepadAccess(appId);
+  }
   console.log(`CMG: launching ${candidate.label}`);
   chrome = await tryLaunch(candidate);
   if (chrome) break;
