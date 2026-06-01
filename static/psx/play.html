@@ -136,9 +136,31 @@
             },
           });
         }
+        // The Gamepad API only exposes pads to the *focused* frame, and the
+        // launcher's dashboard (the top frame) holds focus — so this iframe's
+        // own navigator.getGamepads() is empty and EmulatorJS sees no
+        // controller (its config panel greys out; nothing drives the game).
+        // The dashboard does see the pad, and this iframe is same-origin with
+        // it, so read the parent frame's gamepads and hand them to EmulatorJS,
+        // which polls them natively. Fall back to our own frame's pads if the
+        // parent is unreachable or this frame has focus.
         var origGetGamepads = navigator.getGamepads.bind(navigator);
+        function sourcePads() {
+          try {
+            var pp = window.parent;
+            if (
+              pp && pp !== window && pp.navigator && pp.navigator.getGamepads
+            ) {
+              var pg = pp.navigator.getGamepads() || [];
+              for (var i = 0; i < pg.length; i++) {
+                if (pg[i] && pg[i].connected) return pg;
+              }
+            }
+          } catch (_) { /* cross-origin or unavailable — fall through */ }
+          return origGetGamepads() || [];
+        }
         navigator.getGamepads = function () {
-          var pads = origGetGamepads() || [];
+          var pads = sourcePads();
           var out = [];
           for (var i = 0; i < pads.length; i++) {
             var p = pads[i];
