@@ -17,8 +17,10 @@ const path = (rel: string) => new URL(rel, ROOT).pathname;
 const BIN = path("dist/cmg-linux-x86_64");
 const APPDIR = path("dist/AppDir");
 const OUT = path("dist/cmg-x86_64.AppImage");
+// 256x256 launcher mascot (🐵 on black) — this is what Steam shows when the
+// AppImage is added as a non-Steam game. Override with CMG_APPIMAGE_ICON.
 const ICON = Deno.env.get("CMG_APPIMAGE_ICON") ??
-  path("static/icons/2028-icon.png");
+  path("static/app-icons/launcher-256.png");
 const TOOL_DEST = path("dist/appimagetool");
 const TOOL_URLS = [
   Deno.env.get("APPIMAGETOOL_URL") ?? "",
