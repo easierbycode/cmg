@@ -125,14 +125,18 @@
         });
 
         // Keyboard fallback for revealing the control bar. The gamepad chord
-        // (SELECT + R / Down) is the primary path, but it's useless when the
-        // Gamepad API sees no pad — e.g. Flatpak Chrome launched via Steam. F1
-        // toggles the bar so the menu (incl. Exit) stays reachable by keyboard,
-        // mouse, or touch. During play the iframe holds focus, so this listener —
-        // not the parent's — is the one that fires; it notifies the parent, which
+        // (SELECT + Down) is the primary path, but it's useless when the Gamepad
+        // API sees no pad — e.g. Flatpak Chrome launched via Steam. The ` / ~
+        // key (Backquote, with or without Shift) acts as that chord, toggling
+        // the bar so the menu (incl. Exit) stays reachable by keyboard, mouse,
+        // or touch. During play the iframe holds focus, so this listener — not
+        // the parent's — is the one that fires; it notifies the parent, which
         // owns the visibility state and echoes tg16-show/hide-controls back.
         window.addEventListener("keydown", function (e) {
-          if (e.key === "F1" || e.keyCode === 112) {
+          if (
+            e.code === "Backquote" || e.key === "`" || e.key === "~" ||
+            e.keyCode === 192
+          ) {
             e.preventDefault();
             postParent("tg16-toggle-controls");
           }

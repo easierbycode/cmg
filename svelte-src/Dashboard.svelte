@@ -789,11 +789,12 @@
 
   function onKey(e) {
     if (gameOn) {
-      // F1 toggles the emulator control bar — keyboard fallback for the gamepad
-      // chord, usable when no gamepad is detected (e.g. Flatpak Chrome under
-      // Steam). Fires when the parent holds focus; play.html handles the case
-      // where the game iframe has focus and posts tg16-toggle-controls back.
-      if (e.key === 'F1' || e.keyCode === 112) {
+      // The ` / ~ key (Backquote, with or without Shift) toggles the emulator
+      // control bar — a keyboard stand-in for the SELECT + Down gamepad chord,
+      // usable when no gamepad is detected (e.g. Flatpak Chrome under Steam).
+      // Fires when the parent holds focus; play.html handles the case where the
+      // game iframe has focus and posts tg16-toggle-controls back.
+      if (e.code === 'Backquote' || e.key === '`' || e.key === '~' || e.keyCode === 192) {
         e.preventDefault();
         if (isTg16Game) { chromeDismissed = false; controlsShown = !controlsShown; sfx.nav(); }
         return;
