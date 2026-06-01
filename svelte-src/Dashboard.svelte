@@ -214,6 +214,18 @@
     else screen = 'dashboard';
   }
 
+  // Footer A/B are <div>s, not <button>s, so a touchscreen tap doesn't reliably
+  // produce a synthesized click — the onclick never fires on the Steam Deck
+  // touchscreen. Bind pointerup instead (fires uniformly for touch, pen, and
+  // mouse) and call preventDefault so no late synthesized click double-fires
+  // the handler. Returns a handler bound to the given action.
+  function tapHandler(action) {
+    return (e) => {
+      e.preventDefault();
+      action();
+    };
+  }
+
   function launchGame(id) {
     if (id === TG16_ID) {
       sfx.enter();
@@ -1253,12 +1265,12 @@
   </div>
 
   {#if screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos'}
-    <div class="footer left tap" onclick={goBack}>
+    <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
     </div>
   {/if}
-  <div class="footer tap" onclick={actA}>
+  <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
     <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
@@ -1267,18 +1279,6 @@
 <div class="game-iframe {gameOn ? 'on' : ''}">
   {#if showCloseBtn}
     <button type="button" class="close-game" onclick={closeGame}>⨯ Close</button>
-    <!-- Touch back affordance: the yellow B, bottom-left, above the game
-         iframe. Mirrors the in-menu .footer.left B (which the full-screen
-         iframe covers during play) so touchscreen players can go back/exit. -->
-    <button
-      type="button"
-      class="game-back tap"
-      aria-label="Back"
-      onclick={closeGame}
-    >
-      <span class="btn-hint b">B</span>
-      <span>Back</span>
-    </button>
   {/if}
   <iframe
     id={gameOn ? 'gameframe' : undefined}
