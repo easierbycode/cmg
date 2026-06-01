@@ -1,172 +1,250 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>TurboGrafx-16</title>
-<style>
-  html, body { margin: 0; padding: 0; background: #000; width: 100%; height: 100%; overflow: hidden; color: #9CFF6B; font-family: 'Share Tech Mono', monospace; }
-  #display { width: 100%; height: 100%; }
-  #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 2em; }
-  #err.show { display: flex; }
-  /* Hide EmulatorJS chrome by default — parent toggles `.show-controls` to reveal */
-  .ejs_menu_bar, .ejs_top_bar { opacity: 0 !important; pointer-events: none !important; transition: opacity .2s ease; }
-  body.show-controls .ejs_menu_bar,
-  body.show-controls .ejs_top_bar,
-  body.touch .ejs_menu_bar,
-  body.touch .ejs_top_bar { opacity: 1 !important; pointer-events: auto !important; }
-</style>
-</head>
-<body>
-<div id="display"></div>
-<div id="err">No ROM specified. Pass <code>?rom=&lt;filename&gt;</code>.</div>
-<script>
-  (function () {
-    var params = new URLSearchParams(location.search);
-    var rom = params.get('rom') || '';
-    if (!rom) {
-      document.getElementById('err').classList.add('show');
-      return;
-    }
-    var romUrl = '/TurboGrafx-16/' + encodeURIComponent(rom);
-    var title = rom.replace(/\.pce$/i, '');
-    document.title = title || 'TurboGrafx-16';
-
-    if ('ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0) {
-      document.body.classList.add('touch');
-    }
-
-    window.EJS_player = '#display';
-    // Full Beetle PCE / Mednafen PCE libretro core (more accurate than pce_fast).
-    window.EJS_core = 'mednafen_pce';
-    window.EJS_gameUrl = romUrl;
-    window.EJS_gameName = title;
-    window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
-    window.EJS_startOnLoaded = true;
-    window.EJS_color = '#7CFF4F';
-
-    function postParent(type) {
-      try { window.parent.postMessage({ type: type }, '*'); } catch (_) {}
-    }
-
-    // Attach a parent-notify listener to the "Exit Emulation" menu button.
-    // EmulatorJS doesn't expose an exit() method, so we hook the DOM button.
-    function hookExitButton() {
-      var buttons = document.querySelectorAll('.ejs_menu_button');
-      for (var i = 0; i < buttons.length; i++) {
-        var b = buttons[i];
-        var text = (b.textContent || '').trim();
-        if (text === 'Exit Emulation' && !b.dataset.tg16Hooked) {
-          b.dataset.tg16Hooked = '1';
-          b.addEventListener('click', function () { postParent('tg16-exit'); });
-          return true;
-        }
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>TurboGrafx-16</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        color: #9cff6b;
+        font-family: "Share Tech Mono", monospace;
       }
-      return false;
-    }
-    window.EJS_ready = function () {
-      if (hookExitButton()) return;
-      // Button may render slightly after EJS_ready — observe until it appears.
-      var mo = new MutationObserver(function () {
-        if (hookExitButton()) mo.disconnect();
-      });
-      mo.observe(document.body, { childList: true, subtree: true });
-      setTimeout(function () { mo.disconnect(); }, 15000);
-    };
+      #display {
+        width: 100%;
+        height: 100%;
+      }
+      #err {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 2em;
+      }
+      #err.show {
+        display: flex;
+      }
+      /* Hide EmulatorJS chrome by default — parent toggles `.show-controls` to reveal */
+      .ejs_menu_bar, .ejs_top_bar {
+        opacity: 0 !important;
+        pointer-events: none !important;
+        transition: opacity 0.2s ease;
+      }
+      body.show-controls .ejs_menu_bar,
+      body.show-controls .ejs_top_bar,
+      body.touch .ejs_menu_bar,
+      body.touch .ejs_top_bar {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="display"></div>
+    <div id="err">
+      No ROM specified. Pass <code>?rom=&lt;filename&gt;</code>.
+    </div>
+    <script>
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var rom = params.get("rom") || "";
+        if (!rom) {
+          document.getElementById("err").classList.add("show");
+          return;
+        }
+        var romUrl = "/TurboGrafx-16/" + encodeURIComponent(rom);
+        var title = rom.replace(/\.pce$/i, "");
+        document.title = title || "TurboGrafx-16";
 
-    // Parent controls EJS chrome visibility (gamepad combo / touch).
-    window.addEventListener('message', function (e) {
-      var d = e.data || {};
-      if (d.type === 'tg16-show-controls') document.body.classList.add('show-controls');
-      else if (d.type === 'tg16-hide-controls') document.body.classList.remove('show-controls');
-    });
+        if ("ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0) {
+          document.body.classList.add("touch");
+        }
 
-    // First touch inside the game iframe tells the parent to drop its close
-    // button + controller-legend overlay so they don't obscure play.
-    var touchReported = false;
-    function reportFirstTouch() {
-      if (touchReported) return;
-      touchReported = true;
-      try { window.parent.postMessage({ type: 'tg16-first-touch' }, window.location.origin); } catch (_) {}
-      window.removeEventListener('touchstart', reportFirstTouch, true);
-      window.removeEventListener('pointerdown', reportFirstTouch, true);
-    }
-    window.addEventListener('touchstart', reportFirstTouch, { capture: true, passive: true });
-    window.addEventListener('pointerdown', reportFirstTouch, { capture: true, passive: true });
+        window.EJS_player = "#display";
+        // Full Beetle PCE / Mednafen PCE libretro core (more accurate than pce_fast).
+        window.EJS_core = "mednafen_pce";
+        window.EJS_gameUrl = romUrl;
+        window.EJS_gameName = title;
+        window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+        window.EJS_startOnLoaded = true;
+        window.EJS_color = "#7CFF4F";
 
-    // Nintendo Online SNES Controller (Vendor 057e Product 2017) reports its
-    // D-pad on axes[9] as an 8-direction hat switch — a single value encoding
-    // one of 8 directions plus neutral. EmulatorJS's EXTRA_STICK mappings only
-    // check the sign of an axis, so Down/Left/Right all collide as "positive".
-    //
-    // Instead, wrap navigator.getGamepads to *decode* the hat and synthesize
-    // proper DPAD_UP/DOWN/LEFT/RIGHT button presses at indices 12-15. With
-    // those buttons in place, EmulatorJS's stock defaults just work and so do
-    // diagonals.
-    var SNES_RE = /SNES Controller|057e.{0,8}2017/i;
+        function postParent(type) {
+          try {
+            window.parent.postMessage({ type: type }, "*");
+          } catch (_) {}
+        }
 
-    function decodeHat(v) {
-      var none = { up: false, down: false, left: false, right: false };
-      if (typeof v !== 'number' || v < -1.05 || v > 1.05) return none;
-      // Standard 8-direction hat encoding: -1..1 mapped to 8 slots.
-      //   -7/7 = Up, -5/7 = Up-Right, -3/7 = Right, -1/7 = Down-Right,
-      //    1/7 = Down,  3/7 = Down-Left,  5/7 = Left,  7/7 = Up-Left.
-      var pos = Math.round((v + 1) * 3.5); // 0..7
-      var labels = ['up','upright','right','downright','down','downleft','left','upleft'];
-      var d = labels[pos] || '';
-      return {
-        up:    d === 'up'    || d === 'upright'    || d === 'upleft',
-        down:  d === 'down'  || d === 'downright'  || d === 'downleft',
-        left:  d === 'left'  || d === 'downleft'   || d === 'upleft',
-        right: d === 'right' || d === 'upright'    || d === 'downright',
-      };
-    }
-
-    function mkBtn(pressed) {
-      return { pressed: pressed, touched: pressed, value: pressed ? 1 : 0 };
-    }
-
-    function wrapSnesPad(p) {
-      // Use a Proxy so EmulatorJS sees a fresh `buttons` array each frame with
-      // synthesized D-pad entries at 12-15. All other properties pass through.
-      return new Proxy(p, {
-        get: function (t, prop) {
-          if (prop === 'buttons') {
-            var dirs = decodeHat(t.axes[9]);
-            var orig = t.buttons;
-            var out = new Array(Math.max(orig.length, 16));
-            for (var i = 0; i < out.length; i++) {
-              out[i] = orig[i] || mkBtn(false);
+        // Attach a parent-notify listener to the "Exit Emulation" menu button.
+        // EmulatorJS doesn't expose an exit() method, so we hook the DOM button.
+        function hookExitButton() {
+          var buttons = document.querySelectorAll(".ejs_menu_button");
+          for (var i = 0; i < buttons.length; i++) {
+            var b = buttons[i];
+            var text = (b.textContent || "").trim();
+            if (text === "Exit Emulation" && !b.dataset.tg16Hooked) {
+              b.dataset.tg16Hooked = "1";
+              b.addEventListener("click", function () {
+                postParent("tg16-exit");
+              });
+              return true;
             }
-            if (dirs.up)    out[12] = mkBtn(true);
-            if (dirs.down)  out[13] = mkBtn(true);
-            if (dirs.left)  out[14] = mkBtn(true);
-            if (dirs.right) out[15] = mkBtn(true);
-            return out;
           }
-          var v = t[prop];
-          return typeof v === 'function' ? v.bind(t) : v;
+          return false;
         }
-      });
-    }
+        window.EJS_ready = function () {
+          if (hookExitButton()) return;
+          // Button may render slightly after EJS_ready — observe until it appears.
+          var mo = new MutationObserver(function () {
+            if (hookExitButton()) mo.disconnect();
+          });
+          mo.observe(document.body, { childList: true, subtree: true });
+          setTimeout(function () {
+            mo.disconnect();
+          }, 15000);
+        };
 
-    var origGetGamepads = navigator.getGamepads.bind(navigator);
-    navigator.getGamepads = function () {
-      var pads = origGetGamepads() || [];
-      // Returning an Array is fine; EmulatorJS iterates by index + length.
-      var out = [];
-      for (var i = 0; i < pads.length; i++) {
-        var p = pads[i];
-        if (p && p.connected && SNES_RE.test(p.id || '')) out.push(wrapSnesPad(p));
-        else out.push(p);
-      }
-      return out;
-    };
+        // Parent controls EJS chrome visibility (gamepad combo / touch).
+        window.addEventListener("message", function (e) {
+          var d = e.data || {};
+          if (d.type === "tg16-show-controls") {
+            document.body.classList.add("show-controls");
+          } else if (d.type === "tg16-hide-controls") {
+            document.body.classList.remove("show-controls");
+          }
+        });
 
-    var s = document.createElement('script');
-    s.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
-    document.body.appendChild(s);
-  })();
-</script>
-</body>
+        // Keyboard fallback for revealing the control bar. The gamepad chord
+        // (SELECT + R / Down) is the primary path, but it's useless when the
+        // Gamepad API sees no pad — e.g. Flatpak Chrome launched via Steam. F1
+        // toggles the bar so the menu (incl. Exit) stays reachable by keyboard,
+        // mouse, or touch. During play the iframe holds focus, so this listener —
+        // not the parent's — is the one that fires; it notifies the parent, which
+        // owns the visibility state and echoes tg16-show/hide-controls back.
+        window.addEventListener("keydown", function (e) {
+          if (e.key === "F1" || e.keyCode === 112) {
+            e.preventDefault();
+            postParent("tg16-toggle-controls");
+          }
+        }, true);
+
+        // First touch inside the game iframe tells the parent to drop its close
+        // button + controller-legend overlay so they don't obscure play.
+        var touchReported = false;
+        function reportFirstTouch() {
+          if (touchReported) return;
+          touchReported = true;
+          try {
+            window.parent.postMessage(
+              { type: "tg16-first-touch" },
+              window.location.origin,
+            );
+          } catch (_) {}
+          window.removeEventListener("touchstart", reportFirstTouch, true);
+          window.removeEventListener("pointerdown", reportFirstTouch, true);
+        }
+        window.addEventListener("touchstart", reportFirstTouch, {
+          capture: true,
+          passive: true,
+        });
+        window.addEventListener("pointerdown", reportFirstTouch, {
+          capture: true,
+          passive: true,
+        });
+
+        // Nintendo Online SNES Controller (Vendor 057e Product 2017) reports its
+        // D-pad on axes[9] as an 8-direction hat switch — a single value encoding
+        // one of 8 directions plus neutral. EmulatorJS's EXTRA_STICK mappings only
+        // check the sign of an axis, so Down/Left/Right all collide as "positive".
+        //
+        // Instead, wrap navigator.getGamepads to *decode* the hat and synthesize
+        // proper DPAD_UP/DOWN/LEFT/RIGHT button presses at indices 12-15. With
+        // those buttons in place, EmulatorJS's stock defaults just work and so do
+        // diagonals.
+        var SNES_RE = /SNES Controller|057e.{0,8}2017/i;
+
+        function decodeHat(v) {
+          var none = { up: false, down: false, left: false, right: false };
+          if (typeof v !== "number" || v < -1.05 || v > 1.05) return none;
+          // Standard 8-direction hat encoding: -1..1 mapped to 8 slots.
+          //   -7/7 = Up, -5/7 = Up-Right, -3/7 = Right, -1/7 = Down-Right,
+          //    1/7 = Down,  3/7 = Down-Left,  5/7 = Left,  7/7 = Up-Left.
+          var pos = Math.round((v + 1) * 3.5); // 0..7
+          var labels = [
+            "up",
+            "upright",
+            "right",
+            "downright",
+            "down",
+            "downleft",
+            "left",
+            "upleft",
+          ];
+          var d = labels[pos] || "";
+          return {
+            up: d === "up" || d === "upright" || d === "upleft",
+            down: d === "down" || d === "downright" || d === "downleft",
+            left: d === "left" || d === "downleft" || d === "upleft",
+            right: d === "right" || d === "upright" || d === "downright",
+          };
+        }
+
+        function mkBtn(pressed) {
+          return { pressed: pressed, touched: pressed, value: pressed ? 1 : 0 };
+        }
+
+        function wrapSnesPad(p) {
+          // Use a Proxy so EmulatorJS sees a fresh `buttons` array each frame with
+          // synthesized D-pad entries at 12-15. All other properties pass through.
+          return new Proxy(p, {
+            get: function (t, prop) {
+              if (prop === "buttons") {
+                var dirs = decodeHat(t.axes[9]);
+                var orig = t.buttons;
+                var out = new Array(Math.max(orig.length, 16));
+                for (var i = 0; i < out.length; i++) {
+                  out[i] = orig[i] || mkBtn(false);
+                }
+                if (dirs.up) out[12] = mkBtn(true);
+                if (dirs.down) out[13] = mkBtn(true);
+                if (dirs.left) out[14] = mkBtn(true);
+                if (dirs.right) out[15] = mkBtn(true);
+                return out;
+              }
+              var v = t[prop];
+              return typeof v === "function" ? v.bind(t) : v;
+            },
+          });
+        }
+
+        var origGetGamepads = navigator.getGamepads.bind(navigator);
+        navigator.getGamepads = function () {
+          var pads = origGetGamepads() || [];
+          // Returning an Array is fine; EmulatorJS iterates by index + length.
+          var out = [];
+          for (var i = 0; i < pads.length; i++) {
+            var p = pads[i];
+            if (p && p.connected && SNES_RE.test(p.id || "")) {
+              out.push(wrapSnesPad(p));
+            } else out.push(p);
+          }
+          return out;
+        };
+
+        var s = document.createElement("script");
+        s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
+        document.body.appendChild(s);
+      })();
+    </script>
+  </body>
 </html>

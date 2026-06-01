@@ -789,7 +789,20 @@
 
   function onKey(e) {
     if (gameOn) {
-      if (e.key === 'Escape') closeGame();
+      // F1 toggles the emulator control bar — keyboard fallback for the gamepad
+      // chord, usable when no gamepad is detected (e.g. Flatpak Chrome under
+      // Steam). Fires when the parent holds focus; play.html handles the case
+      // where the game iframe has focus and posts tg16-toggle-controls back.
+      if (e.key === 'F1' || e.keyCode === 112) {
+        e.preventDefault();
+        if (isTg16Game) { chromeDismissed = false; controlsShown = !controlsShown; sfx.nav(); }
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (controlsShown) { controlsShown = false; sfx.back(); }
+        else closeGame();
+        return;
+      }
       return;
     }
     if (screen === 'dashboard') {
@@ -835,6 +848,14 @@
     if (!isMessageFromOwnGameIframe(e)) return;
     const d = e?.data || {};
     if (d.type === 'tg16-exit') closeGame();
+    else if (d.type === 'tg16-toggle-controls') {
+      // F1 inside the focused game iframe — toggle the OSD/control bar. This is
+      // the keyboard fallback for the gamepad chord (see play.html), so the
+      // emulator menu (incl. Exit) is reachable even when no gamepad is seen.
+      chromeDismissed = false;
+      controlsShown = !controlsShown;
+      sfx.nav();
+    }
     else if (d.type === 'tg16-first-touch') chromeDismissed = true;
     else if (d.type === 'psx-byod-ready') {
       // Send the BYOD disc File over to the play iframe via structured clone
