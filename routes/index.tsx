@@ -18,7 +18,11 @@ export default define.page(function Home() {
           rel="stylesheet"
         />
         <link key="dashboard-css" rel="stylesheet" href="/dashboard.css" />
-        <link key="manifest" rel="manifest" href="/app-icons/manifest.webmanifest" />
+        <link
+          key="manifest"
+          rel="manifest"
+          href="/app-icons/manifest.webmanifest"
+        />
         <link
           key="favicon"
           rel="icon"
@@ -29,7 +33,7 @@ export default define.page(function Home() {
         <link
           key="apple-touch"
           rel="apple-touch-icon"
-          href="/app-icons/icon-180.png"
+          href="/app-icons/ios/icon-180.png"
         />
         <meta key="theme-color" name="theme-color" content="#000000" />
       </Head>
