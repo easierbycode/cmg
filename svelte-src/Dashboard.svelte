@@ -89,17 +89,10 @@
   let padHadConnection = $state(false);
   let padConnected = $state(false);
   let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/')));
-  // The Goofy demo has its own on-screen controls; suppress the dashboard's
-  // controller-legend OSD so it doesn't overlay the demo.
-  let isGoofyGame = $derived(typeof gameSrc === 'string' && gameSrc.startsWith('/demos/goofy-game'));
-  // On touch devices the close button + OSD legend cover the game; first touch
-  // dismisses both so they don't obscure play. Reset on every game launch.
+  // On touch devices the close button covers the game; first touch dismisses it
+  // so it doesn't obscure play. Reset on every game launch.
   let chromeDismissed = $state(false);
   let showCloseBtn = $derived(gameOn && (isTouch || controlsShown) && !chromeDismissed);
-  let showOsd = $derived(gameOn && (controlsShown || (isTouch && !padHadConnection)) && !chromeDismissed && !isGoofyGame);
-
-  function osdCloseGame() { closeGame(); }
-  function osdHide() { controlsShown = false; chromeDismissed = true; }
 
   $effect(() => {
     if (screen !== 'games') return;
@@ -1274,19 +1267,6 @@
 <div class="game-iframe {gameOn ? 'on' : ''}">
   {#if showCloseBtn}
     <button type="button" class="close-game" onclick={closeGame}>⨯ Close</button>
-  {/if}
-  {#if showOsd}
-    <div class="pad-osd">
-      <div class="osd-card">
-        <div class="osd-label">Controller</div>
-        <div class="osd-diamond">
-          <div class="osd-btn top" aria-hidden="true">X</div>
-          <button type="button" class="osd-btn right tap" aria-label="Hide controls" onclick={osdHide}>A</button>
-          <button type="button" class="osd-btn bottom press tap" aria-label="Close game" onclick={osdCloseGame}>B</button>
-          <div class="osd-btn left" aria-hidden="true">Y</div>
-        </div>
-      </div>
-    </div>
   {/if}
   <iframe
     id={gameOn ? 'gameframe' : undefined}
