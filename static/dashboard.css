@@ -195,7 +195,7 @@ body.pad-on, body.pad-on * { cursor: none !important; }
 }
 .games-screen.shown { opacity: 1; transform: scale(1); filter: blur(0); pointer-events: auto; }
 
-.games-panel { position: relative; width: min(92vw, 1180px); height: min(86vh, 820px); display: grid; grid-template-columns: 24vmin 1fr; grid-template-rows: 1fr; gap: 3vmin; overflow: hidden; }
+.games-panel { position: relative; width: min(92vw, 2400px); height: min(92vh, 1500px); display: grid; grid-template-columns: 24vmin 1fr; grid-template-rows: 1fr; gap: 3vmin; overflow: hidden; }
 .disc-col { display: flex; flex-direction: column; align-items: center; gap: 2.4vmin; padding-top: 4vmin; }
 .disc {
   width: 19vmin; height: 19vmin; max-width: 220px; max-height: 220px; min-width: 140px; min-height: 140px;
