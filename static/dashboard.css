@@ -5,6 +5,7 @@
   --yellow: #F6FF4A;
   --yellow-hot: #FFEE5A;
   --tile-edge: rgba(140, 255, 110, .55);
+  --breathe-mult: 1; /* OSD "Breathe speed" tweak scales the breathe animations */
 }
 
 * { box-sizing: border-box; }
@@ -39,6 +40,7 @@ body.pad-on, body.pad-on * { cursor: none !important; }
 
 /* Scan + vignette */
 .scan { position: fixed; inset: 0; pointer-events: none; z-index: 50; background: repeating-linear-gradient(180deg, rgba(0, 255, 120, .035) 0 1px, transparent 1px 3px); mix-blend-mode: screen; }
+body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .vignette { position: fixed; inset: 0; pointer-events: none; z-index: 51; background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, .88) 100%); }
 .noise { position: fixed; inset: 0; pointer-events: none; z-index: 49; opacity: .05; mix-blend-mode: overlay; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.7  0 0 0 0 1  0 0 0 0 0.5  0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"); }
 
@@ -70,7 +72,7 @@ body.pad-on, body.pad-on * { cursor: none !important; }
 .orb {
   position: relative; width: 56vmin; height: 56vmin; max-width: 560px; max-height: 560px;
   display: flex; align-items: center; justify-content: center;
-  animation: breathe 5.2s ease-in-out infinite;
+  animation: breathe calc(5.2s / var(--breathe-mult, 1)) ease-in-out infinite;
 }
 @keyframes breathe {
   0%, 100% { filter: drop-shadow(0 0 28px rgba(120, 255, 80, .45)) drop-shadow(0 0 80px rgba(60, 220, 90, .35)); transform: scale(1); }
@@ -93,7 +95,7 @@ body.pad-on, body.pad-on * { cursor: none !important; }
 .orb .glyph {
   position: relative; z-index: 3; font-size: 22vmin; line-height: 1;
   filter: drop-shadow(0 0 18px rgba(40, 30, 10, .7));
-  animation: glyphFloat 5.2s ease-in-out infinite;
+  animation: glyphFloat calc(5.2s / var(--breathe-mult, 1)) ease-in-out infinite;
 }
 @keyframes glyphFloat { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-2%) rotate(3deg); } }
 .orb::before, .orb::after {
@@ -109,7 +111,7 @@ body.pad-on, body.pad-on * { cursor: none !important; }
 .item {
   position: relative; display: flex; align-items: center; gap: 2.4vmin;
   height: 9vmin; max-height: 96px; min-height: 62px; cursor: pointer;
-  animation: itemBreathe 4.8s ease-in-out infinite;
+  animation: itemBreathe calc(4.8s / var(--breathe-mult, 1)) ease-in-out infinite;
 }
 .item:nth-child(2) { animation-delay: -1.6s; }
 .item:nth-child(3) { animation-delay: -3.2s; }
@@ -246,7 +248,7 @@ body.pad-on, body.pad-on * { cursor: none !important; }
 .game-row {
   position: relative; display: flex; align-items: center; gap: 2.2vmin;
   height: 8vmin; max-height: 78px; min-height: 58px; cursor: pointer;
-  animation: rowBreathe 4.6s ease-in-out infinite;
+  animation: rowBreathe calc(4.6s / var(--breathe-mult, 1)) ease-in-out infinite;
 }
 .game-row:nth-child(2n) { animation-delay: -1.2s; }
 .game-row:nth-child(3n) { animation-delay: -2.4s; }
@@ -311,13 +313,12 @@ body.pad-on, body.pad-on * { cursor: none !important; }
 }
 .game-iframe.on { opacity: 1; transform: scale(1); pointer-events: auto; }
 .game-iframe iframe { width: 100%; height: 100%; border: 0; background: #000; }
-.close-game {
-  position: fixed; top: 1.5vmin; right: 1.5vmin; z-index: 100; cursor: pointer;
-  background: rgba(0, 0, 0, .6); border: 1px solid var(--tile-edge); color: #dfffc4;
-  padding: .7em 1.1em; font-family: 'Orbitron'; font-weight: 700; letter-spacing: .18em; font-size: 13px;
-  text-transform: uppercase;
-}
-.close-game:hover { background: rgba(40, 110, 55, .7); }
+/* In-game OSD trigger zones — small transparent corners layered above the game
+   iframe (z 99). A simultaneous touch in both (bottom-left + top-right) opens
+   the Guide. Kept small to minimize overlap with a game's own corner controls. */
+.osd-corner { position: fixed; width: min(13vmin, 104px); height: min(13vmin, 104px); z-index: 102; background: transparent; -webkit-tap-highlight-color: transparent; }
+.osd-corner.bl { left: 0; bottom: 0; }
+.osd-corner.tr { right: 0; top: 0; }
 
 /* BYOD (Bring Your Own Disc) — shown when the PSX game list is empty */
 .byod {

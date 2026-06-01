@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import Osd from './Osd.svelte';
 
   // Primary game-list source is the deployed app's manifest. A launcher binary
   // serves its own embedded copy from localhost, so it must reach out to the
@@ -89,10 +90,94 @@
   let padHadConnection = $state(false);
   let padConnected = $state(false);
   let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/')));
-  // On touch devices the close button covers the game; first touch dismisses it
-  // so it doesn't obscure play. Reset on every game launch.
+  // First touch in-game dismisses transient chrome (kept for the tg16 message
+  // path). The upper-right close button is gone — Exit Game in the OSD replaces it.
   let chromeDismissed = $state(false);
-  let showCloseBtn = $derived(gameOn && (isTouch || controlsShown) && !chromeDismissed);
+
+  // ─── In-game OSD ("Guide") ───────────────────────────────────────────────
+  // Opened by SELECT + Down (gamepad) or a two-finger bottom-left + top-right
+  // tap (touch). Game section = Exit Game + Controller Settings; Look section =
+  // the design's tweaks (persisted to localStorage, applied to the dashboard).
+  let osdOpen = $state(false);
+  let osdSel = $state(0);
+  const osdNav = { vDir: 0, hDir: 0 }; // edge-latch for gamepad nav while open
+  const HUE_SWATCHES = [
+    { hex: '#7CFF4F', hue: 130 }, // green (default)
+    { hex: '#4FB8FF', hue: 235 }, // blue
+    { hex: '#FF6FB1', hue: 350 }, // pink
+    { hex: '#FFB13D', hue: 60 },  // amber
+    { hex: '#C18BFF', hue: 290 }, // violet
+    { hex: '#56F0E2', hue: 190 }, // cyan
+  ];
+  const TWEAK_KEY = 'cmg-tweaks';
+  const TWEAK_DEFAULTS = { hue: 130, breatheSpeed: 1, scanlines: true, discoMode: false };
+  function loadTweaks() {
+    try { return { ...TWEAK_DEFAULTS, ...JSON.parse(localStorage.getItem(TWEAK_KEY) || '{}') }; }
+    catch (_) { return { ...TWEAK_DEFAULTS }; }
+  }
+  let tweaks = $state(loadTweaks());
+  function setTweak(key, value) {
+    tweaks = { ...tweaks, [key]: value };
+    try { localStorage.setItem(TWEAK_KEY, JSON.stringify(tweaks)); } catch (_) {}
+  }
+
+  // Flat, ordered list the OSD renders and gamepad/keyboard nav indexes into.
+  let osdItems = $derived.by(() => {
+    const list = [
+      { key: 'exit', kind: 'button', section: 'Game', label: 'Exit Game' },
+      { key: 'controller', kind: 'button', label: 'Controller Settings' },
+    ];
+    // EmulatorJS control bar toggle is only meaningful for the TG-16/PSX cores.
+    if (isTg16Game) {
+      list.push({ key: 'emucontrols', kind: 'toggle', label: 'Emulator Controls', value: controlsShown });
+    }
+    list.push(
+      { key: 'hue', kind: 'color', section: 'Look', label: 'Glow color', value: tweaks.hue, options: HUE_SWATCHES },
+      { key: 'breathe', kind: 'slider', label: 'Breathe speed', value: tweaks.breatheSpeed, min: 0.4, max: 2.2, step: 0.1, unit: '×' },
+      { key: 'scanlines', kind: 'toggle', label: 'Scanlines', value: tweaks.scanlines },
+      { key: 'disco', kind: 'toggle', label: 'Disco mode', value: tweaks.discoMode },
+    );
+    return list;
+  });
+
+  function openOsd() { osdSel = 0; osdNav.vDir = 0; osdNav.hDir = 0; osdOpen = true; sfx.enter(); }
+  function closeOsd() { osdOpen = false; sfx.back(); }
+  function setOsdValue(i, v) {
+    const it = osdItems[i]; if (!it) return;
+    if (it.key === 'hue') setTweak('hue', v);
+    else if (it.key === 'breathe') setTweak('breatheSpeed', Math.round(v * 10) / 10);
+    else if (it.key === 'scanlines') setTweak('scanlines', !!v);
+    else if (it.key === 'disco') setTweak('discoMode', !!v);
+    else if (it.key === 'emucontrols') controlsShown = !!v;
+  }
+  function adjustOsd(i, dir) {
+    const it = osdItems[i]; if (!it) return;
+    if (it.kind === 'slider') {
+      const v = Math.max(it.min, Math.min(it.max, Math.round((it.value + dir * it.step) * 10) / 10));
+      setOsdValue(i, v); sfx.nav();
+    } else if (it.kind === 'color') {
+      const idx = Math.max(0, it.options.findIndex((o) => o.hue === it.value));
+      setOsdValue(i, it.options[(idx + dir + it.options.length) % it.options.length].hue); sfx.nav();
+    } else if (it.kind === 'toggle') {
+      setOsdValue(i, dir > 0); sfx.nav();
+    }
+  }
+  function activateOsd(i) {
+    const it = osdItems[i]; if (!it) return;
+    if (it.kind === 'toggle') { setOsdValue(i, !it.value); sfx.nav(); return; }
+    if (it.kind === 'color' || it.kind === 'slider') { adjustOsd(i, 1); return; }
+    if (it.key === 'exit') { sfx.enter(); osdOpen = false; closeGame(); }
+    else if (it.key === 'controller') { sfx.enter(); osdOpen = false; try { window.openControllerConfigurator?.(); } catch (_) {} }
+  }
+
+  // Two-finger corner gesture (bottom-left + top-right at once) opens the OSD on
+  // touch, where the SELECT + Down chord isn't available.
+  const cornerState = { bl: false, tr: false };
+  function cornerDown(c) {
+    cornerState[c] = true;
+    if (cornerState.bl && cornerState.tr) { cornerState.bl = false; cornerState.tr = false; openOsd(); }
+  }
+  function cornerUp(c) { cornerState[c] = false; }
 
   $effect(() => {
     if (screen !== 'games') return;
@@ -654,40 +739,51 @@
     let pad = null;
     for (const p of pads) { if (p && p.connected) { pad = p; break; } }
     if (gameOn) {
-      // Yield navigation to gamepad-support.js, but still detect a chord to
-      // toggle the close button + in-iframe EmulatorJS controls. Primary
-      // chord is SELECT + R shoulder (works on SNES adapters whose D-pad
-      // isn't recognized); we also accept SELECT + Down for full-size pads.
+      // While a game is up we yield input to gamepad-support.js (it dispatches
+      // keys into #gameframe). Here we only watch for the OSD open-chord, and
+      // drive OSD navigation while it's open — body.osd-open makes
+      // gamepad-support yield, so these presses don't leak into the game.
       padState.axisDir = 0;
-      if (!pad) {
-        padState.btn.clear();
-        padState.comboLatched = false;
+      if (!pad) { padState.btn.clear(); padState.comboLatched = false; osdNav.vDir = 0; osdNav.hDir = 0; return; }
+      const pressedNow = new Set();
+      pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
+      const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
+
+      if (osdOpen) {
+        // Vertical: D-pad 12/13 or left-stick Y → move selection (edge-latched).
+        let v = 0;
+        if (pad.buttons[12]?.pressed) v = -1;
+        else if (pad.buttons[13]?.pressed) v = 1;
+        else { const ay = pad.axes[1] ?? 0; if (ay < -PAD_DEADZONE) v = -1; else if (ay > PAD_DEADZONE) v = 1; }
+        if (v !== 0 && v !== osdNav.vDir) {
+          osdSel = Math.max(0, Math.min(osdItems.length - 1, osdSel + v));
+          sfx.nav();
+        }
+        osdNav.vDir = v;
+        // Horizontal: D-pad 14/15 or left-stick X → adjust the focused control.
+        let h = 0;
+        if (pad.buttons[14]?.pressed) h = -1;
+        else if (pad.buttons[15]?.pressed) h = 1;
+        else { const ax = pad.axes[0] ?? 0; if (ax < -PAD_DEADZONE) h = -1; else if (ax > PAD_DEADZONE) h = 1; }
+        if (h !== 0 && h !== osdNav.hDir) adjustOsd(osdSel, h);
+        osdNav.hDir = h;
+        if (justPressed(0)) activateOsd(osdSel);              // A
+        else if (justPressed(1) || justPressed(8)) closeOsd(); // B or Select
+        padState.btn = pressedNow;
         return;
       }
+
+      // OSD closed: SELECT + Down opens it (SELECT + R is the SNES-adapter
+      // fallback for pads whose D-pad isn't recognized).
       const selectBtn = !!pad.buttons[8]?.pressed;
       const rShoulder = !!pad.buttons[5]?.pressed;
       const dpadDown = !!pad.buttons[13]?.pressed;
       const ayDown = (pad.axes[1] ?? 0) > PAD_DEADZONE;
-      const combo = selectBtn && (rShoulder || dpadDown || ayDown);
-      if (combo && !padState.comboLatched) {
-        padState.comboLatched = true;
-        controlsShown = !controlsShown;
-        sfx.nav();
-      } else if (!combo) {
-        padState.comboLatched = false;
-      }
-      // When the OSD is visible, capture A/B face presses to close OSD/game
-      // before gamepad-support.js forwards them into the iframe.
-      if (controlsShown) {
-        const pressedNow = new Set();
-        pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
-        const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
-        if (justPressed(0)) { closeGame(); }
-        else if (justPressed(1)) { controlsShown = false; sfx.back(); }
-        padState.btn = pressedNow;
-      } else {
-        padState.btn.clear();
-      }
+      const combo = selectBtn && (dpadDown || ayDown || rShoulder);
+      if (combo && !padState.comboLatched) { padState.comboLatched = true; openOsd(); }
+      else if (!combo) padState.comboLatched = false;
+      osdNav.vDir = 0; osdNav.hDir = 0;
+      padState.btn = pressedNow;
       return;
     }
     if (!pad) { padState.btn.clear(); padState.axisDir = 0; if (padConnected) padConnected = false; return; }
@@ -794,20 +890,24 @@
 
   function onKey(e) {
     if (gameOn) {
-      // The ` / ~ key (Backquote, with or without Shift) toggles the emulator
-      // control bar — a keyboard stand-in for the SELECT + Down gamepad chord,
-      // usable when no gamepad is detected (e.g. Flatpak Chrome under Steam).
-      // Fires when the parent holds focus; play.html handles the case where the
-      // game iframe has focus and posts tg16-toggle-controls back.
-      if (e.code === 'Backquote' || e.key === '`' || e.key === '~' || e.keyCode === 192) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        if (isTg16Game) { chromeDismissed = false; controlsShown = !controlsShown; sfx.nav(); }
+      if (osdOpen) {
+        // Keyboard nav of the OSD (mirrors the gamepad mapping).
+        if (e.key === 'ArrowDown') { osdSel = Math.min(osdSel + 1, osdItems.length - 1); sfx.nav(); e.preventDefault(); }
+        else if (e.key === 'ArrowUp') { osdSel = Math.max(osdSel - 1, 0); sfx.nav(); e.preventDefault(); }
+        else if (e.key === 'ArrowLeft') { adjustOsd(osdSel, -1); e.preventDefault(); }
+        else if (e.key === 'ArrowRight') { adjustOsd(osdSel, 1); e.preventDefault(); }
+        else if (e.key === 'Enter' || e.key === ' ') { activateOsd(osdSel); e.preventDefault(); }
+        else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B') { closeOsd(); e.preventDefault(); }
         return;
       }
-      if (e.key === 'Escape') {
-        if (controlsShown) { controlsShown = false; sfx.back(); }
-        else closeGame();
+      // The ` / ~ key (Backquote) and Escape open the OSD — a keyboard stand-in
+      // for the SELECT + Down gamepad chord, usable when no gamepad is detected
+      // (e.g. Flatpak Chrome under Steam). play.html posts tg16-toggle-controls
+      // back when the game iframe holds focus instead.
+      if (e.code === 'Backquote' || e.key === '`' || e.key === '~' || e.keyCode === 192 || e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        openOsd();
         return;
       }
       return;
@@ -856,12 +956,9 @@
     const d = e?.data || {};
     if (d.type === 'tg16-exit') closeGame();
     else if (d.type === 'tg16-toggle-controls') {
-      // F1 inside the focused game iframe — toggle the OSD/control bar. This is
-      // the keyboard fallback for the gamepad chord (see play.html), so the
-      // emulator menu (incl. Exit) is reachable even when no gamepad is seen.
-      chromeDismissed = false;
-      controlsShown = !controlsShown;
-      sfx.nav();
+      // ` / F1 inside the focused game iframe (see play.html) — open the OSD so
+      // the in-game menu (incl. Exit) is reachable even when no gamepad is seen.
+      if (osdOpen) closeOsd(); else openOsd();
     }
     else if (d.type === 'tg16-first-touch') chromeDismissed = true;
     else if (d.type === 'psx-byod-ready') {
@@ -924,7 +1021,9 @@
 
   $effect(() => {
     if (!gameOn || !isTg16Game) return;
-    postToGameframe(controlsShown || isTouch ? 'tg16-show-controls' : 'tg16-hide-controls');
+    // Driven by the OSD's "Emulator Controls" toggle — shows/hides EmulatorJS's
+    // in-iframe control bar.
+    postToGameframe(controlsShown ? 'tg16-show-controls' : 'tg16-hide-controls');
   });
 
   $effect(() => {
@@ -932,6 +1031,42 @@
     // into iframe#gameframe. It only dispatches when body.playing is set.
     if (gameOn) document.body.classList.add('playing');
     else document.body.classList.remove('playing');
+  });
+
+  // Reflect OSD visibility on <body> so gamepad-support.js's isAnyOverlayOpen()
+  // yields gamepad→key input to the game while the Guide is open.
+  $effect(() => {
+    if (osdOpen) document.body.classList.add('osd-open');
+    else document.body.classList.remove('osd-open');
+  });
+
+  // Apply the Look tweaks to the dashboard chrome (and the OSD, via the shared
+  // CSS vars). Persisted in setTweak(); re-applied whenever they change.
+  $effect(() => {
+    const root = document.documentElement;
+    if (!tweaks.discoMode) {
+      const h = tweaks.hue;
+      root.style.setProperty('--green-glow', `oklch(0.78 0.26 ${h})`);
+      root.style.setProperty('--green', `oklch(0.86 0.22 ${h})`);
+      root.style.setProperty('--tile-edge', `oklch(0.78 0.22 ${h} / 0.55)`);
+      root.style.setProperty('--green-deep', `oklch(0.4 0.18 ${h})`);
+    }
+    root.style.setProperty('--breathe-mult', String(tweaks.breatheSpeed));
+    document.body.classList.toggle('no-scan', !tweaks.scanlines);
+  });
+
+  // Disco mode — cycle the glow hue while enabled.
+  $effect(() => {
+    if (!tweaks.discoMode) return;
+    let h = tweaks.hue;
+    const root = document.documentElement;
+    const id = setInterval(() => {
+      h = (h + 4) % 360;
+      root.style.setProperty('--green-glow', `oklch(0.78 0.26 ${h})`);
+      root.style.setProperty('--green', `oklch(0.86 0.22 ${h})`);
+      root.style.setProperty('--tile-edge', `oklch(0.78 0.22 ${h} / 0.55)`);
+    }, 120);
+    return () => clearInterval(id);
   });
 
   onDestroy(() => {
@@ -945,6 +1080,7 @@
     window.removeEventListener('gamepaddisconnected', onPadDisconnect);
     document.body.classList.remove('playing');
     document.body.classList.remove('pad-on');
+    document.body.classList.remove('osd-open');
   });
 </script>
 
@@ -1283,9 +1419,6 @@
      500ms after closeGame() so the fade-out still plays before it unmounts. -->
 {#if gameSrc}
   <div class="game-iframe {gameOn ? 'on' : ''}">
-    {#if showCloseBtn}
-      <button type="button" class="close-game" onclick={closeGame}>⨯ Close</button>
-    {/if}
     <iframe
       id={gameOn ? 'gameframe' : undefined}
       src={gameSrc}
@@ -1295,3 +1428,20 @@
     ></iframe>
   </div>
 {/if}
+
+<!-- In-game OSD trigger: two-finger bottom-left + top-right tap. Small corner
+     hit-zones layered above the game iframe, rendered only while a game is up
+     and the OSD is closed. (Gamepad opens it with SELECT + Down; keyboard with
+     ` or Esc.) -->
+{#if gameOn && !osdOpen}
+  <div class="osd-corner bl" aria-hidden="true"
+       onpointerdown={() => cornerDown('bl')} onpointerup={() => cornerUp('bl')}
+       onpointercancel={() => cornerUp('bl')} onpointerleave={() => cornerUp('bl')}></div>
+  <div class="osd-corner tr" aria-hidden="true"
+       onpointerdown={() => cornerDown('tr')} onpointerup={() => cornerUp('tr')}
+       onpointercancel={() => cornerUp('tr')} onpointerleave={() => cornerUp('tr')}></div>
+{/if}
+
+<Osd open={osdOpen} items={osdItems} sel={osdSel}
+     onactivate={activateOsd} onsetvalue={setOsdValue}
+     onselect={(i) => (osdSel = i)} onclose={closeOsd} />
