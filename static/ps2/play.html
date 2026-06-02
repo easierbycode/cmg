@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>PlayStation 2</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        color: #9cff6b;
+        font-family: "Share Tech Mono", monospace;
+      }
+      #wrap {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      /* Play! renders to this canvas — its Emscripten/SDL build targets the
+         element with id="outputCanvas" (the selector is baked into the wasm).
+         Letterbox it to preserve the 4:3 output. */
+      #outputCanvas {
+        display: block;
+        max-width: 100%;
+        max-height: 100%;
+        background: #000;
+        image-rendering: pixelated;
+        outline: none;
+      }
+      #status {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 0.4em 0.6em;
+        font-size: 12px;
+        opacity: 0.6;
+        text-align: center;
+        pointer-events: none;
+      }
+      #err {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 2em;
+      }
+      #err.show { display: flex; }
+      /* Hide the cursor when a gamepad is driving (parent owns the pad). */
+      body.pad-on, body.pad-on * { cursor: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <canvas id="outputCanvas" width="640" height="480" tabindex="-1"></canvas>
+    </div>
+    <div id="status">booting Play!…</div>
+    <div id="err">No disc specified.</div>
+    <script>
+      (function () {
+        "use strict";
+        var params = new URLSearchParams(location.search);
+        var rom = params.get("rom") || "";
+        var byod = params.get("byod") === "1";
+
+        var statusEl = document.getElementById("status");
+        var errEl = document.getElementById("err");
+
+        function setStatus(t) { if (statusEl) statusEl.textContent = t; }
+        function fail(msg) {
+          if (errEl) { errEl.textContent = msg; errEl.classList.add("show"); }
+          if (statusEl) statusEl.style.display = "none";
+          try { console.error("[ps2] " + msg); } catch (_) {}
+        }
+
+        if (!byod && !rom) { fail("No disc specified."); return; }
+
+        // ── Cursor hide on gamepad (parent frame owns the pad; this iframe is
+        // same-origin with the dashboard, so read the parent's gamepads). ──
+        function anyParentPad() {
+          try {
+            var pp = window.parent;
+            if (pp && pp !== window && pp.navigator && pp.navigator.getGamepads) {
+              var pg = pp.navigator.getGamepads() || [];
+              for (var i = 0; i < pg.length; i++) {
+                if (pg[i] && pg[i].connected) return true;
+              }
+            }
+          } catch (_) { /* cross-origin or unavailable */ }
+          var lg = (navigator.getGamepads && navigator.getGamepads()) || [];
+          for (var j = 0; j < lg.length; j++) {
+            if (lg[j] && lg[j].connected) return true;
+          }
+          return false;
+        }
+        function refreshPadClass() {
+          document.body.classList.toggle("pad-on", anyParentPad());
+        }
+        window.addEventListener("gamepadconnected", refreshPadClass);
+        window.addEventListener("gamepaddisconnected", refreshPadClass);
+        refreshPadClass();
+        setInterval(refreshPadClass, 1000);
+
+        // Only accept control messages from our own (same-origin) parent.
+        function isFromOwnParent(e) {
+          if (e.origin && e.origin !== window.location.origin) return false;
+          return e.source === window.parent;
+        }
+
+        function postParent(type) {
+          try {
+            window.parent.postMessage({ type: type }, window.location.origin);
+          } catch (_) {}
+        }
+
+        // The ` / ~ key (Backquote) mirrors the SELECT + Down gamepad chord so
+        // the in-game OSD (which holds Exit Game) is reachable from a keyboard
+        // when no pad is seen. The dashboard listens for tg16-toggle-controls.
+        window.addEventListener("keydown", function (e) {
+          if (
+            e.code === "Backquote" || e.key === "`" || e.key === "~" ||
+            e.keyCode === 192
+          ) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            postParent("tg16-toggle-controls");
+          }
+        }, true);
+
+        // First touch tells the parent to drop transient chrome (parity with
+        // the PSX/TG16 players).
+        var touchReported = false;
+        function reportFirstTouch() {
+          if (touchReported) return;
+          touchReported = true;
+          postParent("tg16-first-touch");
+        }
+        window.addEventListener("touchstart", reportFirstTouch, {
+          capture: true, passive: true,
+        });
+        window.addEventListener("pointerdown", reportFirstTouch, {
+          capture: true, passive: true,
+        });
+
+        // ── DiscImageDevice — ported verbatim from upstream
+        // js/play_browser/src/DiscImageDevice.ts. The PS2 core (running on a
+        // pthread) calls read() with a destination pointer; we lazily slice the
+        // backing File and copy the bytes into the WASM heap, flipping doneFlag
+        // when the async read resolves. Because it slices on demand, a multi-GB
+        // picked File streams without ever being fully held in memory. ──
+        function DiscImageDevice(module) {
+          this.module = module;
+          this.doneFlag = false;
+          this.file = null;
+        }
+        DiscImageDevice.prototype.read = function (dstPtr, offset, size) {
+          if (!this.file) throw new Error("No file set.");
+          var self = this;
+          self.doneFlag = false;
+          var subsection = this.file.slice(offset, offset + size);
+          subsection.arrayBuffer().then(function (value) {
+            self.module.HEAPU8.set(new Uint8Array(value), dstPtr);
+            self.doneFlag = true;
+          });
+        };
+        DiscImageDevice.prototype.getFileSize = function () {
+          if (!this.file) throw new Error("No file set.");
+          return this.file.size;
+        };
+        DiscImageDevice.prototype.isDone = function () { return this.doneFlag; };
+        DiscImageDevice.prototype.setFile = function (file) { this.file = file; };
+
+        var PlayModule = null;
+
+        // Play.js is an Emscripten EXPORT_ES6 module (it ends with
+        // `export default Play`), so it's loaded with a dynamic import rather
+        // than a classic <script>. Mirrors PlayModule.ts: locateFile resolves
+        // Play.wasm next to this page, and mainScriptUrlOrBlob points the
+        // pthread workers back at Play.js.
+        function loadPlayFactory() {
+          return import("./Play.js").then(function (mod) {
+            return (mod && (mod.default || mod.Play)) || null;
+          });
+        }
+
+        function initModule() {
+          return loadPlayFactory().then(function (PlayFactory) {
+            if (typeof PlayFactory !== "function") {
+              throw new Error("Play factory not found (Play.js did not export a default factory).");
+            }
+            // Note: deliberately NOT setting `canvas` here. Play!'s build targets
+            // the element with id="outputCanvas" itself; setting Module.canvas
+            // interferes with that and leaves the GS renderer without a GL
+            // context (initVm then throws on `clearColor`).
+            var overrides = {
+              locateFile: function (path) {
+                return new URL(path, document.baseURI).href;
+              },
+              mainScriptUrlOrBlob: new URL("Play.js", document.baseURI).href,
+              print: function (t) { try { console.log("[play] " + t); } catch (_) {} },
+              printErr: function (t) { try { console.warn("[play] " + t); } catch (_) {} },
+            };
+            return PlayFactory(overrides);
+          }).then(function (M) {
+            PlayModule = M;
+            try { M.FS.mkdir("/work"); } catch (_e) { /* already exists */ }
+            M.discImageDevice = new DiscImageDevice(M);
+            M.ccall("initVm", "", [], []);
+            return M;
+          });
+        }
+
+        // ── Boot a resolved File. Mirrors Actions.ts bootFile: .elf is written
+        // into the Emscripten FS and booted directly; every other format is
+        // handed to the disc-image device and booted as a disc. ──
+        function bootFile(file, name) {
+          var dot = name.lastIndexOf(".");
+          var ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+          document.title = name.replace(/\.[^.]+$/, "");
+          if (ext === "elf") {
+            return file.arrayBuffer().then(function (buf) {
+              var data = new Uint8Array(buf);
+              var stream = PlayModule.FS.open(name, "w+");
+              PlayModule.FS.write(stream, data, 0, data.length, 0);
+              PlayModule.FS.close(stream);
+              PlayModule.bootElf(name);
+            });
+          }
+          PlayModule.discImageDevice.setFile(file);
+          PlayModule.bootDiscImage(name);
+          return Promise.resolve();
+        }
+
+        function startFpsReadout() {
+          if (!PlayModule || typeof PlayModule.getFrames !== "function") {
+            setStatus("");
+            return;
+          }
+          setInterval(function () {
+            try {
+              var f = PlayModule.getFrames();
+              if (typeof PlayModule.clearStats === "function") PlayModule.clearStats();
+              setStatus(f + " f/s");
+            } catch (_) {}
+          }, 1000);
+        }
+
+        function boot(file, name) {
+          setStatus("loading core…");
+          initModule().then(function () {
+            return bootFile(file, name);
+          }).then(function () {
+            startFpsReadout();
+          }).catch(function (e) {
+            fail("Play! failed: " + (e && e.message ? e.message : e));
+          });
+        }
+
+        // Cross-origin isolation is mandatory (Play! needs SharedArrayBuffer).
+        if (!self.crossOriginIsolated) {
+          fail(
+            "PS2 needs cross-origin isolation (crossOriginIsolated is false). " +
+            "The server must send COOP: same-origin + COEP: require-corp.",
+          );
+          return;
+        }
+
+        if (byod) {
+          // BYOD — the dashboard (same-origin parent) delivers the picked disc
+          // File via postMessage so it lives in this realm. PS2 disc formats are
+          // single-file (iso/cso/chd/isz/bin/elf), so there's no cue+bin zip
+          // bundling like the PSX path needs.
+          var booted = false;
+          window.addEventListener("message", function (ev) {
+            if (booted) return;
+            if (!isFromOwnParent(ev)) return;
+            if (!ev.data || ev.data.type !== "ps2-byod-file") return;
+            if (!ev.data.file) return;
+            booted = true;
+            boot(ev.data.file, ev.data.file.name || ev.data.name || "disc.iso");
+          });
+          postParent("ps2-byod-ready");
+          setTimeout(function () {
+            if (!booted) {
+              fail("BYOD failed: parent did not deliver a disc file (15s).");
+            }
+          }, 15000);
+        } else {
+          // Hosted ROM — fetch from static/PlayStation2/. Practical only for
+          // small homebrew (.elf / small images): fetch() buffers the whole
+          // file, so large discs should use BYOD (lazy File slicing) instead.
+          var url = "/PlayStation2/" + encodeURIComponent(rom);
+          setStatus("fetching " + rom + "…");
+          fetch(url).then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status + " fetching " + rom);
+            return r.blob();
+          }).then(function (blob) {
+            boot(new File([blob], rom), rom);
+          }).catch(function (e) {
+            fail("Could not load " + rom + ": " + (e && e.message ? e.message : e));
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>
