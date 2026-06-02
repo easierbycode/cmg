@@ -17,6 +17,7 @@
   const TG16_ID = '__tg16__';
   const PSX_ID  = '__psx__';
   const DEMOS_ID = '__demos__';
+  const CMGNET_ID = '__cmgnet__';
   // Baked-in fallback snapshot of the Demos list (Games → Demos). At runtime
   // loadManifest() replaces it with the manifest's `demos` (OTA), so adding a
   // demo to data/demos.json + pushing reaches every launcher with no rebuild.
@@ -25,6 +26,7 @@
   const SEED_DEMOS = [
     { id: 'goofy-game', name: 'Goofy Game', title: 'GOOFY GAME', sub: 'multiplayer · WS', size: '— MB', date: 'demo', url: '/demos/goofy-game' },
     { id: 'headphones-recommended', name: 'Headphones Recommended', title: 'HEADPHONES RECOMMENDED', sub: 'Phaser 4.1.0 · idle', size: '— MB', date: 'demo', url: '/demos/headphones-recommended' },
+    { id: 'akuma', name: 'Akuma', title: 'AKUMA', sub: 'Three.js · WASD', size: '— MB', date: 'demo', url: '/demos/akuma' },
   ];
   // Baked-in fallback snapshot of the game list — the offline / pre-manifest
   // seed. At runtime loadManifest() replaces it with the deployed OTA manifest
@@ -45,6 +47,7 @@
     { id: 'shmup-party-phaser3',                                   name: 'Sh’M↑ Party',         title: 'SH\'M↑ PARTY',        sub: 'Multiplayer',     icon: '/icons/shmup-party-icon.png',          size: '7.9 MB',  date: '02.14.24' },
     { id: 'monkey-kombat',                                         name: 'Monkey Kombat',       title: 'MONKEY KOMBAT',       sub: '🐵ᕗ ─=≡ΣO))',     icon: null,                                   size: '6.4 MB',  date: '05.19.26' },
     { id: DEMOS_ID,                                                name: 'Demos',               title: 'DEMOS',               sub: 'DEMO // submenu', icon: null,                                   size: '— MB',    date: 'DEMO',    submenu: true },
+    { id: CMGNET_ID,                                               name: 'CMG Network',         title: 'CMG NETWORK',         sub: 'NET // e-shop',   icon: null,                                   size: '— MB',    date: 'NET',     submenu: true },
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
     { id: TG16_ID,                                                 name: 'TurboGrafx-16',       title: 'TURBOGRAFX-16',       sub: 'PCE // submenu',  icon: null,                                   size: '— MB',    date: 'PCE',     submenu: true },
   ];
@@ -85,6 +88,12 @@
   let psxByodBtnEl = $state(null);
   let demosSel = $state(0);
   let demosRowEls = $state([]);
+  let cmgnetGames = $state([]);
+  let cmgnetSel = $state(0);
+  let cmgnetRowEls = $state([]);
+  // id → { downloading, pct, cached, error } — drives the e-shop GET/INSTALLED
+  // badges and the per-row download progress bar.
+  let cmgnetStatus = $state({});
   let isTouch = $state(false);
   let controlsShown = $state(false);
   let padHadConnection = $state(false);
@@ -203,6 +212,12 @@
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 
+  $effect(() => {
+    if (screen !== 'cmgnet') return;
+    const el = cmgnetRowEls[cmgnetSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
   // Auto-focus the BYOD button when entering the empty PSX screen so gamepad
   // A can click it. Note: browsers require a *user* gesture to open the native
   // file picker — gamepad input doesn't count. Focusing means a real keyboard
@@ -217,6 +232,7 @@
   let currentTg16 = $derived(tg16Games[tg16Sel]);
   let currentPsx = $derived(psxGames[psxSel]);
   let currentDemo = $derived(DEMOS[demosSel]);
+  let currentCmgnet = $derived(cmgnetGames[cmgnetSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
   let counterText = $derived(
     String(gameSel + 1).padStart(2, '0') + ' / ' + String(GAMES.length).padStart(2, '0')
@@ -233,6 +249,11 @@
   );
   let demosCounterText = $derived(
     String(demosSel + 1).padStart(2, '0') + ' / ' + String(DEMOS.length).padStart(2, '0')
+  );
+  let cmgnetCounterText = $derived(
+    cmgnetGames.length === 0
+      ? '00 / 00'
+      : String(cmgnetSel + 1).padStart(2, '0') + ' / ' + String(cmgnetGames.length).padStart(2, '0')
   );
 
   // WebAudio blips
@@ -295,7 +316,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'tg16' || screen === 'psx' || screen === 'demos') screen = 'games';
+    if (screen === 'tg16' || screen === 'psx' || screen === 'demos' || screen === 'cmgnet') screen = 'games';
     else screen = 'dashboard';
   }
 
@@ -325,6 +346,11 @@
     if (id === DEMOS_ID) {
       sfx.enter();
       screen = 'demos';
+      return;
+    }
+    if (id === CMGNET_ID) {
+      sfx.enter();
+      screen = 'cmgnet';
       return;
     }
     sfx.enter();
@@ -369,6 +395,150 @@
     chromeDismissed = false;
     gameSrc = '/psx/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  // ─── CMG Network (e-shop: stream first, then run offline from cache) ────────
+  // Catalog lives in /codemonkey.json (this repo). First launch streams the
+  // hosted build (game.streamUrl) and kicks off a background download of the zip
+  // (game.downloadUrl), unzipped + cached under /cmg-net/<id>/… and served back
+  // offline by static/cmg-sw.js. Later launches run straight from that cache.
+  const CMG_CACHE = 'cmg-net-v1';
+
+  // Where index.html lands inside the cached tree (the zip keeps its own folder,
+  // e.g. ryu/index.html). `entry` wins; else derive from `subdir`.
+  function cmgnetEntry(game) {
+    if (game?.entry) return game.entry;
+    const sub = game?.subdir;
+    return sub && sub !== 'root' ? sub + '/index.html' : 'index.html';
+  }
+
+  async function cmgnetIsCached(game) {
+    if (!game) return false;
+    try {
+      const cache = await caches.open(CMG_CACHE);
+      return !!(await cache.match('/cmg-net/' + game.id + '/' + cmgnetEntry(game)));
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function cmgMime(path) {
+    const ext = (path.split('.').pop() || '').toLowerCase();
+    const map = {
+      html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8',
+      mjs: 'text/javascript; charset=utf-8', json: 'application/json; charset=utf-8',
+      wasm: 'application/wasm', css: 'text/css; charset=utf-8',
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+      webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon',
+      mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav',
+      ttf: 'font/ttf', woff: 'font/woff', woff2: 'font/woff2',
+    };
+    return map[ext] || 'application/octet-stream';
+  }
+
+  // JSZip is loaded on demand from the CDN (only when a download runs) via a
+  // <script> tag, so the unzip dependency never enters the esbuild bundle.
+  let jszipPromise = null;
+  function loadJsZip() {
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    if (jszipPromise) return jszipPromise;
+    jszipPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+      s.onload = () => resolve(window.JSZip);
+      s.onerror = () => { jszipPromise = null; reject(new Error('JSZip failed to load')); };
+      document.head.appendChild(s);
+    });
+    return jszipPromise;
+  }
+
+  async function cmgnetDownload(game) {
+    if (!game?.downloadUrl) return;
+    const id = game.id;
+    if (cmgnetStatus[id]?.downloading || cmgnetStatus[id]?.cached) return;
+    cmgnetStatus[id] = { downloading: true, pct: 0, cached: false, error: '' };
+    try {
+      const JSZip = await loadJsZip();
+      const res = await fetch(game.downloadUrl, { mode: 'cors' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      // Stream the body so we can show real download progress (0–80%).
+      const total = Number(res.headers.get('content-length')) || 0;
+      const reader = res.body.getReader();
+      const chunks = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (total) cmgnetStatus[id] = { downloading: true, pct: Math.round((received / total) * 80), cached: false, error: '' };
+      }
+      // Unzip + cache each file under /cmg-net/<id>/… (80–100%).
+      const zip = await JSZip.loadAsync(new Blob(chunks));
+      const cache = await caches.open(CMG_CACHE);
+      const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+      let i = 0;
+      for (const name of names) {
+        let body = await zip.files[name].async('uint8array');
+        // Godot self-registers a cross-origin-isolation SW when this flag is on;
+        // it conflicts with cmg-sw and a cached iframe can't be cross-origin
+        // isolated anyway (the top launcher isn't), so turn it off — the cached
+        // game runs single-threaded.
+        if (/\.html$/i.test(name)) {
+          const text = new TextDecoder().decode(body)
+            .replace(/"ensureCrossOriginIsolationHeaders"\s*:\s*true/g, '"ensureCrossOriginIsolationHeaders":false');
+          body = new TextEncoder().encode(text);
+        }
+        await cache.put('/cmg-net/' + id + '/' + name, new Response(body, { headers: { 'Content-Type': cmgMime(name) } }));
+        i++;
+        cmgnetStatus[id] = { downloading: true, pct: 80 + Math.round((i / names.length) * 20), cached: false, error: '' };
+      }
+      cmgnetStatus[id] = { downloading: false, pct: 100, cached: true, error: '' };
+    } catch (e) {
+      cmgnetStatus[id] = { downloading: false, pct: 0, cached: false, error: String((e && e.message) || e) };
+    }
+  }
+
+  function launchCmgnet(game) {
+    if (!game) return;
+    sfx.enter();
+    chromeDismissed = false;
+    if (cmgnetStatus[game.id]?.cached) {
+      // Offline: served from Cache Storage by cmg-sw.js.
+      gameSrc = '/cmg-net/' + game.id + '/' + cmgnetEntry(game);
+    } else {
+      // First play: stream the hosted build now; cache the zip in the background
+      // so the next launch can run offline.
+      gameSrc = game.streamUrl;
+      cmgnetDownload(game);
+    }
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  async function loadCmgnetList() {
+    // Deploy-origin-first, same-origin fallback — same OTA shape as loadManifest.
+    const tryFetch = async (base) => {
+      const r = await fetch(base + '/codemonkey.json?ts=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const games = Array.isArray(data) ? data : (Array.isArray(data?.games) ? data.games : null);
+      if (!games) throw new Error('bad catalog');
+      return games;
+    };
+    let games = null;
+    try { games = await tryFetch(DEPLOY_ORIGIN); }
+    catch (_e1) { try { games = await tryFetch(''); } catch (_e2) { return; } }
+    cmgnetGames = games;
+    if (cmgnetSel >= cmgnetGames.length) cmgnetSel = 0;
+    // Reflect already-downloaded games as INSTALLED in the e-shop.
+    for (const g of games) {
+      if (await cmgnetIsCached(g)) cmgnetStatus[g.id] = { downloading: false, pct: 100, cached: true, error: '' };
+    }
+  }
+
+  function registerCmgSw() {
+    if (!('serviceWorker' in navigator)) return;
+    try { navigator.serviceWorker.register('/cmg-sw.js'); } catch (_e) {}
   }
 
   async function loadManifest() {
@@ -688,6 +858,7 @@
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Sel - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxSel - 1, 0);
     else if (screen === 'demos') demosSel = Math.max(demosSel - 1, 0);
+    else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetSel - 1, 0);
     sfx.nav();
   }
   function navDown() {
@@ -696,6 +867,7 @@
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
     else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
     else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
+    else if (screen === 'cmgnet') cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetGames.length - 1, 0));
     sfx.nav();
   }
   function navTop() {
@@ -704,6 +876,7 @@
     else if (screen === 'tg16') tg16Sel = 0;
     else if (screen === 'psx') psxSel = 0;
     else if (screen === 'demos') demosSel = 0;
+    else if (screen === 'cmgnet') cmgnetSel = 0;
     sfx.nav();
   }
   function navBottom() {
@@ -712,6 +885,7 @@
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
     else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
+    else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetGames.length - 1, 0);
     sfx.nav();
   }
   function actA() {
@@ -724,10 +898,11 @@
       else launchPsx(psxGames[psxSel]?.file);
     }
     else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
+    else if (screen === 'cmgnet') launchCmgnet(cmgnetGames[cmgnetSel]);
   }
   function actB() {
     if (gameOn) closeGame();
-    else if (screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos') goBack();
+    else if (screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos' || screen === 'cmgnet') goBack();
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -939,6 +1114,11 @@
       else if (e.key === 'ArrowUp') { demosSel = Math.max(demosSel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchDemo(DEMOS[demosSel]?.url);
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'cmgnet') {
+      if (e.key === 'ArrowDown') { cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetGames.length - 1, 0)); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { cmgnetSel = Math.max(cmgnetSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') launchCmgnet(cmgnetGames[cmgnetSel]);
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     }
   }
 
@@ -1003,6 +1183,8 @@
     loadManifest();
     loadTg16List();
     loadPsxList();
+    registerCmgSw();
+    loadCmgnetList();
   });
 
   function refreshPadConnected() {
@@ -1400,7 +1582,76 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos'}
+  <div class="games-screen {screen === 'cmgnet' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // network</span>
+        <span>cmg e-shop</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc net"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{currentCmgnet ? currentCmgnet.name : '—'}</b></div>
+          <div><span class="k">size</span><b>{currentCmgnet ? currentCmgnet.size : '—'}</b></div>
+          <div><span class="k">type</span><b>NET / STREAM</b></div>
+          <div><span class="k">date</span><b>{currentCmgnet ? currentCmgnet.date : '—'}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">CMG NETWORK</div>
+          <div class="counter">{cmgnetCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#if cmgnetGames.length === 0}
+            <div class="game-row">
+              <div class="game-icon"><div class="glass"><span class="ph">··</span></div></div>
+              <div class="game-bar"><span class="name">CATALOG OFFLINE</span><span class="sub">no codemonkey.json reachable</span></div>
+            </div>
+          {:else}
+            {#each cmgnetGames as g, i (g.id)}
+              <div
+                bind:this={cmgnetRowEls[i]}
+                class="game-row {i === cmgnetSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== cmgnetSel) { cmgnetSel = i; sfx.nav(); } }}
+                onclick={() => launchCmgnet(g)}
+              >
+                <div class="game-icon">
+                  <div class="glass">
+                    {#if g.icon}
+                      <img src={g.icon} alt={g.name} onerror={(e) => onIconError(e, g.name)} />
+                    {:else}
+                      <span class="ph">{initial(g.name)}</span>
+                    {/if}
+                  </div>
+                </div>
+                <div class="game-bar">
+                  <span class="name">{g.title}</span>
+                  {#if cmgnetStatus[g.id]?.downloading}
+                    <span class="net-badge dl">⬇ {cmgnetStatus[g.id].pct}%</span>
+                  {:else if cmgnetStatus[g.id]?.cached}
+                    <span class="net-badge ok">● INSTALLED</span>
+                  {:else if cmgnetStatus[g.id]?.error}
+                    <span class="net-badge err">! RETRY</span>
+                  {:else}
+                    <span class="net-badge get">GET ⬇</span>
+                  {/if}
+                </div>
+                {#if cmgnetStatus[g.id]?.downloading}
+                  <div class="net-prog"><div class="net-prog-fill" style="width:{cmgnetStatus[g.id].pct}%"></div></div>
+                {/if}
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {#if screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos' || screen === 'cmgnet'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -1408,7 +1659,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (cmgnetStatus[currentCmgnet?.id]?.cached ? 'Play' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
 </div>
 
