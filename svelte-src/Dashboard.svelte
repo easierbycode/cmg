@@ -16,6 +16,7 @@
 
   const TG16_ID = '__tg16__';
   const PSX_ID  = '__psx__';
+  const SATURN_ID = '__saturn__';
   const DEMOS_ID = '__demos__';
   // Baked-in fallback snapshot of the Demos list (Games → Demos). At runtime
   // loadManifest() replaces it with the manifest's `demos` (OTA), so adding a
@@ -46,6 +47,7 @@
     { id: 'monkey-kombat',                                         name: 'Monkey Kombat',       title: 'MONKEY KOMBAT',       sub: '🐵ᕗ ─=≡ΣO))',     icon: null,                                   size: '6.4 MB',  date: '05.19.26' },
     { id: DEMOS_ID,                                                name: 'Demos',               title: 'DEMOS',               sub: 'DEMO // submenu', icon: null,                                   size: '— MB',    date: 'DEMO',    submenu: true },
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
+    { id: SATURN_ID,                                               name: 'Sega Saturn',         title: 'SEGA SATURN',         sub: 'SS // submenu',   icon: null,                                   size: '— MB',    date: 'SS',      submenu: true },
     { id: TG16_ID,                                                 name: 'TurboGrafx-16',       title: 'TURBOGRAFX-16',       sub: 'PCE // submenu',  icon: null,                                   size: '— MB',    date: 'PCE',     submenu: true },
   ];
 
@@ -63,7 +65,7 @@
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
 
-  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'tg16'
+  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'tg16' | 'psx' | 'saturn' | 'demos'
   let menuSel = $state(1);           // start on Games
   let gameSel = $state(0);
   let clockStr = $state('--:--:--');
@@ -83,13 +85,19 @@
   let psxByodError = $state('');
   let psxFileInput = $state(null);
   let psxByodBtnEl = $state(null);
+  let saturnGames = $state([]);
+  let saturnSel = $state(0);
+  let saturnRowEls = $state([]);
+  let saturnByodError = $state('');
+  let saturnFileInput = $state(null);
+  let saturnByodBtnEl = $state(null);
   let demosSel = $state(0);
   let demosRowEls = $state([]);
   let isTouch = $state(false);
   let controlsShown = $state(false);
   let padHadConnection = $state(false);
   let padConnected = $state(false);
-  let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/')));
+  let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/')));
   // First touch in-game dismisses transient chrome (kept for the tg16 message
   // path). The upper-right close button is gone — Exit Game in the OSD replaces it.
   let chromeDismissed = $state(false);
@@ -212,6 +220,12 @@
   });
 
   $effect(() => {
+    if (screen !== 'saturn') return;
+    const el = saturnRowEls[saturnSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  $effect(() => {
     if (screen !== 'demos') return;
     const el = demosRowEls[demosSel];
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -227,9 +241,15 @@
     queueMicrotask(() => { try { psxByodBtnEl?.focus(); } catch (_) {} });
   });
 
+  $effect(() => {
+    if (screen !== 'saturn' || saturnGames.length !== 0) return;
+    queueMicrotask(() => { try { saturnByodBtnEl?.focus(); } catch (_) {} });
+  });
+
   let currentGame = $derived(GAMES[gameSel]);
   let currentTg16 = $derived(tg16Games[tg16Sel]);
   let currentPsx = $derived(psxGames[psxSel]);
+  let currentSaturn = $derived(saturnGames[saturnSel]);
   let currentDemo = $derived(DEMOS[demosSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
   let counterText = $derived(
@@ -244,6 +264,11 @@
     psxGames.length === 0
       ? '00 / 00'
       : String(psxSel + 1).padStart(2, '0') + ' / ' + String(psxGames.length).padStart(2, '0')
+  );
+  let saturnCounterText = $derived(
+    saturnGames.length === 0
+      ? '00 / 00'
+      : String(saturnSel + 1).padStart(2, '0') + ' / ' + String(saturnGames.length).padStart(2, '0')
   );
   let demosCounterText = $derived(
     String(demosSel + 1).padStart(2, '0') + ' / ' + String(DEMOS.length).padStart(2, '0')
@@ -309,7 +334,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'tg16' || screen === 'psx' || screen === 'demos') screen = 'games';
+    if (screen === 'tg16' || screen === 'psx' || screen === 'saturn' || screen === 'demos') screen = 'games';
     else screen = 'dashboard';
   }
 
@@ -334,6 +359,11 @@
     if (id === PSX_ID) {
       sfx.enter();
       screen = 'psx';
+      return;
+    }
+    if (id === SATURN_ID) {
+      sfx.enter();
+      screen = 'saturn';
       return;
     }
     if (id === DEMOS_ID) {
@@ -382,6 +412,14 @@
     sfx.enter();
     chromeDismissed = false;
     gameSrc = '/psx/play.html?rom=' + encodeURIComponent(file);
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function launchSaturn(file) {
+    if (!file) return;
+    sfx.enter();
+    chromeDismissed = false;
+    gameSrc = '/saturn/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
   }
 
@@ -442,6 +480,18 @@
       if (psxSel >= psxGames.length) psxSel = 0;
     } catch (_e) {
       psxGames = [];
+    }
+  }
+
+  async function loadSaturnList() {
+    try {
+      const r = await fetch('/SegaSaturn/manifest.json');
+      if (!r.ok) return;
+      const list = await r.json();
+      saturnGames = Array.isArray(list) ? list : [];
+      if (saturnSel >= saturnGames.length) saturnSel = 0;
+    } catch (_e) {
+      saturnGames = [];
     }
   }
 
@@ -659,6 +709,109 @@
     try { psxFileInput?.click(); } catch (_) {}
   }
 
+  // Saturn BYOD — a copy of the PSX path (Saturn shares PSX's disc formats, so
+  // the format-agnostic helpers above — basename/refsInCue/refsInM3u/makeStoreZip
+  // — are reused as-is). Only the handoff (global, session key, gameSrc) differs.
+  async function handleSaturnByodFiles(files) {
+    saturnByodError = '';
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+
+    const byName = new Map();
+    for (const f of list) byName.set(basename(f.name).toLowerCase(), f);
+
+    // Pick the primary entry — prefer m3u, then cue, then chd/iso, then bin.
+    const order = [/\.m3u$/i, /\.cue$/i, /\.chd$/i, /\.iso$/i, /\.bin$/i];
+    let main = null;
+    for (const re of order) {
+      main = list.find((f) => re.test(f.name));
+      if (main) break;
+    }
+    if (!main) {
+      saturnByodError = 'Pick a .chd, .iso, .cue (+ .bin), or .m3u file.';
+      return;
+    }
+
+    // Validate companion files referenced by m3u/cue are also in the upload.
+    const missing = [];
+    try {
+      if (/\.m3u$/i.test(main.name)) {
+        const m3uText = await main.text();
+        const cueRefs = refsInM3u(m3uText);
+        if (cueRefs.length === 0) missing.push('(m3u has no disc entries)');
+        for (const ref of cueRefs) {
+          const cueFile = byName.get(basename(ref).toLowerCase());
+          if (!cueFile) { missing.push(ref); continue; }
+          const cueText = await cueFile.text();
+          for (const r of refsInCue(cueText)) {
+            if (!byName.has(basename(r).toLowerCase())) missing.push(r);
+          }
+        }
+      } else if (/\.cue$/i.test(main.name)) {
+        const cueText = await main.text();
+        for (const r of refsInCue(cueText)) {
+          if (!byName.has(basename(r).toLowerCase())) missing.push(r);
+        }
+      }
+    } catch (e) {
+      saturnByodError = 'Could not parse files: ' + (e && e.message ? e.message : e);
+      return;
+    }
+    if (missing.length > 0) {
+      saturnByodError = 'Missing companion files for ' + main.name + ': ' +
+        missing.slice(0, 4).join(', ') +
+        (missing.length > 4 ? `, +${missing.length - 4} more` : '') +
+        '. Re-select with all referenced files.';
+      return;
+    }
+
+    // Single-file formats pass through; multi-file get zipped (see handleByodFiles).
+    const isMulti = /\.(m3u|cue)$/i.test(main.name);
+    let saturnFile;
+    try {
+      if (!isMulti) {
+        saturnFile = main;
+      } else {
+        const entries = [];
+        entries.push({ name: main.name, data: new Uint8Array(await main.arrayBuffer()) });
+        for (const [key, file] of byName) {
+          if (key === main.name.toLowerCase()) continue;
+          entries.push({ name: file.name, data: new Uint8Array(await file.arrayBuffer()) });
+        }
+        const zipBlob = makeStoreZip(entries);
+        const zipName = main.name.replace(/\.[^.]+$/, '.zip');
+        saturnFile = new File([zipBlob], zipName, { type: 'application/zip' });
+      }
+    } catch (e) {
+      saturnByodError = 'Could not bundle files: ' + (e && e.message ? e.message : e);
+      return;
+    }
+
+    try {
+      window.__saturnByodFile = saturnFile;
+      sessionStorage.setItem('saturn-byod', JSON.stringify({ name: main.name.replace(/\.[^.]+$/, '') }));
+    } catch (e) {
+      saturnByodError = 'BYOD handoff failed: ' + (e && e.message ? e.message : e);
+      return;
+    }
+
+    sfx.enter();
+    chromeDismissed = false;
+    gameSrc = '/saturn/play.html?byod=1';
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function onSaturnByodChange(e) {
+    const input = e.currentTarget;
+    handleSaturnByodFiles(input.files);
+    setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
+  }
+
+  function openSaturnByodPicker() {
+    try { saturnByodBtnEl?.click(); return; } catch (_) {}
+    try { saturnFileInput?.click(); } catch (_) {}
+  }
+
   function closeGame() {
     gameOn = false;
     controlsShown = false;
@@ -666,6 +819,8 @@
     setTimeout(() => { gameSrc = null; }, 500);
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
+    try { delete window.__saturnByodFile; } catch (_) {}
+    try { sessionStorage.removeItem('saturn-byod'); } catch (_) {}
     sfx.back();
   }
 
@@ -701,6 +856,7 @@
     else if (screen === 'games') gameSel = Math.max(gameSel - 1, 0);
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Sel - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxSel - 1, 0);
+    else if (screen === 'saturn') saturnSel = Math.max(saturnSel - 1, 0);
     else if (screen === 'demos') demosSel = Math.max(demosSel - 1, 0);
     sfx.nav();
   }
@@ -709,6 +865,7 @@
     else if (screen === 'games') gameSel = Math.min(gameSel + 1, GAMES.length - 1);
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
     else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
+    else if (screen === 'saturn') saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0));
     else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
     sfx.nav();
   }
@@ -717,6 +874,7 @@
     else if (screen === 'games') gameSel = 0;
     else if (screen === 'tg16') tg16Sel = 0;
     else if (screen === 'psx') psxSel = 0;
+    else if (screen === 'saturn') saturnSel = 0;
     else if (screen === 'demos') demosSel = 0;
     sfx.nav();
   }
@@ -725,6 +883,7 @@
     else if (screen === 'games') gameSel = GAMES.length - 1;
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
+    else if (screen === 'saturn') saturnSel = Math.max(saturnGames.length - 1, 0);
     else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
     sfx.nav();
   }
@@ -737,11 +896,15 @@
       if (psxGames.length === 0) openByodPicker();
       else launchPsx(psxGames[psxSel]?.file);
     }
+    else if (screen === 'saturn') {
+      if (saturnGames.length === 0) openSaturnByodPicker();
+      else launchSaturn(saturnGames[saturnSel]?.file);
+    }
     else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
   }
   function actB() {
     if (gameOn) closeGame();
-    else if (screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos') goBack();
+    else if (screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'saturn' || screen === 'demos') goBack();
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -948,6 +1111,14 @@
         else launchPsx(psxGames[psxSel]?.file);
       }
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'saturn') {
+      if (e.key === 'ArrowDown') { saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0)); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { saturnSel = Math.max(saturnSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') {
+        if (saturnGames.length === 0) openSaturnByodPicker();
+        else launchSaturn(saturnGames[saturnSel]?.file);
+      }
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'demos') {
       if (e.key === 'ArrowDown') { demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0)); sfx.nav(); }
       else if (e.key === 'ArrowUp') { demosSel = Math.max(demosSel - 1, 0); sfx.nav(); }
@@ -1017,6 +1188,16 @@
       } catch (_) {}
       try { e.source.postMessage({ type: 'psx-byod-file', file, name }, window.location.origin); } catch (_) {}
     }
+    else if (d.type === 'saturn-byod-ready') {
+      const file = window.__saturnByodFile;
+      if (!file) return;
+      let name = file.name.replace(/\.[^.]+$/, '');
+      try {
+        const raw = sessionStorage.getItem('saturn-byod');
+        if (raw) name = JSON.parse(raw).name || name;
+      } catch (_) {}
+      try { e.source.postMessage({ type: 'saturn-byod-file', file, name }, window.location.origin); } catch (_) {}
+    }
   }
 
   onMount(() => {
@@ -1046,6 +1227,7 @@
     loadManifest();
     loadTg16List();
     loadPsxList();
+    loadSaturnList();
   });
 
   function refreshPadConnected() {
@@ -1396,6 +1578,85 @@
     </div>
   </div>
 
+  <div class="games-screen {screen === 'saturn' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // segaSaturn</span>
+        <span>emulatorjs</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{currentSaturn ? currentSaturn.name : '—'}</b></div>
+          <div><span class="k">size</span><b>{currentSaturn ? currentSaturn.size : '—'}</b></div>
+          <div><span class="k">type</span><b>SATURN / DISC</b></div>
+          <div><span class="k">date</span><b>{currentSaturn ? currentSaturn.date : '—'}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">SEGA SATURN</div>
+          <div class="counter">{saturnCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#if saturnGames.length === 0}
+            <div class="byod">
+              <div class="byod-title">BYOD — Bring Your Own Disc</div>
+              <div class="byod-sub">No Saturn images in <code>static/SegaSaturn/</code>. Pick a disc image from disk:</div>
+              <input
+                type="file"
+                bind:this={saturnFileInput}
+                multiple
+                accept=".chd,.iso,.cue,.bin,.m3u,.ccd,.mds,application/octet-stream"
+                onchange={onSaturnByodChange}
+                class="byod-input"
+              />
+              <button
+                type="button"
+                class="byod-btn"
+                bind:this={saturnByodBtnEl}
+                onclick={() => { try { saturnFileInput?.click(); } catch (_) {} }}
+              >
+                <span class="byod-btn-icon">⬆</span>
+                <span>Choose disc files…</span>
+              </button>
+              <div class="byod-hint">
+                .chd · .iso load directly.<br>
+                .cue / .m3u need their companion .bin files selected together.<br>
+                Needs <code>static/bios/saturn_bios.bin</code> (user-supplied).
+              </div>
+              {#if saturnByodError}
+                <div class="byod-err">{saturnByodError}</div>
+              {/if}
+            </div>
+          {:else}
+            {#each saturnGames as g, i (g.file)}
+              <div
+                bind:this={saturnRowEls[i]}
+                class="game-row {i === saturnSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== saturnSel) { saturnSel = i; sfx.nav(); } }}
+                onclick={() => launchSaturn(g.file)}
+              >
+                <div class="game-icon">
+                  <div class="glass">
+                    <span class="ph">{initial(g.name)}</span>
+                  </div>
+                </div>
+                <div class="game-bar">
+                  <span class="name">{g.name.toUpperCase()}</span>
+                  <span class="sub">{g.size}</span>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="games-screen {screen === 'demos' ? 'shown' : ''}">
     <div class="games-panel">
       <div class="strip-top">
@@ -1443,7 +1704,7 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'demos'}
+  {#if screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'saturn' || screen === 'demos'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -1451,7 +1712,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
 </div>
 
