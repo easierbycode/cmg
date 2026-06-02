@@ -85,16 +85,19 @@ class GamepadManager {
   poll() {
     if (!this.isRunning) return;
 
-    this.scanGamepads();
-    // Configurator hooks (present only when controller-configurator.js is loaded).
-    if (this.handleDetectionTick) this.handleDetectionTick();
-    this.processInputs();
-
     try {
+      this.scanGamepads();
+      // Configurator hooks (present only when controller-configurator.js is loaded).
+      if (this.handleDetectionTick) this.handleDetectionTick();
+      this.processInputs();
+
       if (this.isConfiguratorOpen && this.isConfiguratorOpen() && this.testingMode && this.updateTestingVisual) {
         this.updateTestingVisual();
       }
-    } catch (_) {}
+    } catch (err) {
+      // Never let a single bad frame kill the loop — log and keep polling.
+      console.warn('GamepadManager poll error (continuing):', err);
+    }
 
     requestAnimationFrame(() => this.poll());
   }
@@ -602,13 +605,28 @@ class GamepadManager {
     const iframe = document.querySelector('iframe#gameframe');
     let targetWin = null;
     try { targetWin = iframe && iframe.contentWindow ? iframe.contentWindow : null; } catch (_) { targetWin = null; }
-    const targetDoc = (() => { try { return targetWin ? targetWin.document : null; } catch (_) { return null; } })();
+
+    // Probe same-origin access once: reading ANY property of a cross-origin
+    // frame's window throws SecurityError, so guard it in try/catch.
+    let targetDoc = null;
+    let sameOrigin = false;
+    if (targetWin) {
+      try { targetDoc = targetWin.document; sameOrigin = true; } catch (_) { targetDoc = null; sameOrigin = false; }
+    }
+
+    // We can't inject synthetic keyboard events into a cross-origin game frame
+    // — the browser blocks all access. Such games read the Gamepad API directly
+    // (the iframe has allow="gamepad"), so bail out quietly. Throwing here would
+    // propagate up through poll() and kill the entire polling loop.
+    if (targetWin && !sameOrigin) return;
+
     const target = targetDoc || targetWin || document;
 
     // Build a KeyboardEvent in the target context if available
     const key = mapping.keyboardKey;
     const code = key === ' ' ? 'Space' : (key.length === 1 ? `Key${key.toUpperCase()}` : key);
-    const EvtCtor = (targetWin && targetWin.KeyboardEvent) ? targetWin.KeyboardEvent : KeyboardEvent;
+    let EvtCtor = KeyboardEvent;
+    try { if (sameOrigin && targetWin && targetWin.KeyboardEvent) EvtCtor = targetWin.KeyboardEvent; } catch (_) { EvtCtor = KeyboardEvent; }
 
     const evt = new EvtCtor(eventType, {
       key,
