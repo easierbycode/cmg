@@ -203,6 +203,9 @@
                   </label>
                 </div>
                 <p class="testing-hint">When enabled, pressed controls light up on the diagram. The controller selected above will be used for testing.</p>
+                <div class="raw-readout" id="raw-input-readout" aria-live="polite">
+                  <div class="raw-readout-empty">Turn on Live Testing, then press any control to see the raw button/axis it reports.</div>
+                </div>
               </div>
             </div>
           </div>
@@ -624,6 +627,8 @@
       };
       resetThumb('.stick-left');
       resetThumb('.stick-right');
+      const readout = document.querySelector('.controller-configurator #raw-input-readout');
+      if (readout) readout.innerHTML = '<div class="raw-readout-empty">Turn on Live Testing, then press any control to see the raw button/axis it reports.</div>';
     } catch (_) {}
   }
 
@@ -705,6 +710,69 @@
       applyThumb('.stick-left', analog.leftStick);
       applyThumb('.stick-right', analog.rightStick);
     } catch (_) {}
+
+    // Live raw-input readout: shows exactly which button indices / axes the
+    // selected pad reports, so non-standard controllers are self-documenting.
+    try { this.updateRawReadout(); } catch (_) {}
+  }
+
+  // Render a compact live dump of the raw gamepad state for the controller(s)
+  // currently selected for testing. Reads navigator's fresh snapshot via
+  // this.controllers (refreshed each poll), not the mapped buttonState.
+  getRawDiag() {
+    const targetId = this.testingController;
+    const indices = Object.keys(this.controllers).filter(idx => {
+      if (targetId === 'all') return true;
+      const c = this.controllers[idx];
+      return c && this.getControllerId(c) === targetId;
+    });
+    const out = [];
+    for (const idx of indices) {
+      const c = this.controllers[idx];
+      if (!c) continue;
+      const buttons = [];
+      (c.buttons || []).forEach((btn, i) => { if (btn && btn.pressed) buttons.push(i); });
+      const axes = [];
+      (c.axes || []).forEach((v, i) => {
+        if (typeof v !== 'number') return;
+        if (Math.abs(v) > 1.05) return;      // neutral sentinel (e.g. hat at rest)
+        if (Math.abs(v) > 0.18) axes.push(`a${i}:${v.toFixed(2)}`);
+      });
+      let dpad = '';
+      try {
+        const mapping = this.controllerMappings[this.getControllerId(c)];
+        const d = this.readDpad(c, mapping);
+        dpad = ['up', 'down', 'left', 'right'].filter(k => d[k]).join(' ');
+      } catch (_) {}
+      out.push({
+        id: c.id,
+        mapping: c.mapping || 'non-standard',
+        buttons, axes, dpad,
+        numButtons: (c.buttons || []).length,
+        numAxes: (c.axes || []).length,
+      });
+    }
+    return out;
+  }
+
+  updateRawReadout() {
+    const el = document.querySelector('.controller-configurator #raw-input-readout');
+    if (!el) return;
+    const diag = this.getRawDiag();
+    if (!diag.length) {
+      el.innerHTML = '<div class="raw-readout-empty">No controller selected for testing.</div>';
+      return;
+    }
+    const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    el.innerHTML = diag.map((d) => `
+      <div class="raw-readout-pad">
+        <div class="raw-readout-id">${esc(d.id)}</div>
+        <div class="raw-readout-line"><span>map</span> ${esc(d.mapping)} · ${d.numButtons} btn · ${d.numAxes} axes</div>
+        <div class="raw-readout-line"><span>btn</span> ${d.buttons.length ? d.buttons.map((i) => `b${i}`).join(' ') : '—'}</div>
+        <div class="raw-readout-line"><span>axes</span> ${d.axes.length ? d.axes.join('  ') : '—'}</div>
+        <div class="raw-readout-line"><span>d-pad</span> ${d.dpad || '—'}</div>
+      </div>
+    `).join('');
   }
 
   getAggregatedPressedState() {
@@ -1115,6 +1183,47 @@ const configuratorCSS = `
   margin: 6px 0 0 0;
   font-family: 'Share Tech Mono', monospace;
   line-height: 1.4;
+}
+
+/* Live raw-input readout (button indices / axes the pad reports) */
+.raw-readout {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(140, 255, 110, .18);
+  border-radius: 6px;
+  background: rgba(6, 22, 11, .55);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cdebb0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.raw-readout-empty {
+  color: rgba(180, 255, 140, .45);
+}
+
+.raw-readout-pad + .raw-readout-pad {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(140, 255, 110, .14);
+}
+
+.raw-readout-id {
+  color: rgba(180, 255, 140, .85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.raw-readout-line span {
+  display: inline-block;
+  width: 44px;
+  color: rgba(140, 255, 110, .55);
+  text-transform: uppercase;
+  letter-spacing: .08em;
 }
 
 .start-section h3 {
