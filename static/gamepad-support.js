@@ -2,6 +2,14 @@
  * Advanced Gamepad Support System
  * Works in both launcher and in-game contexts
  * Features Steam-like Controller Configurator
+ *
+ * Reuse in other web games:
+ *   - As an ES module:
+ *       import { GamepadManager } from "./gamepad-support.js"; // named
+ *       import GamepadManager from "./gamepad-support.js";     // default (same class)
+ *       const gm = new GamepadManager();
+ *   - Via <script type="module" src="gamepad-support.js">: a shared instance is
+ *     auto-created at window.gamepadManager, with the class at window.GamepadManager.
  */
 
 class GamepadManager {
@@ -777,10 +785,16 @@ class GamepadManager {
 
 }
 
-// Expose the class so controller-configurator.js can augment its prototype.
-window.GamepadManager = GamepadManager;
+// Expose the class so controller-configurator.js can augment its prototype, plus
+// a shared singleton for the launcher and inline on* handlers. Guarded so this
+// module can also be imported in a non-browser context (SSR/tests) without throwing.
+if (typeof window !== 'undefined') {
+  window.GamepadManager = GamepadManager;
+  // Reuse an existing instance if the script is loaded (or imported) more than once.
+  window.gamepadManager = window.gamepadManager || new GamepadManager();
+  console.log('Gamepad support initialized');
+}
 
-// Initialize the global gamepad manager.
-window.gamepadManager = new GamepadManager();
-
-console.log('Gamepad support initialized');
+// ES module exports so other web games can import this class.
+export { GamepadManager };
+export default GamepadManager;
