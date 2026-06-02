@@ -149,8 +149,22 @@
     return list;
   });
 
-  function openOsd() { osdSel = 0; osdNav.vDir = 0; osdNav.hDir = 0; osdOpen = true; sfx.enter(); }
-  function closeOsd() { osdOpen = false; sfx.back(); }
+  function openOsd() {
+    osdSel = 0; osdNav.vDir = 0; osdNav.hDir = 0; osdOpen = true; sfx.enter();
+    // Pull keyboard focus out of the game frame so the launcher's own onKey
+    // handler drives OSD navigation. A focus-stealing game — especially a
+    // cross-origin one, whose keys the launcher can neither read nor forward
+    // into — otherwise swallows every arrow/Enter/Esc while the Guide is up.
+    if (gameOn) { try { document.getElementById('gameframe')?.blur(); window.focus(); } catch (_) { /* ignore */ } }
+  }
+  function closeOsd() {
+    osdOpen = false; sfx.back();
+    // Hand focus back so the game resumes receiving input. EmulatorJS games
+    // (isTg16Game) deliberately keep focus on the launcher — the dashboard polls
+    // the pad and forwards synthesized keys into that same-origin frame — so
+    // refocusing the frame there would break input; skip them.
+    if (gameOn && !isTg16Game) { try { document.getElementById('gameframe')?.focus(); } catch (_) { /* ignore */ } }
+  }
   function setOsdValue(i, v) {
     const it = osdItems[i]; if (!it) return;
     if (it.key === 'hue') setTweak('hue', v);
@@ -1072,7 +1086,7 @@
         else if (e.key === 'ArrowLeft') { adjustOsd(osdSel, -1); e.preventDefault(); }
         else if (e.key === 'ArrowRight') { adjustOsd(osdSel, 1); e.preventDefault(); }
         else if (e.key === 'Enter' || e.key === ' ') { activateOsd(osdSel); e.preventDefault(); }
-        else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B') { closeOsd(); e.preventDefault(); }
+        else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.code === 'Backquote' || e.key === '`' || e.key === '~') { closeOsd(); e.preventDefault(); }
         return;
       }
       // The ` / ~ key (Backquote) and Escape open the OSD — a keyboard stand-in
@@ -1122,25 +1136,54 @@
     }
   }
 
-  function isMessageFromOwnGameIframe(e) {
-    // Only trust messages from the game iframe we mounted. Without this guard,
-    // any cross-origin window holding a reference to us (e.g. one that opened
-    // this tab) could trigger BYOD file exfiltration or remote closeGame().
-    if (e.origin && e.origin !== window.location.origin) return false;
-    const iframe = document.querySelector('.game-iframe iframe');
-    return !!iframe && e.source === iframe.contentWindow;
+  // Inject a capture-phase OSD-trigger forwarder INTO a same-origin game frame.
+  // Once a game grabs keyboard focus the launcher's own window listener goes
+  // deaf, so a listener living inside the frame is the only thing that still
+  // sees ` / ~ / Esc. EmulatorJS frames (isTg16Game) already self-forward via
+  // play.html — skip them to avoid a double toggle. Cross-origin frames (e.g.
+  // monkey-kombat on easierbycode.com) throw on contentWindow access and are
+  // skipped here; those forward the key by postMessage instead (see below).
+  function injectOsdKeyForwarder(e) {
+    const iframe = e?.currentTarget || document.getElementById('gameframe');
+    if (!iframe || isTg16Game) return;
+    try {
+      const w = iframe.contentWindow;
+      if (!w || w.__cmgOsdForwarder) return;
+      w.__cmgOsdForwarder = true;
+      w.addEventListener('keydown', (ev) => {
+        if (ev.code === 'Backquote' || ev.key === '`' || ev.key === '~' || ev.keyCode === 192 || ev.key === 'Escape') {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          if (osdOpen) closeOsd(); else openOsd();
+        }
+      }, true);
+    } catch (_) { /* cross-origin frame — can't inject; it must postMessage instead */ }
   }
 
   function onWindowMessage(e) {
-    if (!isMessageFromOwnGameIframe(e)) return;
+    // Identify our own mounted game frame by window reference. That comparison
+    // holds even for a cross-origin game (window identities compare across
+    // origins) — unlike the origin string — which lets a cross-origin game
+    // (e.g. monkey-kombat) forward its OSD key here. A page we didn't mount
+    // can't be e.source, so this alone is a strong guard for benign signals.
+    const iframe = document.querySelector('.game-iframe iframe');
+    if (!iframe || e.source !== iframe.contentWindow) return;
+    const sameOrigin = !e.origin || e.origin === window.location.origin;
     const d = e?.data || {};
-    if (d.type === 'tg16-exit') closeGame();
-    else if (d.type === 'tg16-toggle-controls') {
-      // ` / F1 inside the focused game iframe (see play.html) — open the OSD so
-      // the in-game menu (incl. Exit) is reachable even when no gamepad is seen.
+    // Benign, idempotent UI signals — safe to honor from our own frame at any
+    // origin (worst case the Guide menu just opens).
+    if (d.type === 'tg16-toggle-controls') {
+      // ` / ~ inside the focused game frame (see play.html / the snippet a
+      // cross-origin game posts) — toggle the OSD so the in-game menu (incl.
+      // Exit) stays reachable even when no gamepad is seen.
       if (osdOpen) closeOsd(); else openOsd();
+      return;
     }
-    else if (d.type === 'tg16-first-touch') chromeDismissed = true;
+    if (d.type === 'tg16-first-touch') { chromeDismissed = true; return; }
+    // Sensitive actions — closing the game and BYOD disc-file transfer — stay
+    // same-origin only; never honor them from a cross-origin frame.
+    if (!sameOrigin) return;
+    if (d.type === 'tg16-exit') closeGame();
     else if (d.type === 'psx-byod-ready') {
       // Send the BYOD disc File over to the play iframe via structured clone
       // so EmulatorJS receives a same-realm File (its `instanceof File` check
@@ -1675,6 +1718,7 @@
       src={gameSrc}
       title="game"
       allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
+      onload={injectOsdKeyForwarder}
     ></iframe>
   </div>
 {/if}

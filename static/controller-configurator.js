@@ -55,56 +55,56 @@
               <svg viewBox="0 0 400 250" class="controller-svg">
                 <!-- Controller outline -->
                 <path d="M80 120 Q60 100 40 120 Q20 140 40 160 L80 160 Q100 180 120 180 L280 180 Q300 180 320 160 L360 160 Q380 140 360 120 Q340 100 320 120 L80 120 Z" 
-                      fill="#2a2a2a" stroke="#555" stroke-width="2"/>
+                      fill="#0b2414" stroke="rgba(140,255,110,.35)" stroke-width="2"/>
                 
                 <!-- D-Pad -->
                 <g class="dpad-group" transform="translate(100, 140)">
-                  <rect x="-15" y="-5" width="30" height="10" fill="#444" class="dpad-horizontal"/>
-                  <rect x="-5" y="-15" width="10" height="30" fill="#444" class="dpad-vertical"/>
-                  <circle cx="0" cy="-12" r="8" fill="#555" class="config-btn dpad-up" data-group="dpad" data-button="up"></circle>
-                  <circle cx="0" cy="12" r="8" fill="#555" class="config-btn dpad-down" data-group="dpad" data-button="down"></circle>
-                  <circle cx="-12" cy="0" r="8" fill="#555" class="config-btn dpad-left" data-group="dpad" data-button="left"></circle>
-                  <circle cx="12" cy="0" r="8" fill="#555" class="config-btn dpad-right" data-group="dpad" data-button="right"></circle>
+                  <rect x="-15" y="-5" width="30" height="10" fill="#143a22" class="dpad-horizontal"/>
+                  <rect x="-5" y="-15" width="10" height="30" fill="#143a22" class="dpad-vertical"/>
+                  <circle cx="0" cy="-12" r="8" fill="#1f5c34" class="config-btn dpad-up" data-group="dpad" data-button="up"></circle>
+                  <circle cx="0" cy="12" r="8" fill="#1f5c34" class="config-btn dpad-down" data-group="dpad" data-button="down"></circle>
+                  <circle cx="-12" cy="0" r="8" fill="#1f5c34" class="config-btn dpad-left" data-group="dpad" data-button="left"></circle>
+                  <circle cx="12" cy="0" r="8" fill="#1f5c34" class="config-btn dpad-right" data-group="dpad" data-button="right"></circle>
                 </g>
                 
                 <!-- Face buttons -->
                 <g class="face-buttons-group" transform="translate(300, 140)">
-                  <circle cx="0" cy="-20" r="12" fill="#555" class="config-btn face-north" data-group="face" data-button="btnTop"></circle>
-                  <circle cx="0" cy="20" r="12" fill="#555" class="config-btn face-south" data-group="face" data-button="btnBottom"></circle>
-                  <circle cx="-20" cy="0" r="12" fill="#555" class="config-btn face-west" data-group="face" data-button="btnLeft"></circle>
-                  <circle cx="20" cy="0" r="12" fill="#555" class="config-btn face-east" data-group="face" data-button="btnRight"></circle>
+                  <circle cx="0" cy="-20" r="12" fill="#1f5c34" class="config-btn face-north" data-group="face" data-button="btnTop"></circle>
+                  <circle cx="0" cy="20" r="12" fill="#1f5c34" class="config-btn face-south" data-group="face" data-button="btnBottom"></circle>
+                  <circle cx="-20" cy="0" r="12" fill="#1f5c34" class="config-btn face-west" data-group="face" data-button="btnLeft"></circle>
+                  <circle cx="20" cy="0" r="12" fill="#1f5c34" class="config-btn face-east" data-group="face" data-button="btnRight"></circle>
                   <!-- Button labels -->
-                  <text x="0" y="-16" text-anchor="middle" fill="white" font-size="10">Y</text>
-                  <text x="0" y="24" text-anchor="middle" fill="white" font-size="10">A</text>
-                  <text x="-20" y="4" text-anchor="middle" fill="white" font-size="10">X</text>
-                  <text x="20" y="4" text-anchor="middle" fill="white" font-size="10">B</text>
+                  <text x="0" y="-16" text-anchor="middle" fill="#dfffc4" font-size="10">Y</text>
+                  <text x="0" y="24" text-anchor="middle" fill="#dfffc4" font-size="10">A</text>
+                  <text x="-20" y="4" text-anchor="middle" fill="#dfffc4" font-size="10">X</text>
+                  <text x="20" y="4" text-anchor="middle" fill="#dfffc4" font-size="10">B</text>
                 </g>
                 
                 <!-- Shoulder buttons -->
                 <g class="shoulder-buttons">
-                  <rect x="60" y="80" width="40" height="15" rx="7" fill="#555" class="config-btn shoulder-left" data-group="shoulder" data-button="leftShoulder"></rect>
-                  <rect x="300" y="80" width="40" height="15" rx="7" fill="#555" class="config-btn shoulder-right" data-group="shoulder" data-button="rightShoulder"></rect>
-                  <rect x="60" y="60" width="40" height="15" rx="7" fill="#444" class="config-btn trigger-left" data-group="shoulder" data-button="leftTrigger"></rect>
-                  <rect x="300" y="60" width="40" height="15" rx="7" fill="#444" class="config-btn trigger-right" data-group="shoulder" data-button="rightTrigger"></rect>
-                  <text x="80" y="91" text-anchor="middle" fill="white" font-size="8">LB</text>
-                  <text x="320" y="91" text-anchor="middle" fill="white" font-size="8">RB</text>
-                  <text x="80" y="71" text-anchor="middle" fill="white" font-size="8">LT</text>
-                  <text x="320" y="71" text-anchor="middle" fill="white" font-size="8">RT</text>
+                  <rect x="60" y="80" width="40" height="15" rx="7" fill="#1f5c34" class="config-btn shoulder-left" data-group="shoulder" data-button="leftShoulder"></rect>
+                  <rect x="300" y="80" width="40" height="15" rx="7" fill="#1f5c34" class="config-btn shoulder-right" data-group="shoulder" data-button="rightShoulder"></rect>
+                  <rect x="60" y="60" width="40" height="15" rx="7" fill="#143a22" class="config-btn trigger-left" data-group="shoulder" data-button="leftTrigger"></rect>
+                  <rect x="300" y="60" width="40" height="15" rx="7" fill="#143a22" class="config-btn trigger-right" data-group="shoulder" data-button="rightTrigger"></rect>
+                  <text x="80" y="91" text-anchor="middle" fill="#dfffc4" font-size="8">LB</text>
+                  <text x="320" y="91" text-anchor="middle" fill="#dfffc4" font-size="8">RB</text>
+                  <text x="80" y="71" text-anchor="middle" fill="#dfffc4" font-size="8">LT</text>
+                  <text x="320" y="71" text-anchor="middle" fill="#dfffc4" font-size="8">RT</text>
                 </g>
                 
                 <!-- Special buttons -->
                 <g class="special-buttons">
-                  <rect x="160" y="120" width="20" height="10" rx="5" fill="#555" class="config-btn special-select" data-group="special" data-button="select"></rect>
-                  <rect x="220" y="120" width="20" height="10" rx="5" fill="#555" class="config-btn special-start" data-group="special" data-button="start"></rect>
-                  <text x="170" y="127" text-anchor="middle" fill="white" font-size="7">SEL</text>
-                  <text x="230" y="127" text-anchor="middle" fill="white" font-size="7">STR</text>
+                  <rect x="160" y="120" width="20" height="10" rx="5" fill="#1f5c34" class="config-btn special-select" data-group="special" data-button="select"></rect>
+                  <rect x="220" y="120" width="20" height="10" rx="5" fill="#1f5c34" class="config-btn special-start" data-group="special" data-button="start"></rect>
+                  <text x="170" y="127" text-anchor="middle" fill="#dfffc4" font-size="7">SEL</text>
+                  <text x="230" y="127" text-anchor="middle" fill="#dfffc4" font-size="7">STR</text>
                 </g>
                 
                 <!-- Analog sticks -->
-                <circle cx="140" cy="180" r="18" fill="#444" stroke="#666" stroke-width="2" class="stick-left-base"></circle>
-                <circle cx="260" cy="180" r="18" fill="#444" stroke="#666" stroke-width="2" class="stick-right-base"></circle>
-                <circle cx="140" cy="180" r="8" fill="#555" class="config-btn stick-left" data-group="special" data-button="leftStick"></circle>
-                <circle cx="260" cy="180" r="8" fill="#555" class="config-btn stick-right" data-group="special" data-button="rightStick"></circle>
+                <circle cx="140" cy="180" r="18" fill="#143a22" stroke="rgba(140,255,110,.3)" stroke-width="2" class="stick-left-base"></circle>
+                <circle cx="260" cy="180" r="18" fill="#143a22" stroke="rgba(140,255,110,.3)" stroke-width="2" class="stick-right-base"></circle>
+                <circle cx="140" cy="180" r="8" fill="#1f5c34" class="config-btn stick-left" data-group="special" data-button="leftStick"></circle>
+                <circle cx="260" cy="180" r="8" fill="#1f5c34" class="config-btn stick-right" data-group="special" data-button="rightStick"></circle>
               </svg>
             </div>
             
@@ -185,7 +185,7 @@
                     <option value="16">Home</option>
                   </select>
                   <button type="button" id="detect-gamepad-btn">Detect Gamepad Button</button>
-                  <div id="detect-gp-hint" style="margin-top:6px;color:#bdc3c7;font-size:12px;display:none;">Press any gamepad button...</div>
+                  <div id="detect-gp-hint" style="margin-top:6px;color:rgba(180,255,140,.7);font-size:12px;display:none;">Press any gamepad button...</div>
                 </div>
                 <div class="form-actions">
                   <button type="button" id="save-mapping-btn">Save</button>
@@ -850,6 +850,7 @@ const configuratorCSS = `
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease;
+  font-family: 'Orbitron', sans-serif;
 }
 
 .controller-configurator.visible {
@@ -860,59 +861,69 @@ const configuratorCSS = `
 .configurator-overlay {
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(5px);
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
 .configurator-panel {
-  background: linear-gradient(135deg, #1e2328 0%, #2c3e50 100%);
+  background: linear-gradient(180deg, rgba(12, 40, 20, .94), rgba(6, 22, 11, .96));
   border-radius: 12px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 38px rgba(80, 220, 100, .3), inset 0 0 0 1px rgba(140, 255, 110, .08);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  backdrop-filter: blur(8px) saturate(140%);
   width: 90vw;
   max-width: 1000px;
   height: 80vh;
   display: flex;
   flex-direction: column;
-  border: 1px solid #34495e;
+  border: 1px solid var(--tile-edge, rgba(140, 255, 110, .55));
+  color: #dfffc4;
 }
 
 .configurator-header {
-  padding: 20px;
-  border-bottom: 1px solid #34495e;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(140, 255, 110, .18);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
   border-radius: 12px 12px 0 0;
 }
 
 .configurator-header h2 {
-  color: #ecf0f1;
+  color: #eaffd2;
   margin: 0;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-weight: 600;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgba(120, 255, 90, .5);
 }
 
 .close-btn {
-  background: #e74c3c;
-  border: none;
-  color: white;
-  font-size: 24px;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
+  background: transparent;
+  border: 1px solid rgba(140, 255, 110, .25);
+  color: rgba(220, 255, 180, .6);
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .close-btn:hover {
-  background: #c0392b;
+  background: rgba(120, 255, 90, .12);
+  color: #eaffd2;
+  border-color: rgba(140, 255, 110, .5);
 }
 
 .configurator-content {
@@ -925,7 +936,8 @@ const configuratorCSS = `
 
 .controller-visual {
   flex: 2;
-  background: #34495e;
+  background: linear-gradient(180deg, rgba(70, 180, 90, .07), rgba(20, 60, 30, .35));
+  border: 1px solid rgba(140, 255, 110, .18);
   border-radius: 8px;
   padding: 20px;
   display: flex;
@@ -936,50 +948,65 @@ const configuratorCSS = `
 .controller-svg {
   max-width: 100%;
   max-height: 100%;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
 }
 
 .config-btn {
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: fill 0.15s ease, transform 0.15s ease, stroke 0.15s ease;
 }
 
 .config-btn:hover {
-  fill: #3498db;
+  fill: #7CFF4F;
   transform: scale(1.1);
 }
 
 .config-btn.selected {
-  fill: #e74c3c;
-  stroke: #fff;
+  fill: var(--yellow, #F6FF4A);
+  stroke: #fff36a;
   stroke-width: 2;
 }
 
 .configurator-sidebar {
   flex: 1;
-  background: #2c3e50;
+  background: linear-gradient(180deg, rgba(70, 180, 90, .05), rgba(20, 60, 30, .3));
+  border: 1px solid rgba(140, 255, 110, .14);
   border-radius: 8px;
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 20px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(140, 255, 110, .3) transparent;
 }
 
-.mapping-info h3 {
-  color: #ecf0f1;
-  margin: 0 0 15px 0;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+.mapping-info h3,
+.layout-section h3 {
+  color: rgba(180, 255, 140, .85);
+  margin: 0 0 12px 0;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(140, 255, 110, .14);
 }
 
 .current-mapping p {
-  color: #bdc3c7;
+  color: rgba(220, 255, 180, .7);
   margin: 0;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
 }
 
 .mapping-form h4 {
-  color: #ecf0f1;
+  color: #eaffd2;
   margin: 0 0 15px 0;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: .04em;
 }
 
 .form-group {
@@ -988,36 +1015,59 @@ const configuratorCSS = `
 
 .form-group label {
   display: block;
-  color: #bdc3c7;
+  color: rgba(220, 255, 180, .75);
   margin-bottom: 5px;
-  font-size: 14px;
+  font-size: 13px;
+  letter-spacing: .04em;
 }
 
 .form-group input,
 .form-group select {
   width: 100%;
-  padding: 8px;
-  border: 1px solid #34495e;
-  border-radius: 4px;
-  background: #1e2328;
-  color: #ecf0f1;
+  padding: 8px 10px;
+  border: 1px solid rgba(140, 255, 110, .25);
+  border-radius: 6px;
+  background: rgba(6, 22, 11, .6);
+  color: #eaffd2;
   font-size: 14px;
+  font-family: 'Share Tech Mono', monospace;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: rgba(140, 255, 110, .6);
+  box-shadow: 0 0 10px rgba(120, 255, 90, .25);
+}
+
+.form-group input::placeholder {
+  color: rgba(180, 255, 140, .35);
+}
+
+.form-group select option {
+  background: #06160b;
+  color: #eaffd2;
 }
 
 .form-group button {
-  margin-top: 5px;
-  padding: 6px 12px;
-  background: #3498db;
-  color: white;
-  border: none;
-  border-radius: 4px;
+  margin-top: 8px;
+  padding: 7px 14px;
+  background: linear-gradient(180deg, rgba(70, 180, 90, .2), rgba(20, 60, 30, .5));
+  color: #eaffd2;
+  border: 1px solid rgba(140, 255, 110, .4);
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
-  transition: background 0.2s;
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: .05em;
+  transition: all 0.15s ease;
 }
 
 .form-group button:hover {
-  background: #2980b9;
+  background: linear-gradient(180deg, rgba(90, 220, 110, .3), rgba(30, 80, 40, .6));
+  border-color: rgba(140, 255, 110, .65);
+  box-shadow: 0 0 14px rgba(80, 220, 100, .25);
 }
 
 .form-actions {
@@ -1027,12 +1077,14 @@ const configuratorCSS = `
 
 .form-actions button {
   flex: 1;
-  padding: 8px;
+  padding: 9px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s;
+  font-weight: 600;
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: .05em;
+  transition: all 0.15s ease;
 }
 
 /* Inline form group (for testing toggle) */
@@ -1042,28 +1094,47 @@ const configuratorCSS = `
   gap: 10px;
 }
 
+.form-group.inline label {
+  margin-bottom: 0;
+}
+
 .testing-section h3 {
-  color: #ecf0f1;
-  margin: 0 0 10px 0;
+  color: rgba(180, 255, 140, .85);
+  margin: 0 0 12px 0;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(140, 255, 110, .14);
 }
 
 .testing-hint {
-  color: #bdc3c7;
+  color: rgba(180, 255, 140, .5);
   font-size: 12px;
   margin: 6px 0 0 0;
+  font-family: 'Share Tech Mono', monospace;
+  line-height: 1.4;
 }
 
 .start-section h3 {
-  color: #ecf0f1;
-  margin: 0 0 10px 0;
+  color: rgba(180, 255, 140, .85);
+  margin: 0 0 12px 0;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(140, 255, 110, .14);
 }
 
-/* Toggle switch */
+/* Toggle switch — matches the OSD pill toggle */
 .switch {
   position: relative;
   display: inline-block;
   width: 46px;
   height: 24px;
+  flex-shrink: 0;
 }
 
 .switch input { display: none; }
@@ -1075,9 +1146,9 @@ const configuratorCSS = `
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #7f8c8d;
-  transition: .2s;
-  border-radius: 24px;
+  background-color: rgba(140, 255, 110, .22);
+  transition: .15s ease;
+  border-radius: 999px;
 }
 
 .slider:before {
@@ -1087,13 +1158,14 @@ const configuratorCSS = `
   width: 18px;
   left: 3px;
   bottom: 3px;
-  background-color: white;
-  transition: .2s;
+  background-color: #eaffd2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  transition: .15s ease;
   border-radius: 50%;
 }
 
 input:checked + .slider {
-  background-color: #27ae60;
+  background-color: #4fd06a;
 }
 
 input:checked + .slider:before {
@@ -1102,36 +1174,44 @@ input:checked + .slider:before {
 
 /* Visual highlight for pressed buttons during testing */
 .controller-configurator.testing-active .controller-svg .config-btn.testing-pressed {
-  fill: #2ecc71 !important;
-  stroke: #ecf0f1;
+  fill: #7CFF4F !important;
+  stroke: #eaffd2;
   stroke-width: 2;
-  filter: drop-shadow(0 0 6px rgba(46, 204, 113, 0.8));
+  filter: drop-shadow(0 0 6px rgba(120, 255, 90, 0.8));
 }
 
 #save-mapping-btn {
-  background: #27ae60;
-  color: white;
+  background: linear-gradient(180deg, rgba(160, 255, 110, .95), rgba(90, 220, 60, .9));
+  border: 1px solid rgba(180, 255, 140, 1);
+  color: #0a1a06;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .25);
+  box-shadow: 0 0 20px rgba(120, 255, 90, .35), inset 0 -2px 0 rgba(0, 0, 0, .15);
 }
 
 #save-mapping-btn:hover {
-  background: #219a52;
+  background: linear-gradient(180deg, rgba(180, 255, 130, 1), rgba(110, 240, 80, .95));
+  box-shadow: 0 0 28px rgba(120, 255, 90, .5), inset 0 -2px 0 rgba(0, 0, 0, .15);
 }
 
 #reset-mapping-btn {
-  background: #f39c12;
-  color: white;
+  background: transparent;
+  border: 1px solid rgba(255, 177, 61, .5);
+  color: #FFB13D;
 }
 
 #reset-mapping-btn:hover {
-  background: #e67e22;
+  background: rgba(255, 177, 61, .12);
+  border-color: rgba(255, 177, 61, .8);
+  box-shadow: 0 0 14px rgba(255, 177, 61, .25);
 }
 
 .configurator-footer {
-  padding: 20px;
-  border-top: 1px solid #34495e;
+  padding: 16px 20px;
+  border-top: 1px solid rgba(140, 255, 110, .18);
   display: flex;
   justify-content: space-between;
-  background: #1e2328;
+  gap: 12px;
+  background: rgba(6, 22, 11, .5);
   border-radius: 0 0 12px 12px;
 }
 
@@ -1142,25 +1222,34 @@ input:checked + .slider:before {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
-  transition: all 0.2s;
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: .05em;
+  transition: all 0.15s ease;
 }
 
 .reset-all-btn {
-  background: #e74c3c;
-  color: white;
+  background: transparent;
+  border: 1px solid rgba(255, 177, 61, .5);
+  color: #FFB13D;
 }
 
 .reset-all-btn:hover {
-  background: #c0392b;
+  background: rgba(255, 177, 61, .12);
+  border-color: rgba(255, 177, 61, .8);
+  box-shadow: 0 0 14px rgba(255, 177, 61, .25);
 }
 
 .save-close-btn {
-  background: #27ae60;
-  color: white;
+  background: linear-gradient(180deg, rgba(160, 255, 110, .95), rgba(90, 220, 60, .9));
+  border: 1px solid rgba(180, 255, 140, 1);
+  color: #0a1a06;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .25);
+  box-shadow: 0 0 20px rgba(120, 255, 90, .35), inset 0 -2px 0 rgba(0, 0, 0, .15);
 }
 
 .save-close-btn:hover {
-  background: #219a52;
+  background: linear-gradient(180deg, rgba(180, 255, 130, 1), rgba(110, 240, 80, .95));
+  box-shadow: 0 0 28px rgba(120, 255, 90, .5), inset 0 -2px 0 rgba(0, 0, 0, .15);
 }
 `;
 
