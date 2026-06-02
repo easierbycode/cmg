@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "games": [
+    {
+      "id": "sf2",
+      "name": "Street Fighter 2.0",
+      "title": "STREET FIGHTER 2.0",
+      "sub": "Godot // Ryu",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/sf2",
+      "branch": "main",
+      "subdir": "ryu",
+      "entry": "ryu/index.html",
+      "streamUrl": "https://easierbycode.com/sf2/",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/sf2/main/ryu.zip",
+      "size": "10 MB",
+      "date": "09.10.25"
+    }
+  ]
+}
