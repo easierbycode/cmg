@@ -229,14 +229,19 @@ class GamepadManager {
     const group = mapping[groupName];
     if (!group) return;
 
+    // D-pad press state comes from readDpad() so non-standard pads (hat switch
+    // on an axis, digital D-pad axes, or shifted button indices) drive it — not
+    // just the standard buttons 12-15.
+    const dpadDirs = groupName === 'dpad' ? this.readDpad(controller, mapping) : null;
+
     for (let buttonName in group) {
       const buttonMapping = group[buttonName];
       const button = controller.buttons[buttonMapping.gamepadButton];
 
-      if (button) {
+      if (dpadDirs || button) {
         const isStick = buttonName === 'leftStick' || buttonName === 'rightStick';
         const wasPressed = isStick ? (prevButtonState[buttonName] && prevButtonState[buttonName].pressed) : (prevButtonState[buttonName] || false);
-        const isPressed = button.pressed;
+        const isPressed = dpadDirs ? !!dpadDirs[buttonName] : button.pressed;
 
         const swallow = this.shouldSwallowFor(controllerIndex);
 
@@ -353,6 +358,66 @@ class GamepadManager {
       up: stick.y < -threshold,
       down: stick.y > threshold,
     };
+  }
+
+  // Robustly derive D-pad direction state across the many ways controllers
+  // report it. Standard pads use buttons 12-15; non-standard pads (SNES/USB
+  // adapters, common on Chrome and Firefox) instead expose the D-pad as an
+  // encoded hat switch on an axis, as digital axes, or at shifted button
+  // indices. We OR every known source so the D-pad lights up and dispatches
+  // keys regardless of how this particular pad/browser reports it.
+  readDpad(controller, mapping) {
+    const b = controller.buttons || [];
+    const ax = controller.axes || [];
+    const pressed = (i) => !!(b[i] && b[i].pressed);
+    const dpadMap = (mapping && mapping.dpad) || {};
+    const mapped = (name, fallback) => {
+      const m = dpadMap[name];
+      const gi = m && typeof m.gamepadButton === 'number' ? m.gamepadButton : fallback;
+      return pressed(gi);
+    };
+
+    // 1) Mapped/standard button indices (respects a user remap; defaults 12-15).
+    let up = mapped('up', 12), down = mapped('down', 13),
+        left = mapped('left', 14), right = mapped('right', 15);
+
+    // 2) Shifted indices some non-standard layouts use (e.g. Firefox).
+    up = up || pressed(16) || pressed(18) || pressed(20);
+    down = down || pressed(17) || pressed(19) || pressed(21);
+
+    // 3) Dedicated digital D-pad axes (value -1/0/+1), distinct from analog
+    //    sticks. Only trust them when in [-1.05, 1.05] (skip neutral sentinels).
+    const axOk = (v) => typeof v === 'number' && Math.abs(v) <= 1.05;
+    if (axOk(ax[6])) { if (ax[6] <= -0.5) left = true; else if (ax[6] >= 0.5) right = true; }
+    if (axOk(ax[7])) { if (ax[7] <= -0.5) up = true; else if (ax[7] >= 0.5) down = true; }
+
+    // 4) Encoded 8-way hat switch (commonly axes[9]; neutral reads as a >1
+    //    sentinel like 1.2857). Decode to the nearest of the 8 positions.
+    const hat = this.decodeHat(ax[9]);
+    up = up || hat.up; down = down || hat.down; left = left || hat.left; right = right || hat.right;
+
+    return { up, down, left, right };
+  }
+
+  // Decode a normalized POV-hat axis value into directional booleans. The
+  // common encoding maps states 0..7 (N, NE, E, SE, S, SW, W, NW) to
+  // 2*state/7 - 1, so neutral (state 8) lands at ~1.2857 (> 1). Values outside
+  // [-1.05, 1.05] are treated as neutral/absent.
+  decodeHat(v) {
+    const res = { up: false, down: false, left: false, right: false };
+    if (typeof v !== 'number' || v > 1.05 || v < -1.05) return res;
+    const state = ((Math.round((v + 1) * 3.5) % 8) + 8) % 8; // inverse of 2*state/7 - 1
+    switch (state) {
+      case 0: res.up = true; break;
+      case 1: res.up = true; res.right = true; break;
+      case 2: res.right = true; break;
+      case 3: res.down = true; res.right = true; break;
+      case 4: res.down = true; break;
+      case 5: res.down = true; res.left = true; break;
+      case 6: res.left = true; break;
+      case 7: res.up = true; res.left = true; break;
+    }
+    return res;
   }
 
   // Handle Start press when in-game: simulate a click and/or start a Phaser scene
