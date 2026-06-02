@@ -8,10 +8,31 @@ import { define } from "../../utils.ts";
 // (static/demos/akuma.js) boots itself and loads the FBX meshes/animation +
 // texture from /demos/akuma/. Same self-contained, no-bundle shape as the
 // goofy-game and headphones-recommended demos.
+// Launcher OSD bridge. Once this game has keyboard focus the parent launcher
+// stops receiving keydowns, so its own ` / ~ / Esc handler never fires. When
+// embedded in cmg — which can be cross-origin in packaged/online builds, where
+// the launcher can't inject a forwarder itself — forward those keys up so it
+// can toggle the in-game Guide/OSD. Capture phase + stopImmediatePropagation so
+// the game doesn't also act on them. No-op when the page is opened standalone.
+const OSD_BRIDGE = `
+(function () {
+  if (window.parent === window) return; // standalone — leave keys to the game
+  window.addEventListener("keydown", function (e) {
+    if (e.code === "Backquote" || e.key === "\`" || e.key === "~" ||
+        e.keyCode === 192 || e.key === "Escape") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      try { window.parent.postMessage({ type: "tg16-toggle-controls" }, "*"); } catch (_) {}
+    }
+  }, true);
+})();
+`;
+
 export default define.page(function Akuma() {
   return (
     <>
       <Head>
+        <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
         <title>Akuma — Three.js character demo</title>
         <style>
           {`
