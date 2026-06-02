@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Arcade</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        color: #9cff6b;
+        font-family: "Share Tech Mono", monospace;
+      }
+      #emu {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      /* Emularity wraps the canvas in its own container; keep everything black
+         and let the canvas scale to fit. */
+      #emu canvas {
+        max-width: 100%;
+        max-height: 100%;
+        image-rendering: pixelated;
+        background: #000;
+      }
+      #err {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 2em;
+      }
+      #err.show { display: flex; }
+      body.pad-on, body.pad-on * { cursor: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="emu"><canvas id="canvas"></canvas></div>
+    <div id="err">No game specified.</div>
+    <script src="/arcade/emularity/browserfs.min.js"></script>
+    <script src="/arcade/emularity/loader.js"></script>
+    <script>
+      (function () {
+        "use strict";
+        // Internet Archive emulation engine — hosts the MAME WASM cores and a
+        // per-game JSON recipe (driver, core filenames, native resolution).
+        var ENGINE = "https://emularity-engine.ux-b.archive.org/";
+
+        var params = new URLSearchParams(location.search);
+        var rom = params.get("rom") || "";
+        var canvas = document.getElementById("canvas");
+        var errEl = document.getElementById("err");
+
+        function fail(msg) {
+          errEl.textContent = msg;
+          errEl.classList.add("show");
+          try { console.error("[arcade] " + msg); } catch (_) {}
+        }
+
+        if (!rom) { fail("No game specified."); return; }
+        if (!window.Emulator || !window.MAMELoader) {
+          fail("Emularity loader failed to load.");
+          return;
+        }
+
+        // Cursor hide when a gamepad is driving (parent owns the pad).
+        function anyParentPad() {
+          try {
+            var pp = window.parent;
+            if (pp && pp !== window && pp.navigator && pp.navigator.getGamepads) {
+              var pg = pp.navigator.getGamepads() || [];
+              for (var i = 0; i < pg.length; i++) if (pg[i] && pg[i].connected) return true;
+            }
+          } catch (_) {}
+          return false;
+        }
+        setInterval(function () {
+          document.body.classList.toggle("pad-on", anyParentPad());
+        }, 1000);
+
+        function postParent(type) {
+          try { window.parent.postMessage({ type: type }, window.location.origin); } catch (_) {}
+        }
+        // Backquote mirrors the SELECT+Down OSD chord (so Exit is reachable from
+        // a keyboard) — same convention as the PSX/TG16/PS2 players.
+        window.addEventListener("keydown", function (e) {
+          if (e.code === "Backquote" || e.key === "`" || e.key === "~" || e.keyCode === 192) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            postParent("tg16-toggle-controls");
+          }
+        }, true);
+
+        if (!self.crossOriginIsolated) {
+          // mamezn may use SharedArrayBuffer; warn but still try.
+          try { console.warn("[arcade] not cross-origin isolated"); } catch (_) {}
+        }
+
+        var romName = rom.replace(/\.zip$/i, "");
+        var romZip = "/arcade/" + encodeURIComponent(romName) + ".zip";
+
+        // Fetch the per-game recipe (driver, core, native resolution) from the
+        // engine, then drive the MAME core. This keeps the player generic — any
+        // arcade game with an engine recipe + a local ROM zip works.
+        fetch(ENGINE + encodeURIComponent(romName) + ".json")
+          .then(function (r) {
+            if (!r.ok) throw new Error("no engine recipe for '" + romName + "' (HTTP " + r.status + ")");
+            return r.json();
+          })
+          .then(function (cfg) {
+            var nr = cfg.native_resolution || [640, 480];
+            var wasmjs = cfg.wasmjs_filename || "mamezn.js.gz";
+            var wasm = cfg.wasm_filename || "mamezn.wasm.gz";
+            var driver = cfg.driver || romName;
+            document.title = (cfg.name || romName) + " — Arcade";
+
+            var args = [
+              MAMELoader.driver(driver),
+              MAMELoader.nativeResolution(nr[0], nr[1]),
+              MAMELoader.scale(2),
+              MAMELoader.emulatorJS(ENGINE + wasmjs),
+              MAMELoader.emulatorWASM(ENGINE + wasm),
+              MAMELoader.mountFile(
+                "/" + romName + ".zip",
+                MAMELoader.fetchFile(cfg.name || romName, romZip),
+              ),
+            ];
+            // BIOS / device ROM sets (e.g. coh3002c for ZN-2, qsound). MAME finds
+            // any ROM set mounted into the rompath, so split sets work as long as
+            // their BIOS zips are dropped into static/arcade/ and named here via
+            // ?bios=coh3002c,qsound (the dashboard passes this per game).
+            var biosSets = (params.get("bios") || cfg.bios_zip || "")
+              .split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+            biosSets.forEach(function (b) {
+              args.push(MAMELoader.mountFile(
+                "/" + b + ".zip",
+                MAMELoader.fetchFile(b, "/arcade/" + encodeURIComponent(b) + ".zip"),
+              ));
+            });
+            // Extra MAME args: the recipe's extra_args, plus optional overrides
+            // for debugging the renderer — ?video=opengl|bgfx|accel|soft and
+            // ?args=<space-separated MAME flags>.
+            var extra = [];
+            if (cfg.extra_args && cfg.extra_args.join("")) extra = extra.concat(cfg.extra_args);
+            var video = params.get("video");
+            if (video) extra.push("-video", video);
+            var moreArgs = params.get("args");
+            if (moreArgs) extra = extra.concat(moreArgs.split(" ").filter(Boolean));
+            if (extra.length) args.push(MAMELoader.extraArgs(extra));
+
+            var emulator = new Emulator(canvas, null, MAMELoader.apply(null, args));
+            return emulator.start();
+          })
+          .catch(function (e) {
+            fail("Failed to start arcade game: " + (e && e.message ? e.message : e));
+          });
+      })();
+    </script>
+  </body>
+</html>
