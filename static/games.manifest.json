@@ -1,7 +1,16 @@
 {
-  "version": "418ec40",
-  "generatedAt": "2026-06-02T01:39:35.475Z",
+  "version": "1de2f23",
+  "generatedAt": "2026-06-02T10:09:22.419Z",
   "games": [
+    {
+      "id": "2019-pixi",
+      "name": "2019",
+      "title": "2019",
+      "sub": "Pixi.js",
+      "icon": null,
+      "size": "— MB",
+      "date": "05.29.26"
+    },
     {
       "id": "2019-es7",
       "name": "2028",
@@ -22,24 +31,6 @@
       "url": "/games/2028-ai"
     },
     {
-      "id": "2019-pixi",
-      "name": "2019",
-      "title": "2019",
-      "sub": "Pixi.js",
-      "icon": null,
-      "size": "— MB",
-      "date": "05.29.26"
-    },
-    {
-      "id": "evil-invaders",
-      "name": "Peachy Skies",
-      "title": "PEACHY SKIES",
-      "sub": "Turbo + Audio",
-      "icon": "/icons/headphone-invader-icon.png",
-      "size": "8.2 MB",
-      "date": "10.13.24"
-    },
-    {
       "id": "games/evil-invaders/index.html?turbo=1&audio=1",
       "name": "Evil Invaders",
       "title": "EVIL INVADERS",
@@ -49,22 +40,13 @@
       "date": "04.04.23"
     },
     {
-      "id": "hellophaser/v3",
-      "name": "RonaGun",
-      "title": "RONAGUN",
-      "sub": "Phaser v3 demo",
+      "id": "monkey-kombat",
+      "name": "Monkey Kombat",
+      "title": "MONKEY KOMBAT",
+      "sub": "🐵ᕗ ─=≡ΣO))",
       "icon": null,
-      "size": "3.1 MB",
-      "date": "08.08.22"
-    },
-    {
-      "id": "squad-game",
-      "name": "Squad Game",
-      "title": "SQUAD GAME",
-      "sub": "👨🏽‍💻 👾💾🖳 👩🏽‍💻",
-      "icon": "/icons/squad-game.png",
-      "size": "5.7 MB",
-      "date": "11.02.23"
+      "size": "6.4 MB",
+      "date": "05.19.26"
     },
     {
       "id": "evil-invaders-phaser4/?scene=MutoidScene&loop=2",
@@ -85,6 +67,24 @@
       "date": "10.31.25"
     },
     {
+      "id": "evil-invaders",
+      "name": "Peachy Skies",
+      "title": "PEACHY SKIES",
+      "sub": "Turbo + Audio",
+      "icon": "/icons/headphone-invader-icon.png",
+      "size": "8.2 MB",
+      "date": "10.13.24"
+    },
+    {
+      "id": "hellophaser/v3",
+      "name": "RonaGun",
+      "title": "RONAGUN",
+      "sub": "Phaser v3 demo",
+      "icon": null,
+      "size": "3.1 MB",
+      "date": "08.08.22"
+    },
+    {
       "id": "shmup-party-phaser3",
       "name": "Sh’M↑ Party",
       "title": "SH'M↑ PARTY",
@@ -94,16 +94,25 @@
       "date": "02.14.24"
     },
     {
-      "id": "monkey-kombat",
-      "name": "Monkey Kombat",
-      "title": "MONKEY KOMBAT",
-      "sub": "🐵ᕗ ─=≡ΣO))",
-      "icon": null,
-      "size": "6.4 MB",
-      "date": "05.19.26"
+      "id": "squad-game",
+      "name": "Squad Game",
+      "title": "SQUAD GAME",
+      "sub": "👨🏽‍💻 👾💾🖳 👩🏽‍💻",
+      "icon": "/icons/squad-game.png",
+      "size": "5.7 MB",
+      "date": "11.02.23"
     }
   ],
   "demos": [
+    {
+      "id": "akuma",
+      "name": "Akuma",
+      "title": "AKUMA",
+      "sub": "Three.js · WASD",
+      "size": "— MB",
+      "date": "demo",
+      "url": "/demos/akuma"
+    },
     {
       "id": "goofy-game",
       "name": "Goofy Game",
@@ -121,15 +130,6 @@
       "size": "— MB",
       "date": "demo",
       "url": "/demos/headphones-recommended"
-    },
-    {
-      "id": "akuma",
-      "name": "Akuma",
-      "title": "AKUMA",
-      "sub": "Three.js · WASD",
-      "size": "— MB",
-      "date": "demo",
-      "url": "/demos/akuma"
     }
   ]
 }
