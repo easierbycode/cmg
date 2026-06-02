@@ -1424,7 +1424,6 @@
       src={gameSrc}
       title="game"
       allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
-      allowfullscreen
     ></iframe>
   </div>
 {/if}
