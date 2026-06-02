@@ -6,10 +6,11 @@
 // GamepadManager.prototype and is opened from the in-game OSD's "Controller
 // Settings" via window.openControllerConfigurator().
 //
-// Must load AFTER gamepad-support.js (which declares GamepadManager and creates
-// the global window.gamepadManager instance).
+// Loaded as an ES module; importing GamepadManager guarantees gamepad-support.js
+// has executed (and created the global window.gamepadManager instance) first.
+import { GamepadManager } from './gamepad-support.js';
+
 (function () {
-  const GamepadManager = window.GamepadManager;
   if (!GamepadManager || !window.gamepadManager) {
     console.warn('[controller-configurator] GamepadManager not initialized; skipping.');
     return;
