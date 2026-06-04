@@ -6,8 +6,9 @@
 //
 // The runtime CDN<->local switch is keyed on `window.__CMG_BUNDLED`, set by the
 // binary launchers (they export CMG_BUNDLED=1 → routes/index.tsx emits the flag)
-// and read by static/psx/play.html + static/turbografx16/play.html. The PS2
-// player (Play!) is always local, so it needs no switch.
+// and read by static/psx/play.html + static/turbografx16/play.html +
+// static/nes/play.html. The PS2 player (Play!) is always local, so it needs no
+// switch.
 //
 // Outputs (all gitignored — present only in binary builds):
 //   static/emulatorjs/data/    EmulatorJS self-host bundle + the cores in use
@@ -17,14 +18,18 @@
 // IMPORTANT: the EmulatorJS offline mirror is best-effort. Validate it by
 // building a binary and launching it with NO network — if the emulator requests
 // a file that 404s, add it here. Cores in use: psx → pcsx_rearmed,
-// turbografx16 → mednafen_pce.
+// turbografx16 → mednafen_pce, nes → fceumm.
 
 const ROOT = new URL("../", import.meta.url);
 const path = (rel: string) => new URL(rel, ROOT).pathname;
 
 const CDN = "https://cdn.emulatorjs.org/stable/data/";
 // EmulatorJS downloads cores on demand from the CDN; mirror the two we use.
-const CORES = ["pcsx_rearmed-wasm.data", "mednafen_pce-wasm.data"];
+const CORES = [
+  "pcsx_rearmed-wasm.data",
+  "mednafen_pce-wasm.data",
+  "fceumm-wasm.data",
+];
 
 const FONT_CSS_URL =
   "https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@500;700;800&display=swap";
