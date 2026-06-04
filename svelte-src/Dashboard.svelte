@@ -17,6 +17,7 @@
   const TG16_ID = '__tg16__';
   const PSX_ID  = '__psx__';
   const SATURN_ID = '__saturn__';
+  const NES_ID = '__nes__';
   const DEMOS_ID = '__demos__';
   const CMGNET_ID = '__cmgnet__';
   // Baked-in fallback snapshot of the Demos list (Games → Demos). At runtime
@@ -49,6 +50,7 @@
     { id: 'squad-game',                                            name: 'Squad Game',          title: 'SQUAD GAME',          sub: '👨🏽‍💻 👾💾🖳 👩🏽‍💻',  icon: '/icons/squad-game.png',                size: '5.7 MB',  date: '11.02.23' },
     { id: DEMOS_ID,                                                name: 'Demos',               title: 'DEMOS',               sub: 'DEMO // submenu', icon: null,                                   size: '— MB',    date: 'DEMO',    submenu: true },
     { id: CMGNET_ID,                                               name: 'CMG Network',         title: 'CMG NETWORK',         sub: 'NET // e-shop',   icon: null,                                   size: '— MB',    date: 'NET',     submenu: true },
+    { id: NES_ID,                                                  name: 'Nintendo',            title: 'NINTENDO',            sub: 'NES // submenu',  icon: null,                                   size: '— MB',    date: 'NES',     submenu: true },
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
     { id: SATURN_ID,                                               name: 'Sega Saturn',         title: 'SEGA SATURN',         sub: 'SS // submenu',   icon: null,                                   size: '— MB',    date: 'SS',      submenu: true },
     { id: TG16_ID,                                                 name: 'TurboGrafx-16',       title: 'TURBOGRAFX-16',       sub: 'PCE // submenu',  icon: null,                                   size: '— MB',    date: 'PCE',     submenu: true },
@@ -68,7 +70,7 @@
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
 
-  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'tg16' | 'psx' | 'saturn' | 'demos'
+  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'tg16' | 'nes' | 'psx' | 'saturn' | 'demos'
   let menuSel = $state(1);           // start on Games
   let gameSel = $state(0);
   let clockStr = $state('--:--:--');
@@ -94,6 +96,13 @@
   let saturnByodError = $state('');
   let saturnFileInput = $state(null);
   let saturnByodBtnEl = $state(null);
+  // NES — preloaded ROMs (manifest) plus an always-present BYOC ("Bring Your
+  // Own Cartridge") row pinned after them at index nesGames.length.
+  let nesGames = $state([]);
+  let nesSel = $state(0);
+  let nesRowEls = $state([]);
+  let nesByocError = $state('');
+  let nesFileInput = $state(null);
   let demosSel = $state(0);
   let demosRowEls = $state([]);
   let cmgnetGames = $state([]);
@@ -106,7 +115,7 @@
   let controlsShown = $state(false);
   let padHadConnection = $state(false);
   let padConnected = $state(false);
-  let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/')));
+  let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/')));
   // First touch in-game dismisses transient chrome (kept for the tg16 message
   // path). The upper-right close button is gone — Exit Game in the OSD replaces it.
   let chromeDismissed = $state(false);
@@ -235,6 +244,12 @@
   });
 
   $effect(() => {
+    if (screen !== 'nes') return;
+    const el = nesRowEls[nesSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  $effect(() => {
     if (screen !== 'demos') return;
     const el = demosRowEls[demosSel];
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -265,6 +280,9 @@
   let currentTg16 = $derived(tg16Games[tg16Sel]);
   let currentPsx = $derived(psxGames[psxSel]);
   let currentSaturn = $derived(saturnGames[saturnSel]);
+  // undefined when nesSel is on the pinned BYOC row (index === nesGames.length).
+  let currentNes = $derived(nesGames[nesSel]);
+  let onNesByocRow = $derived(nesSel >= nesGames.length);
   let currentDemo = $derived(DEMOS[demosSel]);
   let currentCmgnet = $derived(cmgnetGames[cmgnetSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
@@ -285,6 +303,11 @@
     saturnGames.length === 0
       ? '00 / 00'
       : String(saturnSel + 1).padStart(2, '0') + ' / ' + String(saturnGames.length).padStart(2, '0')
+  );
+  let nesCounterText = $derived(
+    onNesByocRow
+      ? 'BYOC'
+      : String(nesSel + 1).padStart(2, '0') + ' / ' + String(nesGames.length).padStart(2, '0')
   );
   let demosCounterText = $derived(
     String(demosSel + 1).padStart(2, '0') + ' / ' + String(DEMOS.length).padStart(2, '0')
@@ -355,7 +378,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'tg16' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') screen = 'games';
+    if (screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') screen = 'games';
     else screen = 'dashboard';
   }
 
@@ -385,6 +408,11 @@
     if (id === SATURN_ID) {
       sfx.enter();
       screen = 'saturn';
+      return;
+    }
+    if (id === NES_ID) {
+      sfx.enter();
+      screen = 'nes';
       return;
     }
     if (id === DEMOS_ID) {
@@ -446,6 +474,14 @@
     sfx.enter();
     chromeDismissed = false;
     gameSrc = '/saturn/play.html?rom=' + encodeURIComponent(file);
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function launchNes(file) {
+    if (!file) return;
+    sfx.enter();
+    chromeDismissed = false;
+    gameSrc = '/nes/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
   }
 
@@ -662,6 +698,19 @@
       if (saturnSel >= saturnGames.length) saturnSel = 0;
     } catch (_e) {
       saturnGames = [];
+    }
+  }
+
+  async function loadNesList() {
+    try {
+      const r = await fetch('/Nintendo/manifest.json');
+      if (!r.ok) return;
+      const list = await r.json();
+      nesGames = Array.isArray(list) ? list : [];
+      // The BYOC row sits at index nesGames.length, so that is the valid max.
+      if (nesSel > nesGames.length) nesSel = 0;
+    } catch (_e) {
+      nesGames = [];
     }
   }
 
@@ -982,6 +1031,56 @@
     try { saturnFileInput?.click(); } catch (_) {}
   }
 
+  // BYOC — Bring Your Own Cartridge (NES).
+  //
+  // NES cartridges are single-file ROMs (.nes / .fds / .unif / a lone .zip), so
+  // unlike the PSX/Saturn disc path there is nothing to bundle: we hand the
+  // chosen File straight to play.html. EmulatorJS accepts a File for
+  // EJS_gameUrl and reads file.name to detect the format. Available even when
+  // preloaded ROMs exist (the BYOC row is pinned after the list).
+  async function handleByocFiles(files) {
+    nesByocError = '';
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+
+    const order = [/\.nes$/i, /\.fds$/i, /\.unif$/i, /\.unf$/i, /\.zip$/i];
+    let main = null;
+    for (const re of order) {
+      main = list.find((f) => re.test(f.name));
+      if (main) break;
+    }
+    if (!main) {
+      nesByocError = 'Pick a .nes (or .fds / .unif / .zip) cartridge file.';
+      return;
+    }
+
+    // Stash the File on window so play.html (same-origin iframe) can read it in
+    // its own realm via the postMessage handoff (see onWindowMessage).
+    try {
+      window.__nesByocFile = main;
+      sessionStorage.setItem('nes-byoc', JSON.stringify({ name: main.name.replace(/\.[^.]+$/, '') }));
+    } catch (e) {
+      nesByocError = 'BYOC handoff failed: ' + (e && e.message ? e.message : e);
+      return;
+    }
+
+    sfx.enter();
+    chromeDismissed = false;
+    gameSrc = '/nes/play.html?byoc=1';
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function onByocChange(e) {
+    const input = e.currentTarget;
+    handleByocFiles(input.files);
+    // Allow re-picking the same file after a cancel by clearing the value.
+    setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
+  }
+
+  function openByocPicker() {
+    try { nesFileInput?.click(); } catch (_) {}
+  }
+
   function closeGame() {
     gameOn = false;
     controlsShown = false;
@@ -991,6 +1090,8 @@
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
     try { delete window.__saturnByodFile; } catch (_) {}
     try { sessionStorage.removeItem('saturn-byod'); } catch (_) {}
+    try { delete window.__nesByocFile; } catch (_) {}
+    try { sessionStorage.removeItem('nes-byoc'); } catch (_) {}
     sfx.back();
   }
 
@@ -1027,6 +1128,7 @@
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Sel - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxSel - 1, 0);
     else if (screen === 'saturn') saturnSel = Math.max(saturnSel - 1, 0);
+    else if (screen === 'nes') nesSel = Math.max(nesSel - 1, 0);
     else if (screen === 'demos') demosSel = Math.max(demosSel - 1, 0);
     else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetSel - 1, 0);
     sfx.nav();
@@ -1037,6 +1139,7 @@
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
     else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
     else if (screen === 'saturn') saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0));
+    else if (screen === 'nes') nesSel = Math.min(nesSel + 1, nesGames.length);
     else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
     else if (screen === 'cmgnet') cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetGames.length - 1, 0));
     sfx.nav();
@@ -1047,6 +1150,7 @@
     else if (screen === 'tg16') tg16Sel = 0;
     else if (screen === 'psx') psxSel = 0;
     else if (screen === 'saturn') saturnSel = 0;
+    else if (screen === 'nes') nesSel = 0;
     else if (screen === 'demos') demosSel = 0;
     else if (screen === 'cmgnet') cmgnetSel = 0;
     sfx.nav();
@@ -1057,6 +1161,7 @@
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
     else if (screen === 'saturn') saturnSel = Math.max(saturnGames.length - 1, 0);
+    else if (screen === 'nes') nesSel = nesGames.length;
     else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
     else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetGames.length - 1, 0);
     sfx.nav();
@@ -1074,12 +1179,16 @@
       if (saturnGames.length === 0) openSaturnByodPicker();
       else launchSaturn(saturnGames[saturnSel]?.file);
     }
+    else if (screen === 'nes') {
+      if (onNesByocRow) openByocPicker();
+      else launchNes(nesGames[nesSel]?.file);
+    }
     else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
     else if (screen === 'cmgnet') launchCmgnet(cmgnetGames[cmgnetSel]);
   }
   function actB() {
     if (gameOn) closeGame();
-    else if (screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') goBack();
+    else if (screen === 'games' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') goBack();
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -1294,6 +1403,14 @@
         else launchSaturn(saturnGames[saturnSel]?.file);
       }
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'nes') {
+      if (e.key === 'ArrowDown') { nesSel = Math.min(nesSel + 1, nesGames.length); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { nesSel = Math.max(nesSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') {
+        if (onNesByocRow) openByocPicker();
+        else launchNes(nesGames[nesSel]?.file);
+      }
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'demos') {
       if (e.key === 'ArrowDown') { demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0)); sfx.nav(); }
       else if (e.key === 'ArrowUp') { demosSel = Math.max(demosSel - 1, 0); sfx.nav(); }
@@ -1378,6 +1495,16 @@
       } catch (_) {}
       try { e.source.postMessage({ type: 'saturn-byod-file', file, name }, window.location.origin); } catch (_) {}
     }
+    else if (d.type === 'nes-byoc-ready') {
+      const file = window.__nesByocFile;
+      if (!file) return;
+      let name = file.name.replace(/\.[^.]+$/, '');
+      try {
+        const raw = sessionStorage.getItem('nes-byoc');
+        if (raw) name = JSON.parse(raw).name || name;
+      } catch (_) {}
+      try { e.source.postMessage({ type: 'nes-byoc-file', file, name }, window.location.origin); } catch (_) {}
+    }
   }
 
   onMount(() => {
@@ -1408,6 +1535,7 @@
     loadTg16List();
     loadPsxList();
     loadSaturnList();
+    loadNesList();
     registerCmgSw();
     loadCmgnetList();
   });
@@ -1839,6 +1967,83 @@
     </div>
   </div>
 
+  <div class="games-screen {screen === 'nes' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // fceumm</span>
+        <span>emulatorjs</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{onNesByocRow ? 'BYOC' : (currentNes ? currentNes.name : '—')}</b></div>
+          <div><span class="k">size</span><b>{onNesByocRow ? '—' : (currentNes ? currentNes.size : '—')}</b></div>
+          <div><span class="k">type</span><b>NES / .NES</b></div>
+          <div><span class="k">date</span><b>{onNesByocRow ? '—' : (currentNes ? currentNes.date : '—')}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">NINTENDO</div>
+          <div class="counter">{nesCounterText}</div>
+        </div>
+        <div class="games-list">
+          <input
+            type="file"
+            bind:this={nesFileInput}
+            accept=".nes,.fds,.unif,.unf,.zip,application/octet-stream"
+            onchange={onByocChange}
+            class="byod-input"
+          />
+          {#each nesGames as g, i (g.file)}
+            <div
+              bind:this={nesRowEls[i]}
+              class="game-row {i === nesSel ? 'sel' : ''}"
+              onmouseenter={() => { if (i !== nesSel) { nesSel = i; sfx.nav(); } }}
+              onclick={() => launchNes(g.file)}
+            >
+              <div class="game-icon">
+                <div class="glass">
+                  <span class="ph">{initial(g.name)}</span>
+                </div>
+              </div>
+              <div class="game-bar">
+                <span class="name">{g.name.toUpperCase()}</span>
+                <span class="sub">{g.size}</span>
+              </div>
+            </div>
+          {/each}
+          <!-- Pinned BYOC row — always present (index === nesGames.length) so you
+               can load your own cartridge even when preloaded ROMs exist. (PSX /
+               Saturn show BYOD only on an empty list; NES ships a preload, so the
+               affordance is pinned instead.) -->
+          <div
+            bind:this={nesRowEls[nesGames.length]}
+            class="game-row byoc-row {onNesByocRow ? 'sel' : ''}"
+            onmouseenter={() => { if (!onNesByocRow) { nesSel = nesGames.length; sfx.nav(); } }}
+            onclick={openByocPicker}
+          >
+            <div class="game-icon">
+              <div class="glass">
+                <span class="ph">⬆</span>
+              </div>
+            </div>
+            <div class="game-bar">
+              <span class="name">BRING YOUR OWN CARTRIDGE</span>
+              <span class="sub">load a .nes from disk</span>
+            </div>
+          </div>
+          {#if nesByocError}
+            <div class="byod-err">{nesByocError}</div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="games-screen {screen === 'demos' ? 'shown' : ''}">
     <div class="games-panel">
       <div class="strip-top">
@@ -1955,7 +2160,7 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'tg16' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet'}
+  {#if screen === 'games' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -1963,7 +2168,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (cmgnetStatus[currentCmgnet?.id]?.cached ? 'Play' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (cmgnetStatus[currentCmgnet?.id]?.cached ? 'Play' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
 </div>
 
