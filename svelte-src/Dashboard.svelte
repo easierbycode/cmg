@@ -37,7 +37,7 @@
   // data/games.json — that is what deploys to every launcher; this inline copy
   // only renders when both manifest fetches fail (fully offline).
   const SEED_GAMES = [
-    { id: '2019-pixi',                                             name: '2019',                title: '2019',                sub: 'Pixi.js',         icon: null,                                   size: '— MB',    date: '05.29.26' },
+    { id: '2019-turbo',                                            name: '2019',                title: '2019',                sub: 'Pixi.js · Turbo', icon: null,                                   size: '— MB',    date: '06.13.26' },
     { id: '2019-es7',                                              name: '2028',                title: '2028',                sub: 'ES7 // Phaser 3', icon: '/icons/2028-icon.png',                size: '12.4 MB', date: '07.28.22' },
     { id: 'games/2028-ai',                                         name: '2028.Ai',             title: '2028.AI',             sub: 'Phaser 4 // offline', icon: '/icons/2028-icon.png',            size: '21 MB',   date: '05.28.26', url: '/games/2028-ai' },
     { id: 'games/evil-invaders/index.html?turbo=1&audio=1',        name: 'Evil Invaders',       title: 'EVIL INVADERS',       sub: 'Classic',         icon: '/icons/evil-invaders-icon.png',       size: '9.6 MB',  date: '04.04.23' },
@@ -132,15 +132,44 @@
   let osdView = $state('main');
   const osdNav = { vDir: 0, hDir: 0 }; // edge-latch for gamepad nav while open
 
-  // Cheats are just boot-time URL params on the running game's iframe (read by
-  // the Phaser games at startup), so toggling one rewrites gameSrc's query
-  // string and the iframe reloads with the cheat applied. og=1 reverts to the
-  // pre-turbo timing; akuma=1 swaps the boss; stage=0–5 jumps to a stage.
-  const CHEATS = [
-    { key: 'cheat-og',    param: 'og',    kind: 'toggle', label: 'OG timing' },
-    { key: 'cheat-akuma', param: 'akuma', kind: 'toggle', label: 'Akuma boss' },
-    { key: 'cheat-stage', param: 'stage', kind: 'slider', label: 'Stage', min: 0, max: 5, step: 1, unit: '' },
-  ];
+  // Cheats are boot-time URL params on the running game's iframe. A game
+  // advertises which ones it supports by postMessage'ing
+  // { type: 'cmg-cheats', cheats: [...] } on boot (handled in onWindowMessage);
+  // the OSD shows the Cheats submenu only while a game has broadcast a set, so
+  // it's automatically scoped to the games that opt in. Toggling a cheat
+  // rewrites gameSrc's query string and the iframe reloads with it applied.
+  let osdCheats = $state([]);
+  // Harden the game-supplied payload before it drives the menu: whitelist kind,
+  // clamp counts/lengths, coerce slider bounds. Each item keeps a stable `key`
+  // for the keyed {#each}. Returns [] on anything malformed.
+  function sanitizeCheats(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const c of raw.slice(0, 12)) {
+      if (!c || typeof c.param !== 'string' || !c.param) continue;
+      const param = c.param.slice(0, 32);
+      // One row per param: the keyed {#each} keys on 'cheat-'+param, and Svelte
+      // throws at runtime on a duplicate key — so collapse repeats defensively.
+      if (seen.has(param)) continue;
+      seen.add(param);
+      const label = (typeof c.label === 'string' && c.label) ? c.label.slice(0, 40) : param;
+      const kind = c.kind === 'slider' ? 'slider' : 'toggle';
+      if (kind === 'slider') {
+        const min = Number.isFinite(c.min) ? c.min : 0;
+        const max = Number.isFinite(c.max) ? Math.max(min, c.max) : Math.max(min, 9);
+        const step = Number.isFinite(c.step) && c.step > 0 ? c.step : 1;
+        const unit = typeof c.unit === 'string' ? c.unit.slice(0, 4) : '';
+        // commit:true → the OSD applies the value (rewriting gameSrc, which
+        // reloads the game) on the slider's change event, not on every oninput,
+        // so dragging the slider doesn't reboot the game on each intermediate step.
+        out.push({ key: 'cheat-' + param, param, kind, label, min, max, step, unit, commit: true });
+      } else {
+        out.push({ key: 'cheat-' + param, param, kind, label });
+      }
+    }
+    return out;
+  }
   // Parse gameSrc (absolute https://… for external games, root-relative /…/ for
   // in-repo ones) into a URL so we can read/rewrite a single query param.
   function cheatUrl() {
@@ -187,7 +216,7 @@
     if (osdView === 'cheats') {
       return [
         { key: 'cheats-back', kind: 'button', section: 'Cheats', label: '‹ Back' },
-        ...CHEATS.map((c) =>
+        ...osdCheats.map((c) =>
           c.kind === 'toggle'
             ? { ...c, value: cheatParam(c.param) === '1' }
             : { ...c, value: Number(cheatParam(c.param)) || 0 }
@@ -201,9 +230,10 @@
     // EmulatorJS control bar toggle is only meaningful for the TG-16/PSX cores.
     if (isTg16Game) {
       list.push({ key: 'emucontrols', kind: 'toggle', label: 'Emulator Controls', value: controlsShown });
-    } else {
-      // Cheats are URL params for the Phaser web games — pointless on the
-      // emulator cores (TG-16/PSX/Saturn/NES), so hide it there.
+    }
+    // The Cheats submenu appears only when the running game has advertised a
+    // cheat set over postMessage (osdCheats) — opt-in, per game.
+    if (osdCheats.length) {
       list.push({ key: 'cheats', kind: 'button', label: 'Cheats' });
     }
     list.push(
@@ -1145,6 +1175,10 @@
     gameOn = false;
     controlsShown = false;
     chromeDismissed = false;
+    // Drop the prior game's advertised cheats; the next game re-broadcasts its
+    // own on boot. closeGame is the single chokepoint between games (the list
+    // is only reachable when no game is on), so this alone prevents stale carry-over.
+    osdCheats = [];
     setTimeout(() => { gameSrc = null; }, 500);
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
@@ -1528,6 +1562,14 @@
       return;
     }
     if (d.type === 'tg16-first-touch') { chromeDismissed = true; return; }
+    if (d.type === 'cmg-cheats') {
+      // The running game advertises the boot-time URL-param cheats it honours,
+      // which the Guide turns into a Cheats submenu. Benign — worst case it
+      // shows toggles that reload the same game — so accept it from our own
+      // frame at any origin (like tg16-toggle-controls). Payload is sanitized.
+      osdCheats = sanitizeCheats(d.cheats);
+      return;
+    }
     // Sensitive actions — closing the game and BYOD disc-file transfer — stay
     // same-origin only; never honor them from a cross-origin frame.
     if (!sameOrigin) return;
