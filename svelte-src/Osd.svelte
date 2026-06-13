@@ -49,12 +49,15 @@
           {:else if it.kind === 'slider'}
             <span class="osd-ctl" onclick={(e) => e.stopPropagation()}>
               <span class="osd-val">{it.value}{it.unit ?? ''}</span>
+              <!-- it.commit sliders (cheats, which reload the game on apply)
+                   fire on change/drag-end only; live sliders (tweaks) on input. -->
               <input
                 class="osd-slider"
                 type="range"
                 min={it.min} max={it.max} step={it.step}
                 value={it.value}
-                oninput={(e) => onsetvalue(i, Number(e.currentTarget.value))}
+                oninput={(e) => { if (!it.commit) onsetvalue(i, Number(e.currentTarget.value)); }}
+                onchange={(e) => { if (it.commit) onsetvalue(i, Number(e.currentTarget.value)); }}
               />
             </span>
           {:else if it.kind === 'color'}
