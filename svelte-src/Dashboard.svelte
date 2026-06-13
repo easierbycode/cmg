@@ -126,7 +126,40 @@
   // the design's tweaks (persisted to localStorage, applied to the dashboard).
   let osdOpen = $state(false);
   let osdSel = $state(0);
+  // The Guide is a two-level menu: the root list ('main') and the Cheats
+  // sub-page ('cheats'). osdItems is derived off this so gamepad/keyboard nav,
+  // which indexes into osdItems, transparently follows whichever page is shown.
+  let osdView = $state('main');
   const osdNav = { vDir: 0, hDir: 0 }; // edge-latch for gamepad nav while open
+
+  // Cheats are just boot-time URL params on the running game's iframe (read by
+  // the Phaser games at startup), so toggling one rewrites gameSrc's query
+  // string and the iframe reloads with the cheat applied. og=1 reverts to the
+  // pre-turbo timing; akuma=1 swaps the boss; stage=0–5 jumps to a stage.
+  const CHEATS = [
+    { key: 'cheat-og',    param: 'og',    kind: 'toggle', label: 'OG timing' },
+    { key: 'cheat-akuma', param: 'akuma', kind: 'toggle', label: 'Akuma boss' },
+    { key: 'cheat-stage', param: 'stage', kind: 'slider', label: 'Stage', min: 0, max: 5, step: 1, unit: '' },
+  ];
+  // Parse gameSrc (absolute https://… for external games, root-relative /…/ for
+  // in-repo ones) into a URL so we can read/rewrite a single query param.
+  function cheatUrl() {
+    if (!gameSrc) return null;
+    try { return new URL(gameSrc, gameSrc.startsWith('/') ? window.location.origin : undefined); }
+    catch (_) { return null; }
+  }
+  function cheatParam(param) {
+    const u = cheatUrl(); return u ? u.searchParams.get(param) : null;
+  }
+  // value === null deletes the param; otherwise it is set. Re-serialize keeping
+  // the original absolute/relative shape so same-origin games stay same-origin.
+  function setCheat(param, value) {
+    const u = cheatUrl(); if (!u) return;
+    if (value === null) u.searchParams.delete(param);
+    else u.searchParams.set(param, String(value));
+    const relative = gameSrc.startsWith('/') && u.origin === window.location.origin;
+    gameSrc = relative ? u.pathname + u.search + u.hash : u.href;
+  }
   const HUE_SWATCHES = [
     { hex: '#7CFF4F', hue: 130 }, // green (default)
     { hex: '#4FB8FF', hue: 235 }, // blue
@@ -149,6 +182,18 @@
 
   // Flat, ordered list the OSD renders and gamepad/keyboard nav indexes into.
   let osdItems = $derived.by(() => {
+    // Cheats sub-page: a Back row plus one control per URL-param cheat, each
+    // reflecting the param's current state on the running game's iframe.
+    if (osdView === 'cheats') {
+      return [
+        { key: 'cheats-back', kind: 'button', section: 'Cheats', label: '‹ Back' },
+        ...CHEATS.map((c) =>
+          c.kind === 'toggle'
+            ? { ...c, value: cheatParam(c.param) === '1' }
+            : { ...c, value: Number(cheatParam(c.param)) || 0 }
+        ),
+      ];
+    }
     const list = [
       { key: 'exit', kind: 'button', section: 'Game', label: 'Exit Game' },
       { key: 'controller', kind: 'button', label: 'Controller Settings' },
@@ -156,6 +201,10 @@
     // EmulatorJS control bar toggle is only meaningful for the TG-16/PSX cores.
     if (isTg16Game) {
       list.push({ key: 'emucontrols', kind: 'toggle', label: 'Emulator Controls', value: controlsShown });
+    } else {
+      // Cheats are URL params for the Phaser web games — pointless on the
+      // emulator cores (TG-16/PSX/Saturn/NES), so hide it there.
+      list.push({ key: 'cheats', kind: 'button', label: 'Cheats' });
     }
     list.push(
       { key: 'hue', kind: 'color', section: 'Look', label: 'Glow color', value: tweaks.hue, options: HUE_SWATCHES },
@@ -167,15 +216,21 @@
   });
 
   function openOsd() {
-    osdSel = 0; osdNav.vDir = 0; osdNav.hDir = 0; osdOpen = true; sfx.enter();
+    osdSel = 0; osdView = 'main'; osdNav.vDir = 0; osdNav.hDir = 0; osdOpen = true; sfx.enter();
     // Pull keyboard focus out of the game frame so the launcher's own onKey
     // handler drives OSD navigation. A focus-stealing game — especially a
     // cross-origin one, whose keys the launcher can neither read nor forward
     // into — otherwise swallows every arrow/Enter/Esc while the Guide is up.
     if (gameOn) { try { document.getElementById('gameframe')?.blur(); window.focus(); } catch (_) { /* ignore */ } }
   }
+  // B / Esc backs out of the Cheats sub-page to the root before it closes the
+  // whole Guide; the ✕ button and tap-out always close outright.
+  function osdBack() {
+    if (osdView === 'cheats') { osdView = 'main'; osdSel = 0; sfx.back(); return; }
+    closeOsd();
+  }
   function closeOsd() {
-    osdOpen = false; sfx.back();
+    osdOpen = false; osdView = 'main'; sfx.back();
     // Hand focus back so the game resumes receiving input. EmulatorJS games
     // (isTg16Game) deliberately keep focus on the launcher — the dashboard polls
     // the pad and forwards synthesized keys into that same-origin frame — so
@@ -184,6 +239,9 @@
   }
   function setOsdValue(i, v) {
     const it = osdItems[i]; if (!it) return;
+    // Cheat rows carry a `param`: toggles add/remove ?param=1, the stage slider
+    // sets ?stage=N (0 kept — it is a valid first stage). Reloads the iframe.
+    if (it.param) { setCheat(it.param, it.kind === 'toggle' ? (v ? '1' : null) : v); return; }
     if (it.key === 'hue') setTweak('hue', v);
     else if (it.key === 'breathe') setTweak('breatheSpeed', Math.round(v * 10) / 10);
     else if (it.key === 'scanlines') setTweak('scanlines', !!v);
@@ -208,6 +266,8 @@
     if (it.kind === 'color' || it.kind === 'slider') { adjustOsd(i, 1); return; }
     if (it.key === 'exit') { sfx.enter(); osdOpen = false; closeGame(); }
     else if (it.key === 'controller') { sfx.enter(); osdOpen = false; try { window.openControllerConfigurator?.(); } catch (_) {} }
+    else if (it.key === 'cheats') { sfx.enter(); osdView = 'cheats'; osdSel = 0; }
+    else if (it.key === 'cheats-back') { osdView = 'main'; osdSel = 0; sfx.back(); }
   }
 
   // Two-finger corner gesture (bottom-left + top-right at once) opens the OSD on
@@ -1229,7 +1289,7 @@
         if (h !== 0 && h !== osdNav.hDir) adjustOsd(osdSel, h);
         osdNav.hDir = h;
         if (justPressed(0)) activateOsd(osdSel);              // A
-        else if (justPressed(1) || justPressed(8)) closeOsd(); // B or Select
+        else if (justPressed(1) || justPressed(8)) osdBack(); // B or Select (Cheats → root → close)
         padState.btn = pressedNow;
         return;
       }
@@ -1358,7 +1418,7 @@
         else if (e.key === 'ArrowLeft') { adjustOsd(osdSel, -1); e.preventDefault(); }
         else if (e.key === 'ArrowRight') { adjustOsd(osdSel, 1); e.preventDefault(); }
         else if (e.key === 'Enter' || e.key === ' ') { activateOsd(osdSel); e.preventDefault(); }
-        else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.code === 'Backquote' || e.key === '`' || e.key === '~') { closeOsd(); e.preventDefault(); }
+        else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.code === 'Backquote' || e.key === '`' || e.key === '~') { osdBack(); e.preventDefault(); }
         return;
       }
       // The ` / ~ key (Backquote) and Escape open the OSD — a keyboard stand-in
