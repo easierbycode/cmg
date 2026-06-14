@@ -134,6 +134,36 @@
         background: rgba(124, 255, 79, 0.3);
         box-shadow: 0 0 14px rgba(124, 255, 79, 0.4);
       }
+      /* SELECT / RUN — small pills at top-center, the only way to reach these
+         on touch-only devices once the stock gamepad is disabled. */
+      .vc-sys {
+        position: fixed;
+        top: 10px;
+        width: 88px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font: bold 13px "Share Tech Mono", monospace;
+        color: #7cff4f;
+        background: rgba(124, 255, 79, 0.08);
+        border: 2px solid rgba(124, 255, 79, 0.5);
+        border-radius: 16px;
+        pointer-events: auto;
+        touch-action: none;
+        z-index: 62;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      body.show-controls .vc-sys {
+        pointer-events: none;
+      }
+      .vc-sys.active {
+        background: rgba(124, 255, 79, 0.35);
+        border-color: #7cff4f;
+      }
+      #vc-select { left: 50%; margin-left: -94px; }
+      #vc-start { left: 50%; margin-left: 6px; }
     </style>
   </head>
   <body>
@@ -142,6 +172,8 @@
       <div id="vc-analog"></div>
       <div id="vc-b"><div class="vc-face">II</div></div>
       <div id="vc-a"><div class="vc-face">I</div></div>
+      <div id="vc-select" class="vc-sys">SELECT</div>
+      <div id="vc-start" class="vc-sys">RUN</div>
       <div id="vc-base"></div>
       <div id="vc-knob"></div>
     </div>
@@ -379,7 +411,12 @@
             (navigator.maxTouchPoints || 0) > 0;
           if (!isTouch) return;
 
-          var IDX = { up: 4, down: 5, left: 6, right: 7, B: 0, A: 8 };
+          // RetroPad indices: for mednafen_pce, B=0 → II, A=8 → I,
+          // SELECT=2 → SELECT, START=3 → RUN, plus the D-pad at 4-7.
+          var IDX = {
+            up: 4, down: 5, left: 6, right: 7,
+            B: 0, A: 8, select: 2, start: 3,
+          };
 
           function simulate(index, value) {
             try {
@@ -390,20 +427,22 @@
             } catch (_) {}
           }
 
-          // ── Face buttons (II, I) ─────────────────────────────────────
-          function bindButton(el, index) {
-            var face = el.querySelector(".vc-face");
+          // ── Face / system buttons (II, I, SELECT, RUN) ───────────────
+          // activeEl is the element that gets the pressed style (the .vc-face
+          // cue for columns, or the pill itself for SELECT/RUN).
+          function bindButton(el, index, activeEl) {
+            activeEl = activeEl || el;
             var touchId = null;
             function press(id) {
               if (touchId !== null) return;
               touchId = id;
-              face.classList.add("active");
+              activeEl.classList.add("active");
               simulate(index, 1);
             }
             function release() {
               if (touchId === null) return;
               touchId = null;
-              face.classList.remove("active");
+              activeEl.classList.remove("active");
               simulate(index, 0);
             }
             el.addEventListener("touchstart", function (e) {
@@ -422,8 +461,12 @@
             el.addEventListener("touchend", endHandler, { passive: false });
             el.addEventListener("touchcancel", endHandler, { passive: false });
           }
-          bindButton(document.getElementById("vc-b"), IDX.B);
-          bindButton(document.getElementById("vc-a"), IDX.A);
+          var bEl = document.getElementById("vc-b");
+          var aEl = document.getElementById("vc-a");
+          bindButton(bEl, IDX.B, bEl.querySelector(".vc-face"));
+          bindButton(aEl, IDX.A, aEl.querySelector(".vc-face"));
+          bindButton(document.getElementById("vc-select"), IDX.select);
+          bindButton(document.getElementById("vc-start"), IDX.start);
 
           // ── Dynamic analog → D-pad ───────────────────────────────────
           var zone = document.getElementById("vc-analog");
