@@ -51,10 +51,104 @@
       body.pad-on, body.pad-on * {
         cursor: none !important;
       }
+
+      /* ── Custom touch controller ──────────────────────────────────────
+         Replaces EmulatorJS's stock on-screen D-pad. The left half of the
+         screen is a dynamic analog that pops up wherever the player first
+         touches (mapped to the NES D-pad); the right half is split into two
+         25% columns whose full height is the B and A hit-boxes. */
+      /* Suppress EmulatorJS's own virtual gamepad — we draw our own. */
+      [class*="vgamepad"], [class*="virtualGamepad"] {
+        display: none !important;
+      }
+      #vc-overlay {
+        display: none;
+      }
+      body.touch #vc-overlay {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        pointer-events: none;
+      }
+      #vc-analog, #vc-b, #vc-a {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        pointer-events: auto;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      /* While the EmulatorJS menu is up, let touches fall through to it. */
+      body.show-controls #vc-analog,
+      body.show-controls #vc-b,
+      body.show-controls #vc-a {
+        pointer-events: none;
+      }
+      #vc-analog { left: 0; width: 50%; }
+      #vc-b { left: 50%; width: 25%; }
+      #vc-a { left: 75%; width: 25%; }
+      /* Face-button cue — the whole column is the hit-box; this is just a
+         visual hint that doesn't intercept touches itself. */
+      .vc-face {
+        position: absolute;
+        left: 50%;
+        bottom: 16%;
+        transform: translateX(-50%);
+        width: 88px;
+        height: 88px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font: bold 34px "Share Tech Mono", monospace;
+        color: #7cff4f;
+        background: rgba(124, 255, 79, 0.08);
+        border: 2px solid rgba(124, 255, 79, 0.5);
+        box-shadow: 0 0 12px rgba(124, 255, 79, 0.25);
+        pointer-events: none;
+      }
+      .vc-face.active {
+        background: rgba(124, 255, 79, 0.35);
+        border-color: #7cff4f;
+      }
+      /* Dynamic analog base + knob, positioned at the touch point. */
+      #vc-base, #vc-knob {
+        position: fixed;
+        border-radius: 50%;
+        pointer-events: none;
+        display: none;
+        z-index: 61;
+      }
+      #vc-base {
+        width: 132px;
+        height: 132px;
+        margin-left: -66px;
+        margin-top: -66px;
+        border: 2px solid rgba(124, 255, 79, 0.4);
+        background: rgba(124, 255, 79, 0.06);
+      }
+      #vc-knob {
+        width: 60px;
+        height: 60px;
+        margin-left: -30px;
+        margin-top: -30px;
+        border: 2px solid #7cff4f;
+        background: rgba(124, 255, 79, 0.3);
+        box-shadow: 0 0 14px rgba(124, 255, 79, 0.4);
+      }
     </style>
   </head>
   <body>
     <div id="display"></div>
+    <div id="vc-overlay" aria-hidden="true">
+      <div id="vc-analog"></div>
+      <div id="vc-b"><div class="vc-face">B</div></div>
+      <div id="vc-a"><div class="vc-face">A</div></div>
+      <div id="vc-base"></div>
+      <div id="vc-knob"></div>
+    </div>
     <div id="err">
       No ROM specified. Pass <code>?rom=&lt;filename&gt;</code>.
     </div>
@@ -250,6 +344,175 @@
           return false;
         }
 
+        // Custom on-screen controller: a dynamic analog on the left half that
+        // appears wherever the player touches (driving the NES D-pad), plus B
+        // and A face buttons each filling a 25% column on the right. Input is
+        // fed to EmulatorJS via gameManager.simulateInput(player, index, value)
+        // using RetroPad indices (B=0, A=8, UP=4, DOWN=5, LEFT=6, RIGHT=7).
+        function setupTouchController() {
+          var isTouch = "ontouchstart" in window ||
+            (navigator.maxTouchPoints || 0) > 0;
+          if (!isTouch) return;
+
+          var IDX = { up: 4, down: 5, left: 6, right: 7, B: 0, A: 8 };
+
+          function simulate(index, value) {
+            try {
+              var e = window.EJS_emulator;
+              if (e && e.gameManager && e.gameManager.simulateInput) {
+                e.gameManager.simulateInput(0, index, value);
+              }
+            } catch (_) {}
+          }
+
+          // ── Face buttons (B, A) ──────────────────────────────────────
+          function bindButton(el, index) {
+            var face = el.querySelector(".vc-face");
+            var touchId = null;
+            function press(id) {
+              if (touchId !== null) return;
+              touchId = id;
+              face.classList.add("active");
+              simulate(index, 1);
+            }
+            function release() {
+              if (touchId === null) return;
+              touchId = null;
+              face.classList.remove("active");
+              simulate(index, 0);
+            }
+            el.addEventListener("touchstart", function (e) {
+              press(e.changedTouches[0].identifier);
+              e.preventDefault();
+            }, { passive: false });
+            function endHandler(e) {
+              for (var i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === touchId) {
+                  release();
+                  e.preventDefault();
+                  return;
+                }
+              }
+            }
+            el.addEventListener("touchend", endHandler, { passive: false });
+            el.addEventListener("touchcancel", endHandler, { passive: false });
+          }
+          bindButton(document.getElementById("vc-b"), IDX.B);
+          bindButton(document.getElementById("vc-a"), IDX.A);
+
+          // ── Dynamic analog → D-pad ───────────────────────────────────
+          var zone = document.getElementById("vc-analog");
+          var base = document.getElementById("vc-base");
+          var knob = document.getElementById("vc-knob");
+          var activeId = null, ox = 0, oy = 0;
+          var DEAD = 22; // px of travel before any direction registers
+          var RADIUS = 60; // knob travel limit (matches base radius)
+          var dirs = { up: false, down: false, left: false, right: false };
+
+          function setDir(name, on) {
+            if (dirs[name] === on) return;
+            dirs[name] = on;
+            simulate(IDX[name], on ? 1 : 0);
+          }
+          function clearDirs() {
+            setDir("up", false);
+            setDir("down", false);
+            setDir("left", false);
+            setDir("right", false);
+          }
+          function showStick(x, y) {
+            base.style.left = x + "px";
+            base.style.top = y + "px";
+            knob.style.left = x + "px";
+            knob.style.top = y + "px";
+            base.style.display = "block";
+            knob.style.display = "block";
+          }
+          function hideStick() {
+            base.style.display = "none";
+            knob.style.display = "none";
+          }
+          function updateStick(x, y) {
+            var dx = x - ox, dy = y - oy;
+            var mag = Math.sqrt(dx * dx + dy * dy);
+            // Clamp the knob to its travel radius for the visual.
+            var kx = x, ky = y;
+            if (mag > RADIUS) {
+              kx = ox + dx / mag * RADIUS;
+              ky = oy + dy / mag * RADIUS;
+            }
+            knob.style.left = kx + "px";
+            knob.style.top = ky + "px";
+
+            if (mag < DEAD) {
+              clearDirs();
+              return;
+            }
+            // 8-way octant decode. Screen y grows downward, so negate dy to get
+            // a standard math angle (0°=right, 90°=up).
+            var deg = Math.atan2(-dy, dx) * 180 / Math.PI;
+            if (deg < 0) deg += 360;
+            setDir("right", deg < 67.5 || deg >= 292.5);
+            setDir("up", deg >= 22.5 && deg < 157.5);
+            setDir("left", deg >= 112.5 && deg < 247.5);
+            setDir("down", deg >= 202.5 && deg < 337.5);
+          }
+          zone.addEventListener("touchstart", function (e) {
+            if (activeId !== null) return;
+            var t = e.changedTouches[0];
+            activeId = t.identifier;
+            ox = t.clientX;
+            oy = t.clientY;
+            showStick(ox, oy);
+            updateStick(t.clientX, t.clientY);
+            e.preventDefault();
+          }, { passive: false });
+          zone.addEventListener("touchmove", function (e) {
+            for (var i = 0; i < e.changedTouches.length; i++) {
+              var t = e.changedTouches[i];
+              if (t.identifier === activeId) {
+                updateStick(t.clientX, t.clientY);
+                e.preventDefault();
+                return;
+              }
+            }
+          }, { passive: false });
+          function analogEnd(e) {
+            for (var i = 0; i < e.changedTouches.length; i++) {
+              if (e.changedTouches[i].identifier === activeId) {
+                activeId = null;
+                hideStick();
+                clearDirs();
+                e.preventDefault();
+                return;
+              }
+            }
+          }
+          zone.addEventListener("touchend", analogEnd, { passive: false });
+          zone.addEventListener("touchcancel", analogEnd, { passive: false });
+
+          // Belt-and-suspenders: hide EmulatorJS's virtual gamepad if a build
+          // ignores the empty EJS_VirtualGamepadSettings and renders one anyway.
+          function killDefaultVGamepad() {
+            try {
+              var e = window.EJS_emulator;
+              if (e && e.virtualGamepad) e.virtualGamepad.style.display = "none";
+            } catch (_) {}
+            var nodes = document.querySelectorAll(
+              '[class*="vgamepad"], [class*="virtualGamepad"]',
+            );
+            for (var i = 0; i < nodes.length; i++) {
+              nodes[i].style.display = "none";
+            }
+          }
+          killDefaultVGamepad();
+          var tries = 0;
+          var timer = setInterval(function () {
+            killDefaultVGamepad();
+            if (++tries > 20) clearInterval(timer);
+          }, 500);
+        }
+
         function boot(gameUrl, title) {
           document.title = title;
           window.EJS_player = "#display";
@@ -261,6 +524,9 @@
           window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
           window.EJS_startOnLoaded = true;
           window.EJS_color = "#7CFF4F";
+          // Suppress EmulatorJS's stock on-screen gamepad — play.html draws a
+          // custom dynamic analog + B/A overlay instead (see setupTouchController).
+          window.EJS_VirtualGamepadSettings = [];
           window.EJS_ready = function () {
             if (hookExitButton()) return;
             var mo = new MutationObserver(function () {
@@ -275,6 +541,8 @@
           s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
           document.body.appendChild(s);
         }
+
+        setupTouchController();
 
         if (byoc) {
           // BYOC: wait for the parent (Dashboard) to deliver the cartridge File,
