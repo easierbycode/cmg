@@ -1,6 +1,6 @@
 {
-  "version": "455b553",
-  "generatedAt": "2026-06-13T07:54:24.373Z",
+  "version": "0987933",
+  "generatedAt": "2026-06-25T17:41:15.474Z",
   "games": [
     {
       "id": "2019-turbo",
@@ -130,6 +130,15 @@
       "size": "— MB",
       "date": "demo",
       "url": "/demos/headphones-recommended"
+    },
+    {
+      "id": "vertical-shooter",
+      "name": "Vertical Shooter",
+      "title": "VERTICAL SHOOTER",
+      "sub": "Phaser 4.1.0 · TATE CRT",
+      "size": "— MB",
+      "date": "demo",
+      "url": "/demos/vertical-shooter"
     }
   ]
 }

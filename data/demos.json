@@ -1,5 +1,6 @@
 [
   { "id": "akuma", "name": "Akuma", "title": "AKUMA", "sub": "Three.js · WASD", "size": "— MB", "date": "demo", "url": "/demos/akuma" },
   { "id": "goofy-game", "name": "Goofy Game", "title": "GOOFY GAME", "sub": "multiplayer · WS", "size": "— MB", "date": "demo", "url": "/demos/goofy-game" },
-  { "id": "headphones-recommended", "name": "Headphones Recommended", "title": "HEADPHONES RECOMMENDED", "sub": "Phaser 4.1.0 · idle", "size": "— MB", "date": "demo", "url": "/demos/headphones-recommended" }
+  { "id": "headphones-recommended", "name": "Headphones Recommended", "title": "HEADPHONES RECOMMENDED", "sub": "Phaser 4.1.0 · idle", "size": "— MB", "date": "demo", "url": "/demos/headphones-recommended" },
+  { "id": "vertical-shooter", "name": "Vertical Shooter", "title": "VERTICAL SHOOTER", "sub": "Phaser 4.1.0 · TATE CRT", "size": "— MB", "date": "demo", "url": "/demos/vertical-shooter" }
 ]
