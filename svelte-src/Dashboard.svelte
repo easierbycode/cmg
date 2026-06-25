@@ -30,6 +30,7 @@
     { id: 'akuma', name: 'Akuma', title: 'AKUMA', sub: 'Three.js · WASD', size: '— MB', date: 'demo', url: '/demos/akuma' },
     { id: 'goofy-game', name: 'Goofy Game', title: 'GOOFY GAME', sub: 'multiplayer · WS', size: '— MB', date: 'demo', url: '/demos/goofy-game' },
     { id: 'headphones-recommended', name: 'Headphones Recommended', title: 'HEADPHONES RECOMMENDED', sub: 'Phaser 4.1.0 · idle', size: '— MB', date: 'demo', url: '/demos/headphones-recommended' },
+    { id: 'vertical-shooter', name: 'Vertical Shooter', title: 'VERTICAL SHOOTER', sub: 'Phaser 4.1.0 · TATE CRT', size: '— MB', date: 'demo', url: '/demos/vertical-shooter' },
   ];
   // Baked-in fallback snapshot of the game list — the offline / pre-manifest
   // seed. At runtime loadManifest() replaces it with the deployed OTA manifest
@@ -137,6 +138,18 @@
   // which indexes into osdItems, transparently follows whichever page is shown.
   let osdView = $state('main');
   const osdNav = { vDir: 0, hDir: 0 }; // edge-latch for gamepad nav while open
+  // Per-section collapse state (keyed by section name). A collapsed section
+  // renders only its header row; its child rows are filtered out of osdItems.
+  // 'Look' starts collapsed so the Guide opens compact — expand to reveal tweaks.
+  // Persisted to localStorage (like the Look tweaks) so a chosen collapse/expand
+  // sticks across reloads; the defaults only seed first-run / cleared storage.
+  const OSD_COLLAPSE_KEY = 'cmg-osd-collapsed';
+  const OSD_COLLAPSE_DEFAULTS = { Look: true };
+  function loadCollapsed() {
+    try { return { ...OSD_COLLAPSE_DEFAULTS, ...JSON.parse(localStorage.getItem(OSD_COLLAPSE_KEY) || '{}') }; }
+    catch (_) { return { ...OSD_COLLAPSE_DEFAULTS }; }
+  }
+  let osdCollapsed = $state(loadCollapsed());
 
   // Cheats are boot-time URL params on the running game's iframe. A game
   // advertises which ones it supports by postMessage'ing
@@ -145,6 +158,15 @@
   // it's automatically scoped to the games that opt in. Toggling a cheat
   // rewrites gameSrc's query string and the iframe reloads with it applied.
   let osdCheats = $state([]);
+  // Plugins are the live-toggle sibling of cheats. A game advertises which ones
+  // it supports by postMessage'ing { type: 'cmg-plugins', plugins: [...] } on
+  // boot (handled in onWindowMessage). Unlike cheats (boot-time URL params that
+  // reload the iframe), a plugin toggle is applied live: flipping it posts
+  // { type: 'cmg-plugin-set', id, value } back into the running frame, which the
+  // game acts on without a reload (e.g. the Vertical Shooter demo's TATE Mode
+  // CRT shader). The dashboard holds the last-known value; the game is only the
+  // source of truth at boot, after which the OSD is the sole place it changes.
+  let osdPlugins = $state([]);
   // Harden the game-supplied payload before it drives the menu: whitelist kind,
   // clamp counts/lengths, coerce slider bounds. Each item keeps a stable `key`
   // for the keyed {#each}. Returns [] on anything malformed.
@@ -195,6 +217,36 @@
     const relative = gameSrc.startsWith('/') && u.origin === window.location.origin;
     gameSrc = relative ? u.pathname + u.search + u.hash : u.href;
   }
+  // Harden a game-advertised plugin set (mirrors sanitizeCheats). Each plugin is
+  // a live toggle keyed on a stable id; malformed entries are dropped. Returns
+  // [] on anything not an array. Plugins are currently toggle-only.
+  function sanitizePlugins(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const p of raw.slice(0, 8)) {
+      if (!p || typeof p.id !== 'string' || !p.id) continue;
+      const id = p.id.slice(0, 32);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const label = (typeof p.label === 'string' && p.label) ? p.label.slice(0, 40) : id;
+      out.push({ key: 'plugin-' + id, id, kind: 'toggle', label, value: !!p.value });
+    }
+    return out;
+  }
+  // Toggle a plugin: record the new value locally (so the OSD reflects it) and
+  // tell the running game to apply it live.
+  function setPlugin(id, value) {
+    osdPlugins = osdPlugins.map((p) => (p.id === id ? { ...p, value: !!value } : p));
+    const iframe = document.getElementById('gameframe');
+    // targetOrigin '*' is deliberate here (unlike postToGameframe / the BYOD
+    // replies, which use window.location.origin): plugin-capable demos can load
+    // cross-origin from the manifest/DEPLOY_ORIGIN, where a strict origin would
+    // silently drop the toggle. The payload is a benign boolean, so '*' is safe —
+    // do not tighten it to window.location.origin or cross-origin demos break.
+    try { iframe?.contentWindow?.postMessage({ type: 'cmg-plugin-set', id, value: !!value }, '*'); }
+    catch (_) { /* ignore */ }
+  }
   const HUE_SWATCHES = [
     { hex: '#7CFF4F', hue: 130 }, // green (default)
     { hex: '#4FB8FF', hue: 235 }, // blue
@@ -216,43 +268,83 @@
   }
 
   // Flat, ordered list the OSD renders and gamepad/keyboard nav indexes into.
+  // Each section is introduced by a navigable header row (kind:'section'); when
+  // that section is collapsed only the header is emitted, so nav and rendering
+  // both transparently skip the hidden children.
   let osdItems = $derived.by(() => {
+    const out = [];
+    const addSection = (name, children) => {
+      if (!children.length) return;
+      out.push({ key: `sect-${name}`, kind: 'section', section: name, label: name, collapsed: !!osdCollapsed[name] });
+      if (!osdCollapsed[name]) out.push(...children);
+    };
+
     // Cheats sub-page: a Back row plus one control per URL-param cheat, each
     // reflecting the param's current state on the running game's iframe.
     if (osdView === 'cheats') {
-      return [
-        { key: 'cheats-back', kind: 'button', section: 'Cheats', label: '‹ Back' },
+      addSection('Cheats', [
+        { key: 'cheats-back', kind: 'button', label: '‹ Back' },
         ...osdCheats.map((c) =>
           c.kind === 'toggle'
             ? { ...c, value: cheatParam(c.param) === '1' }
             : { ...c, value: Number(cheatParam(c.param)) || 0 }
         ),
-      ];
+      ]);
+      return out;
     }
-    const list = [
-      { key: 'exit', kind: 'button', section: 'Game', label: 'Exit Game' },
+
+    const game = [
+      { key: 'exit', kind: 'button', label: 'Exit Game' },
       { key: 'controller', kind: 'button', label: 'Controller Settings' },
     ];
     // EmulatorJS control bar toggle is only meaningful for EmulatorJS cores.
     if (hasEmulatorControls) {
-      list.push({ key: 'emucontrols', kind: 'toggle', label: 'Emulator Controls', value: controlsShown });
+      game.push({ key: 'emucontrols', kind: 'toggle', label: 'Emulator Controls', value: controlsShown });
     }
     // The Cheats submenu appears only when the running game has advertised a
     // cheat set over postMessage (osdCheats) — opt-in, per game.
     if (osdCheats.length) {
-      list.push({ key: 'cheats', kind: 'button', label: 'Cheats' });
+      game.push({ key: 'cheats', kind: 'button', label: 'Cheats' });
     }
-    list.push(
-      { key: 'hue', kind: 'color', section: 'Look', label: 'Glow color', value: tweaks.hue, options: HUE_SWATCHES },
+    addSection('Game', game);
+
+    // Game-advertised live plugins render as toggles under a "Plugins" header.
+    // Like Cheats, this is opt-in per game — the section only exists while the
+    // running game has broadcast a plugin set.
+    addSection('Plugins', osdPlugins.map((p) => (
+      { key: p.key, kind: 'toggle', label: p.label, value: p.value, plugin: p.id }
+    )));
+
+    addSection('Look', [
+      { key: 'hue', kind: 'color', label: 'Glow color', value: tweaks.hue, options: HUE_SWATCHES },
       { key: 'breathe', kind: 'slider', label: 'Breathe speed', value: tweaks.breatheSpeed, min: 0.4, max: 2.2, step: 0.1, unit: '×' },
       { key: 'scanlines', kind: 'toggle', label: 'Scanlines', value: tweaks.scanlines },
       { key: 'disco', kind: 'toggle', label: 'Disco mode', value: tweaks.discoMode },
-    );
-    return list;
+    ]);
+    return out;
   });
 
+  // Keep the selection in range when the list shrinks under it — e.g. a game
+  // re-advertises a smaller cheat/plugin set while the Guide is open. The nav
+  // handlers also clamp on keypress, but this self-heals the highlight the
+  // instant the derived list changes. (osdItems doesn't read osdSel, so no loop.)
+  $effect(() => {
+    if (osdSel > osdItems.length - 1) osdSel = Math.max(0, osdItems.length - 1);
+  });
+
+  // Index of the first non-header row, so resetting the selection lands on an
+  // actionable item rather than a section header (which would only collapse it).
+  function firstSelectable(items) {
+    const i = items.findIndex((it) => it.kind !== 'section');
+    return i < 0 ? 0 : i;
+  }
+  function toggleSection(name) {
+    osdCollapsed = { ...osdCollapsed, [name]: !osdCollapsed[name] };
+    try { localStorage.setItem(OSD_COLLAPSE_KEY, JSON.stringify(osdCollapsed)); } catch (_) {}
+    sfx.nav();
+  }
   function openOsd() {
-    osdSel = 0; osdView = 'main'; osdNav.vDir = 0; osdNav.hDir = 0; osdOpen = true; sfx.enter();
+    osdView = 'main'; osdSel = firstSelectable(osdItems); osdNav.vDir = 0; osdNav.hDir = 0; osdOpen = true; sfx.enter();
     // Pull keyboard focus out of the game frame so the launcher's own onKey
     // handler drives OSD navigation. A focus-stealing game — especially a
     // cross-origin one, whose keys the launcher can neither read nor forward
@@ -262,7 +354,7 @@
   // B / Esc backs out of the Cheats sub-page to the root before it closes the
   // whole Guide; the ✕ button and tap-out always close outright.
   function osdBack() {
-    if (osdView === 'cheats') { osdView = 'main'; osdSel = 0; sfx.back(); return; }
+    if (osdView === 'cheats') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); return; }
     closeOsd();
   }
   function closeOsd() {
@@ -278,6 +370,8 @@
     // Cheat rows carry a `param`: toggles add/remove ?param=1, the stage slider
     // sets ?stage=N (0 kept — it is a valid first stage). Reloads the iframe.
     if (it.param) { setCheat(it.param, it.kind === 'toggle' ? (v ? '1' : null) : v); return; }
+    // Plugin rows carry a `plugin` id — flip it live in the running game.
+    if (it.plugin) { setPlugin(it.plugin, !!v); return; }
     if (it.key === 'hue') setTweak('hue', v);
     else if (it.key === 'breathe') setTweak('breatheSpeed', Math.round(v * 10) / 10);
     else if (it.key === 'scanlines') setTweak('scanlines', !!v);
@@ -286,7 +380,10 @@
   }
   function adjustOsd(i, dir) {
     const it = osdItems[i]; if (!it) return;
-    if (it.kind === 'slider') {
+    if (it.kind === 'section') {
+      // Left collapses, right expands — only act when it changes state.
+      if ((dir < 0) !== !!osdCollapsed[it.section]) toggleSection(it.section);
+    } else if (it.kind === 'slider') {
       const v = Math.max(it.min, Math.min(it.max, Math.round((it.value + dir * it.step) * 10) / 10));
       setOsdValue(i, v); sfx.nav();
     } else if (it.kind === 'color') {
@@ -298,12 +395,13 @@
   }
   function activateOsd(i) {
     const it = osdItems[i]; if (!it) return;
+    if (it.kind === 'section') { toggleSection(it.section); return; }
     if (it.kind === 'toggle') { setOsdValue(i, !it.value); sfx.nav(); return; }
     if (it.kind === 'color' || it.kind === 'slider') { adjustOsd(i, 1); return; }
     if (it.key === 'exit') { sfx.enter(); osdOpen = false; closeGame(); }
     else if (it.key === 'controller') { sfx.enter(); osdOpen = false; try { window.openControllerConfigurator?.(); } catch (_) {} }
-    else if (it.key === 'cheats') { sfx.enter(); osdView = 'cheats'; osdSel = 0; }
-    else if (it.key === 'cheats-back') { osdView = 'main'; osdSel = 0; sfx.back(); }
+    else if (it.key === 'cheats') { sfx.enter(); osdView = 'cheats'; osdSel = firstSelectable(osdItems); }
+    else if (it.key === 'cheats-back') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); }
   }
 
   // Two-finger corner gesture (bottom-left + top-right at once) opens the OSD on
@@ -1224,6 +1322,7 @@
     // own on boot. closeGame is the single chokepoint between games (the list
     // is only reachable when no game is on), so this alone prevents stale carry-over.
     osdCheats = [];
+    osdPlugins = [];
     setTimeout(() => { gameSrc = null; }, 500);
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
@@ -1683,6 +1782,22 @@
       // shows toggles that reload the same game — so accept it from our own
       // frame at any origin (like tg16-toggle-controls). Payload is sanitized.
       osdCheats = sanitizeCheats(d.cheats);
+      return;
+    }
+    if (d.type === 'cmg-plugins') {
+      // The running game advertises the live toggles it supports, which the
+      // Guide renders inline as a Plugins section. Benign — worst case it shows
+      // a toggle whose cmg-plugin-set reply the game ignores — so accept it from
+      // our own frame at any origin (like cmg-cheats). Payload is sanitized.
+      // Unlike cheats (whose value is re-derived from the iframe URL each render),
+      // a plugin's value is held here, so the OSD is its source of truth after
+      // boot. Preserve the current value for any id we already track and take the
+      // game-advertised value only for new ids — that way a re-advertise (boot
+      // re-broadcast, scene restart) can't silently revert a user's toggle.
+      const prev = new Map(osdPlugins.map((p) => [p.id, p.value]));
+      osdPlugins = sanitizePlugins(d.plugins).map((p) =>
+        prev.has(p.id) ? { ...p, value: prev.get(p.id) } : p
+      );
       return;
     }
     // Sensitive actions — closing the game and BYOD disc-file transfer — stay
