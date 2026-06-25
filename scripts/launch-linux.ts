@@ -17,6 +17,7 @@
 // period; if it exits immediately with an error, the next candidate is tried.
 
 import server from "../_fresh/server.js";
+import { serveEmbeddedWasmAsset } from "./serve-embedded-assets.ts";
 
 const PORT = Number(Deno.env.get("PORT") ?? 8000);
 const TARGET_URL = `http://localhost:${PORT}`;
@@ -198,10 +199,19 @@ if (candidates.length === 0) {
   Deno.exit(1);
 }
 
+const app = server as {
+  fetch: (req: Request) => Response | Promise<Response>;
+};
+
+async function fetchWithEmbeddedAssets(req: Request): Promise<Response> {
+  const embedded = await serveEmbeddedWasmAsset(req);
+  return embedded ?? app.fetch(req);
+}
+
 const ac = new AbortController();
 const httpServer = Deno.serve(
   { port: PORT, signal: ac.signal, onListen: () => {} },
-  (server as { fetch: (req: Request) => Response | Promise<Response> }).fetch,
+  fetchWithEmbeddedAssets,
 );
 await new Promise((r) => setTimeout(r, 300));
 
