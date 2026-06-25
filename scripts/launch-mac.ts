@@ -1,4 +1,5 @@
 import server from "../_fresh/server.js";
+import { serveEmbeddedWasmAsset } from "./serve-embedded-assets.ts";
 
 const PORT = Number(Deno.env.get("PORT") ?? 8000);
 const URL = `http://localhost:${PORT}`;
@@ -7,10 +8,19 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const home = Deno.env.get("HOME") ?? "";
 const profileDir = `${home}/Library/Application Support/cmg-chrome-profile`;
 
+const app = server as {
+  fetch: (req: Request) => Response | Promise<Response>;
+};
+
+async function fetchWithEmbeddedAssets(req: Request): Promise<Response> {
+  const embedded = await serveEmbeddedWasmAsset(req);
+  return embedded ?? app.fetch(req);
+}
+
 const ac = new AbortController();
 const httpServer = Deno.serve(
   { port: PORT, signal: ac.signal, onListen: () => {} },
-  (server as { fetch: (req: Request) => Response | Promise<Response> }).fetch,
+  fetchWithEmbeddedAssets,
 );
 
 await new Promise((r) => setTimeout(r, 300));
