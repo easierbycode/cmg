@@ -32,7 +32,20 @@
     </div>
     <div class="osd-body">
       {#each items as it, i (it.key)}
-        {#if it.section}<div class="osd-sect">{it.section}</div>{/if}
+        {#if it.kind === 'section'}
+          <!-- Collapsible section header: a real, navigable row. A / tap toggles
+               collapse; a collapsed section hides its child rows (see Dashboard). -->
+          <button
+            type="button"
+            class="osd-sect {i === sel ? 'sel' : ''}"
+            onpointerenter={() => onselect(i)}
+            onclick={() => { onselect(i); onactivate(i); }}
+            aria-expanded={it.collapsed ? 'false' : 'true'}
+          >
+            <span>{it.label}</span>
+            <span class="osd-sect-chev" data-collapsed={it.collapsed ? '1' : '0'} aria-hidden="true">▾</span>
+          </button>
+        {:else}
         <div
           class="osd-row kind-{it.kind} {i === sel ? 'sel' : ''}"
           role="menuitem"
@@ -74,6 +87,7 @@
             </span>
           {/if}
         </div>
+        {/if}
       {/each}
     </div>
     <div class="osd-foot">
@@ -115,8 +129,18 @@
   .osd-x:hover { background: rgba(120, 255, 90, .12); color: #eaffd2; }
 
   .osd-body { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(140, 255, 110, .3) transparent; }
-  .osd-sect { font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: rgba(180, 255, 140, .5); padding: 8px 2px 2px; }
-  .osd-sect:first-child { padding-top: 0; }
+  .osd-sect {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+    appearance: none; border: 0; background: transparent; text-align: left; cursor: pointer;
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: .22em;
+    text-transform: uppercase; color: rgba(180, 255, 140, .5); padding: 8px 4px 4px;
+    transition: color .15s ease, text-shadow .15s ease;
+  }
+  .osd-sect:first-child { padding-top: 2px; }
+  .osd-sect:hover { color: rgba(200, 255, 160, .8); }
+  .osd-sect.sel { color: var(--yellow, #F6FF4A); text-shadow: 0 0 10px rgba(255, 240, 90, .4); }
+  .osd-sect-chev { font-size: 9px; opacity: .8; transition: transform .15s ease; }
+  .osd-sect-chev[data-collapsed="1"] { transform: rotate(-90deg); }
 
   .osd-row {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
