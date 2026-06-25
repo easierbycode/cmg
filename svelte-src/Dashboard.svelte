@@ -20,6 +20,7 @@
   const NES_ID = '__nes__';
   const DEMOS_ID = '__demos__';
   const CMGNET_ID = '__cmgnet__';
+  const ARCADE_ID = '__arcade__';
   // Baked-in fallback snapshot of the Demos list (Games → Demos). At runtime
   // loadManifest() replaces it with the manifest's `demos` (OTA), so adding a
   // demo to data/demos.json + pushing reaches every launcher with no rebuild.
@@ -50,6 +51,7 @@
     { id: 'squad-game',                                            name: 'Squad Game',          title: 'SQUAD GAME',          sub: '👨🏽‍💻 👾💾🖳 👩🏽‍💻',  icon: '/icons/squad-game.png',                size: '5.7 MB',  date: '11.02.23' },
     { id: DEMOS_ID,                                                name: 'Demos',               title: 'DEMOS',               sub: 'DEMO // submenu', icon: null,                                   size: '— MB',    date: 'DEMO',    submenu: true },
     { id: CMGNET_ID,                                               name: 'CMG Network',         title: 'CMG NETWORK',         sub: 'NET // e-shop',   icon: null,                                   size: '— MB',    date: 'NET',     submenu: true },
+    { id: ARCADE_ID,                                               name: 'Arcade',              title: 'ARCADE',              sub: 'MAME // submenu', icon: null,                                   size: '— MB',    date: 'MAME',    submenu: true },
     { id: NES_ID,                                                  name: 'Nintendo',            title: 'NINTENDO',            sub: 'NES // submenu',  icon: null,                                   size: '— MB',    date: 'NES',     submenu: true },
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
     { id: SATURN_ID,                                               name: 'Sega Saturn',         title: 'SEGA SATURN',         sub: 'SS // submenu',   icon: null,                                   size: '— MB',    date: 'SS',      submenu: true },
@@ -70,7 +72,7 @@
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
 
-  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'tg16' | 'nes' | 'psx' | 'saturn' | 'demos'
+  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'saturn' | 'demos'
   let menuSel = $state(1);           // start on Games
   let gameSel = $state(0);
   let clockStr = $state('--:--:--');
@@ -84,6 +86,9 @@
   let tg16Games = $state([]);
   let tg16Sel = $state(0);
   let tg16RowEls = $state([]);
+  let arcadeGames = $state([]);
+  let arcadeSel = $state(0);
+  let arcadeRowEls = $state([]);
   let psxGames = $state([]);
   let psxSel = $state(0);
   let psxRowEls = $state([]);
@@ -115,7 +120,8 @@
   let controlsShown = $state(false);
   let padHadConnection = $state(false);
   let padConnected = $state(false);
-  let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/')));
+  let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/') || gameSrc.startsWith('/arcade/')));
+  let hasEmulatorControls = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/')));
   // First touch in-game dismisses transient chrome (kept for the tg16 message
   // path). The upper-right close button is gone — Exit Game in the OSD replaces it.
   let chromeDismissed = $state(false);
@@ -227,8 +233,8 @@
       { key: 'exit', kind: 'button', section: 'Game', label: 'Exit Game' },
       { key: 'controller', kind: 'button', label: 'Controller Settings' },
     ];
-    // EmulatorJS control bar toggle is only meaningful for the TG-16/PSX cores.
-    if (isTg16Game) {
+    // EmulatorJS control bar toggle is only meaningful for EmulatorJS cores.
+    if (hasEmulatorControls) {
       list.push({ key: 'emucontrols', kind: 'toggle', label: 'Emulator Controls', value: controlsShown });
     }
     // The Cheats submenu appears only when the running game has advertised a
@@ -322,6 +328,12 @@
   });
 
   $effect(() => {
+    if (screen !== 'arcade') return;
+    const el = arcadeRowEls[arcadeSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  $effect(() => {
     if (screen !== 'psx') return;
     const el = psxRowEls[psxSel];
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -368,6 +380,7 @@
 
   let currentGame = $derived(GAMES[gameSel]);
   let currentTg16 = $derived(tg16Games[tg16Sel]);
+  let currentArcade = $derived(arcadeGames[arcadeSel]);
   let currentPsx = $derived(psxGames[psxSel]);
   let currentSaturn = $derived(saturnGames[saturnSel]);
   // undefined when nesSel is on the pinned BYOC row (index === nesGames.length).
@@ -383,6 +396,11 @@
     tg16Games.length === 0
       ? '00 / 00'
       : String(tg16Sel + 1).padStart(2, '0') + ' / ' + String(tg16Games.length).padStart(2, '0')
+  );
+  let arcadeCounterText = $derived(
+    arcadeGames.length === 0
+      ? '00 / 00'
+      : String(arcadeSel + 1).padStart(2, '0') + ' / ' + String(arcadeGames.length).padStart(2, '0')
   );
   let psxCounterText = $derived(
     psxGames.length === 0
@@ -468,7 +486,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') screen = 'games';
+    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') screen = 'games';
     else screen = 'dashboard';
   }
 
@@ -488,6 +506,11 @@
     if (id === TG16_ID) {
       sfx.enter();
       screen = 'tg16';
+      return;
+    }
+    if (id === ARCADE_ID) {
+      sfx.enter();
+      screen = 'arcade';
       return;
     }
     if (id === PSX_ID) {
@@ -548,6 +571,16 @@
     sfx.enter();
     chromeDismissed = false;
     gameSrc = '/turbografx16/play.html?rom=' + encodeURIComponent(file);
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function launchArcade(game) {
+    if (!game?.file) return;
+    sfx.enter();
+    chromeDismissed = false;
+    const params = new URLSearchParams({ rom: game.file });
+    if (Array.isArray(game.bios) && game.bios.length) params.set('bios', game.bios.join(','));
+    gameSrc = '/arcade/play.html?' + params.toString();
     setTimeout(() => { gameOn = true; }, 30);
   }
 
@@ -764,6 +797,18 @@
       if (tg16Sel >= tg16Games.length) tg16Sel = 0;
     } catch (_e) {
       tg16Games = [];
+    }
+  }
+
+  async function loadArcadeList() {
+    try {
+      const r = await fetch('/arcade/manifest.json');
+      if (!r.ok) return;
+      const list = await r.json();
+      arcadeGames = Array.isArray(list) ? list : [];
+      if (arcadeSel >= arcadeGames.length) arcadeSel = 0;
+    } catch (_e) {
+      arcadeGames = [];
     }
   }
 
@@ -1215,10 +1260,70 @@
     comboLatched: false,
   };
   const PAD_DEADZONE = 0.55;
+  const SNES_PAD_RE = /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i;
+  const XBOX_PAD_RE = /Xbox|XInput|Microsoft|Legion Go/i;
+
+  function padPriority(p) {
+    const id = p?.id || '';
+    if (SNES_PAD_RE.test(id)) return 3;
+    if (XBOX_PAD_RE.test(id)) return 2;
+    return 1;
+  }
+
+  function pickPrimaryPad(pads) {
+    let best = null;
+    let bestScore = -1;
+    for (const p of pads) {
+      if (!p?.connected) continue;
+      const score = padPriority(p);
+      if (score > bestScore) {
+        best = p;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  function decodePadHat(v) {
+    const none = { up: false, down: false, left: false, right: false };
+    if (typeof v !== 'number' || v < -1.05 || v > 1.05) return none;
+    const pos = Math.round((v + 1) * 3.5);
+    const labels = ['up', 'upright', 'right', 'downright', 'down', 'downleft', 'left', 'upleft'];
+    const d = labels[pos] || '';
+    return {
+      up: d === 'up' || d === 'upright' || d === 'upleft',
+      down: d === 'down' || d === 'downright' || d === 'downleft',
+      left: d === 'left' || d === 'downleft' || d === 'upleft',
+      right: d === 'right' || d === 'upright' || d === 'downright',
+    };
+  }
+
+  function readPadDirs(pad) {
+    const dirs = { up: false, down: false, left: false, right: false };
+    if (!pad) return dirs;
+    const btn = (i) => !!pad.buttons[i]?.pressed;
+    dirs.up = btn(12) || btn(16) || btn(18) || btn(20);
+    dirs.down = btn(13) || btn(17) || btn(19) || btn(21);
+    dirs.left = btn(14);
+    dirs.right = btn(15);
+    const ax = pad.axes || [];
+    if (typeof ax[6] === 'number' && Math.abs(ax[6]) <= 1.05) {
+      if (ax[6] <= -PAD_DEADZONE) dirs.left = true;
+      else if (ax[6] >= PAD_DEADZONE) dirs.right = true;
+    }
+    if (typeof ax[7] === 'number' && Math.abs(ax[7]) <= 1.05) {
+      if (ax[7] <= -PAD_DEADZONE) dirs.up = true;
+      else if (ax[7] >= PAD_DEADZONE) dirs.down = true;
+    }
+    const hat = decodePadHat(ax[9]);
+    dirs.up ||= hat.up; dirs.down ||= hat.down; dirs.left ||= hat.left; dirs.right ||= hat.right;
+    return dirs;
+  }
 
   function navUp() {
     if (screen === 'dashboard') menuSel = Math.max(menuSel - 1, 0);
     else if (screen === 'games') gameSel = Math.max(gameSel - 1, 0);
+    else if (screen === 'arcade') arcadeSel = Math.max(arcadeSel - 1, 0);
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Sel - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxSel - 1, 0);
     else if (screen === 'saturn') saturnSel = Math.max(saturnSel - 1, 0);
@@ -1230,6 +1335,7 @@
   function navDown() {
     if (screen === 'dashboard') menuSel = Math.min(menuSel + 1, MAIN_MENU.length - 1);
     else if (screen === 'games') gameSel = Math.min(gameSel + 1, GAMES.length - 1);
+    else if (screen === 'arcade') arcadeSel = Math.min(arcadeSel + 1, Math.max(arcadeGames.length - 1, 0));
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
     else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
     else if (screen === 'saturn') saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0));
@@ -1241,6 +1347,7 @@
   function navTop() {
     if (screen === 'dashboard') menuSel = 0;
     else if (screen === 'games') gameSel = 0;
+    else if (screen === 'arcade') arcadeSel = 0;
     else if (screen === 'tg16') tg16Sel = 0;
     else if (screen === 'psx') psxSel = 0;
     else if (screen === 'saturn') saturnSel = 0;
@@ -1252,6 +1359,7 @@
   function navBottom() {
     if (screen === 'dashboard') menuSel = MAIN_MENU.length - 1;
     else if (screen === 'games') gameSel = GAMES.length - 1;
+    else if (screen === 'arcade') arcadeSel = Math.max(arcadeGames.length - 1, 0);
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
     else if (screen === 'saturn') saturnSel = Math.max(saturnGames.length - 1, 0);
@@ -1264,6 +1372,7 @@
     if (gameOn) return;
     if (screen === 'dashboard') pickMenu(menuSel);
     else if (screen === 'games') launchGame(GAMES[gameSel].id);
+    else if (screen === 'arcade') launchArcade(arcadeGames[arcadeSel]);
     else if (screen === 'tg16') launchTg16(tg16Games[tg16Sel]?.file);
     else if (screen === 'psx') {
       if (psxGames.length === 0) openByodPicker();
@@ -1282,7 +1391,7 @@
   }
   function actB() {
     if (gameOn) closeGame();
-    else if (screen === 'games' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') goBack();
+    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') goBack();
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -1291,8 +1400,7 @@
   function pollPad() {
     padRaf = requestAnimationFrame(pollPad);
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
-    let pad = null;
-    for (const p of pads) { if (p && p.connected) { pad = p; break; } }
+    let pad = pickPrimaryPad(pads);
     if (gameOn) {
       // While a game is up we yield input to gamepad-support.js (it dispatches
       // keys into #gameframe). Here we only watch for the OSD open-chord, and
@@ -1306,9 +1414,10 @@
 
       if (osdOpen) {
         // Vertical: D-pad 12/13 or left-stick Y → move selection (edge-latched).
+        const dirs = readPadDirs(pad);
         let v = 0;
-        if (pad.buttons[12]?.pressed) v = -1;
-        else if (pad.buttons[13]?.pressed) v = 1;
+        if (dirs.up) v = -1;
+        else if (dirs.down) v = 1;
         else { const ay = pad.axes[1] ?? 0; if (ay < -PAD_DEADZONE) v = -1; else if (ay > PAD_DEADZONE) v = 1; }
         if (v !== 0 && v !== osdNav.vDir) {
           osdSel = Math.max(0, Math.min(osdItems.length - 1, osdSel + v));
@@ -1317,8 +1426,8 @@
         osdNav.vDir = v;
         // Horizontal: D-pad 14/15 or left-stick X → adjust the focused control.
         let h = 0;
-        if (pad.buttons[14]?.pressed) h = -1;
-        else if (pad.buttons[15]?.pressed) h = 1;
+        if (dirs.left) h = -1;
+        else if (dirs.right) h = 1;
         else { const ax = pad.axes[0] ?? 0; if (ax < -PAD_DEADZONE) h = -1; else if (ax > PAD_DEADZONE) h = 1; }
         if (h !== 0 && h !== osdNav.hDir) adjustOsd(osdSel, h);
         osdNav.hDir = h;
@@ -1330,9 +1439,10 @@
 
       // OSD closed: SELECT + Down opens it (SELECT + R is the SNES-adapter
       // fallback for pads whose D-pad isn't recognized).
+      const dirs = readPadDirs(pad);
       const selectBtn = !!pad.buttons[8]?.pressed;
       const rShoulder = !!pad.buttons[5]?.pressed;
-      const dpadDown = !!pad.buttons[13]?.pressed;
+      const dpadDown = dirs.down;
       const ayDown = (pad.axes[1] ?? 0) > PAD_DEADZONE;
       const combo = selectBtn && (dpadDown || ayDown || rShoulder);
       if (combo && !padState.comboLatched) { padState.comboLatched = true; openOsd(); }
@@ -1475,6 +1585,11 @@
       if (e.key === 'ArrowDown') { gameSel = Math.min(gameSel + 1, GAMES.length - 1); sfx.nav(); }
       else if (e.key === 'ArrowUp') { gameSel = Math.max(gameSel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchGame(GAMES[gameSel].id);
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'arcade') {
+      if (e.key === 'ArrowDown') { arcadeSel = Math.min(arcadeSel + 1, Math.max(arcadeGames.length - 1, 0)); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { arcadeSel = Math.max(arcadeSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') launchArcade(arcadeGames[arcadeSel]);
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'tg16') {
       if (e.key === 'ArrowDown') { tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0)); sfx.nav(); }
@@ -1634,6 +1749,7 @@
     padRaf = requestAnimationFrame(pollPad);
 
     loadManifest();
+    loadArcadeList();
     loadTg16List();
     loadPsxList();
     loadSaturnList();
@@ -1657,7 +1773,7 @@
   });
 
   $effect(() => {
-    if (!gameOn || !isTg16Game) return;
+    if (!gameOn || !hasEmulatorControls) return;
     // Driven by the OSD's "Emulator Controls" toggle — shows/hides EmulatorJS's
     // in-iframe control bar.
     postToGameframe(controlsShown ? 'tg16-show-controls' : 'tg16-hide-controls');
@@ -1853,6 +1969,60 @@
               </div>
             </div>
           {/each}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="games-screen {screen === 'arcade' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // mame</span>
+        <span>emularity</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{currentArcade ? currentArcade.name : '—'}</b></div>
+          <div><span class="k">size</span><b>{currentArcade ? currentArcade.size : '—'}</b></div>
+          <div><span class="k">type</span><b>ARCADE / MAME</b></div>
+          <div><span class="k">date</span><b>{currentArcade ? currentArcade.date : '—'}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">ARCADE</div>
+          <div class="counter">{arcadeCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#if arcadeGames.length === 0}
+            <div class="game-row">
+              <div class="game-icon"><div class="glass"><span class="ph">··</span></div></div>
+              <div class="game-bar"><span class="name">NO ROMS FOUND</span><span class="sub">drop .zip into static/arcade/</span></div>
+            </div>
+          {:else}
+            {#each arcadeGames as g, i (g.file)}
+              <div
+                bind:this={arcadeRowEls[i]}
+                class="game-row {i === arcadeSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== arcadeSel) { arcadeSel = i; sfx.nav(); } }}
+                onclick={() => launchArcade(g)}
+              >
+                <div class="game-icon">
+                  <div class="glass">
+                    <span class="ph">{initial(g.name)}</span>
+                  </div>
+                </div>
+                <div class="game-bar">
+                  <span class="name">{g.name.toUpperCase()}</span>
+                  <span class="sub">{g.size}</span>
+                </div>
+              </div>
+            {/each}
+          {/if}
         </div>
       </div>
     </div>
@@ -2262,7 +2432,7 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet'}
+  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -2270,7 +2440,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (cmgnetStatus[currentCmgnet?.id]?.cached ? 'Play' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (cmgnetStatus[currentCmgnet?.id]?.cached ? 'Play' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
 </div>
 

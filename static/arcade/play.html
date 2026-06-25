@@ -56,7 +56,10 @@
         "use strict";
         // Internet Archive emulation engine — hosts the MAME WASM cores and a
         // per-game JSON recipe (driver, core filenames, native resolution).
-        var ENGINE = "https://emularity-engine.ux-b.archive.org/";
+        // AppImage builds mirror these under ENGINE_LOCAL; browser/deploy builds
+        // fall back to ENGINE_REMOTE.
+        var ENGINE_LOCAL = "/arcade/emularity/engine/";
+        var ENGINE_REMOTE = "https://emularity-engine.ux-b.archive.org/";
 
         var params = new URLSearchParams(location.search);
         var rom = params.get("rom") || "";
@@ -73,6 +76,102 @@
         if (!window.Emulator || !window.MAMELoader) {
           fail("Emularity loader failed to load.");
           return;
+        }
+
+        var SNES_RE = /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i;
+        var XBOX_RE = /Xbox|XInput|Microsoft|Legion Go/i;
+
+        function padPriority(p) {
+          var id = (p && p.id) || "";
+          if (SNES_RE.test(id)) return 3;
+          if (XBOX_RE.test(id)) return 2;
+          return 1;
+        }
+
+        function selectPreferredPad(pads) {
+          var best = null;
+          var bestScore = -1;
+          for (var i = 0; i < pads.length; i++) {
+            var p = pads[i];
+            if (!p || !p.connected) continue;
+            var score = padPriority(p);
+            if (score > bestScore) {
+              best = p;
+              bestScore = score;
+            }
+          }
+          return best;
+        }
+
+        function decodeHat(v) {
+          var none = { up: false, down: false, left: false, right: false };
+          if (typeof v !== "number" || v < -1.05 || v > 1.05) return none;
+          var pos = Math.round((v + 1) * 3.5);
+          var labels = [
+            "up",
+            "upright",
+            "right",
+            "downright",
+            "down",
+            "downleft",
+            "left",
+            "upleft",
+          ];
+          var d = labels[pos] || "";
+          return {
+            up: d === "up" || d === "upright" || d === "upleft",
+            down: d === "down" || d === "downright" || d === "downleft",
+            left: d === "left" || d === "downleft" || d === "upleft",
+            right: d === "right" || d === "upright" || d === "downright",
+          };
+        }
+
+        function mkBtn(pressed) {
+          return { pressed: pressed, touched: pressed, value: pressed ? 1 : 0 };
+        }
+
+        function exposeAsPlayerOne(p) {
+          var isSnes = SNES_RE.test((p && p.id) || "");
+          return new Proxy(p, {
+            get: function (t, prop) {
+              if (prop === "index") return 0;
+              if (isSnes && prop === "buttons") {
+                var dirs = decodeHat(t.axes && t.axes[9]);
+                var orig = t.buttons || [];
+                var out = new Array(Math.max(orig.length, 16));
+                for (var i = 0; i < out.length; i++) out[i] = orig[i] || mkBtn(false);
+                if (dirs.up) out[12] = mkBtn(true);
+                if (dirs.down) out[13] = mkBtn(true);
+                if (dirs.left) out[14] = mkBtn(true);
+                if (dirs.right) out[15] = mkBtn(true);
+                return out;
+              }
+              var v = t[prop];
+              return typeof v === "function" ? v.bind(t) : v;
+            },
+          });
+        }
+
+        var origGetGamepads = navigator.getGamepads && navigator.getGamepads.bind(navigator);
+        function sourcePads() {
+          try {
+            var pp = window.parent;
+            if (pp && pp !== window && pp.navigator && pp.navigator.getGamepads) {
+              var pg = pp.navigator.getGamepads() || [];
+              for (var i = 0; i < pg.length; i++) if (pg[i] && pg[i].connected) return pg;
+            }
+          } catch (_) {}
+          return origGetGamepads ? (origGetGamepads() || []) : [];
+        }
+
+        // MAME sees a single player-one pad. The Legion Go built-in Xbox pad is
+        // the default, but a connected Bluetooth SNES pad wins immediately even
+        // when the built-in pad remains present at a lower Gamepad API index.
+        if (origGetGamepads) {
+          navigator.getGamepads = function () {
+            var preferred = selectPreferredPad(sourcePads());
+            return preferred ? [exposeAsPlayerOne(preferred)] : [];
+          };
         }
 
         // Cursor hide when a gamepad is driving (parent owns the pad).
@@ -111,14 +210,51 @@
         var romName = rom.replace(/\.zip$/i, "");
         var romZip = "/arcade/" + encodeURIComponent(romName) + ".zip";
 
+        function localCoreName(file) {
+          return String(file || "").replace(/\.gz$/i, "");
+        }
+
+        function getRecipe(name) {
+          var local = ENGINE_LOCAL + encodeURIComponent(name) + ".json";
+          return fetch(local, { cache: "no-store" })
+            .then(function (r) {
+              if (!r.ok) throw new Error("local miss");
+              return r.json().then(function (cfg) {
+                cfg.__cmgEngineBase = ENGINE_LOCAL;
+                return cfg;
+              });
+            })
+            .catch(function () {
+              return fetch(ENGINE_REMOTE + encodeURIComponent(name) + ".json")
+                .then(function (r) {
+                  if (!r.ok) throw new Error("no engine recipe for '" + name + "' (HTTP " + r.status + ")");
+                  return r.json().then(function (cfg) {
+                    cfg.__cmgEngineBase = ENGINE_REMOTE;
+                    return cfg;
+                  });
+                });
+            });
+        }
+
+        function resolveCoreUrl(cfg, file) {
+          if (cfg.__cmgEngineBase === ENGINE_LOCAL) {
+            return ENGINE_LOCAL + encodeURIComponent(localCoreName(file));
+          }
+          return ENGINE_REMOTE + encodeURIComponent(file);
+        }
+
+        function resolveCfg(name) {
+          if (!name) return Promise.resolve(null);
+          var url = "/arcade/cfg/" + encodeURIComponent(name) + ".cfg";
+          return fetch(url, { cache: "no-store" })
+            .then(function (r) { return r.ok ? { name: name, url: url } : null; })
+            .catch(function () { return null; });
+        }
+
         // Fetch the per-game recipe (driver, core, native resolution) from the
         // engine, then drive the MAME core. This keeps the player generic — any
         // arcade game with an engine recipe + a local ROM zip works.
-        fetch(ENGINE + encodeURIComponent(romName) + ".json")
-          .then(function (r) {
-            if (!r.ok) throw new Error("no engine recipe for '" + romName + "' (HTTP " + r.status + ")");
-            return r.json();
-          })
+        getRecipe(romName)
           .then(function (cfg) {
             var nr = cfg.native_resolution || [640, 480];
             var wasmjs = cfg.wasmjs_filename || "mamezn.js.gz";
@@ -126,17 +262,52 @@
             var driver = cfg.driver || romName;
             document.title = (cfg.name || romName) + " — Arcade";
 
+            return Promise.all([
+              resolveCoreUrl(cfg, wasmjs),
+              resolveCoreUrl(cfg, wasm),
+              resolveCfg("default"),
+              resolveCfg(driver),
+              driver === romName ? Promise.resolve(null) : resolveCfg(romName),
+            ]).then(function (resolved) {
+              return {
+                cfg: cfg,
+                nr: nr,
+                wasmjsUrl: resolved[0],
+                wasmUrl: resolved[1],
+                defaultCfg: resolved[2],
+                gameCfg: resolved[3] || resolved[4],
+                driver: driver,
+              };
+            });
+          })
+          .then(function (boot) {
+            var cfg = boot.cfg;
+            var nr = boot.nr;
+            var driver = boot.driver;
+
             var args = [
               MAMELoader.driver(driver),
               MAMELoader.nativeResolution(nr[0], nr[1]),
               MAMELoader.scale(2),
-              MAMELoader.emulatorJS(ENGINE + wasmjs),
-              MAMELoader.emulatorWASM(ENGINE + wasm),
+              MAMELoader.emulatorJS(boot.wasmjsUrl),
+              MAMELoader.emulatorWASM(boot.wasmUrl),
               MAMELoader.mountFile(
                 "/" + romName + ".zip",
                 MAMELoader.fetchFile(cfg.name || romName, romZip),
               ),
             ];
+            if (boot.defaultCfg) {
+              args.push(MAMELoader.mountFile(
+                "/default.cfg",
+                MAMELoader.fetchFile("MAME default cfg", boot.defaultCfg.url),
+              ));
+            }
+            if (boot.gameCfg) {
+              args.push(MAMELoader.mountFile(
+                "/" + driver + ".cfg",
+                MAMELoader.fetchFile("MAME game cfg", boot.gameCfg.url),
+              ));
+            }
             // BIOS / device ROM sets (e.g. coh3002c for ZN-2, qsound). MAME finds
             // any ROM set mounted into the rompath, so split sets work as long as
             // their BIOS zips are dropped into static/arcade/ and named here via

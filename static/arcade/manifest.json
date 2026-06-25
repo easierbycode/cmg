@@ -1,0 +1,14 @@
+[
+  {
+    "file": "sfex2.zip",
+    "rom": "sfex2",
+    "name": "Street Fighter EX2",
+    "url": "/arcade/sfex2.zip",
+    "size": "16.2 MB",
+    "date": "06.25.26",
+    "bios": [
+      "coh3002c",
+      "qsound_hle"
+    ]
+  }
+]

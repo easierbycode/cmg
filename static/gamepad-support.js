@@ -141,6 +141,31 @@ class GamepadManager {
     return controller.id || `gamepad-index-${controller.index}`;
   }
 
+  isSnesController(controller) {
+    return /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i.test((controller && controller.id) || "");
+  }
+
+  isXboxController(controller) {
+    return /Xbox|XInput|Microsoft|Legion Go/i.test((controller && controller.id) || "");
+  }
+
+  controllerPriority(controller) {
+    if (this.isSnesController(controller)) return 3;
+    if (this.isXboxController(controller)) return 2;
+    return 1;
+  }
+
+  shouldProcessController(controller) {
+    const connected = Object.values(this.controllers).filter(c => c && c.id);
+    if (!connected.length) return false;
+    const best = Math.max(...connected.map(c => this.controllerPriority(c)));
+    // SNES overrides the Legion Go/Xbox built-in pad; Xbox remains the default
+    // over generic devices. Multiple controllers at the winning priority still
+    // work together.
+    if (best > 1) return this.controllerPriority(controller) === best;
+    return true;
+  }
+
   addGamepad(gamepad) {
     if (!gamepad || !gamepad.id) return; // Ignore invalid gamepads
     const controllerId = this.getControllerId(gamepad);
@@ -213,6 +238,7 @@ class GamepadManager {
     for (let controllerIndex in this.controllers) {
       const controller = this.controllers[controllerIndex];
       if (!controller || !controller.id) continue;
+      if (!this.shouldProcessController(controller)) continue;
       const controllerId = this.getControllerId(controller);
       const mapping = this.controllerMappings[controllerId];
       const useWASD = this.controllerUseWASD[controllerId];

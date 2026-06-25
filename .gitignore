@@ -29,3 +29,7 @@ static/PlayStation/*
 # explicitly if your deployment target needs them.
 static/bios/
 
+# Generated during AppImage builds so the arcade core and local MAME config
+# files are embedded without committing bulky/runtime-local artifacts.
+static/arcade/emularity/engine/
+static/arcade/cfg/

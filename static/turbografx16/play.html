@@ -344,6 +344,7 @@
           // synthesized D-pad entries at 12-15. All other properties pass through.
           return new Proxy(p, {
             get: function (t, prop) {
+              if (prop === "index") return 0;
               if (prop === "buttons") {
                 var dirs = decodeHat(t.axes[9]);
                 var orig = t.buttons;
@@ -387,17 +388,32 @@
           } catch (_) { /* cross-origin or unavailable — fall through */ }
           return origGetGamepads() || [];
         }
+        function padPriority(p) {
+          var id = (p && p.id) || "";
+          if (SNES_RE.test(id)) return 3;
+          if (/Xbox|XInput|Microsoft|Legion Go/i.test(id)) return 2;
+          return 1;
+        }
+        function selectPreferredPad(pads) {
+          var best = null;
+          var bestScore = -1;
+          for (var i = 0; i < pads.length; i++) {
+            var p = pads[i];
+            if (!p || !p.connected) continue;
+            var score = padPriority(p);
+            if (score > bestScore) {
+              best = p;
+              bestScore = score;
+            }
+          }
+          return best;
+        }
         navigator.getGamepads = function () {
           var pads = sourcePads();
           // Returning an Array is fine; EmulatorJS iterates by index + length.
-          var out = [];
-          for (var i = 0; i < pads.length; i++) {
-            var p = pads[i];
-            if (p && p.connected && SNES_RE.test(p.id || "")) {
-              out.push(wrapSnesPad(p));
-            } else out.push(p);
-          }
-          return out;
+          var p = selectPreferredPad(pads);
+          if (!p) return [];
+          return [SNES_RE.test(p.id || "") ? wrapSnesPad(p) : p];
         };
 
         // Custom on-screen controller: a dynamic analog on the left half that
