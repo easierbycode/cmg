@@ -60,6 +60,7 @@
       /* Hide the cursor when a gamepad is driving (parent owns the pad). */
       body.pad-on, body.pad-on * { cursor: none !important; }
     </style>
+    <script src="/gamepad-compatibility-plugin.js"></script>
   </head>
   <body>
     <div id="wrap">
@@ -85,6 +86,14 @@
         }
 
         if (!byod && !rom) { fail("No disc specified."); return; }
+
+        if (window.CMGGamepadCompat) {
+          window.CMGGamepadCompat.install({
+            sourceParent: true,
+            preferSinglePad: true,
+            forceIndexZero: true,
+          });
+        }
 
         // ── Cursor hide on gamepad (parent frame owns the pad; this iframe is
         // same-origin with the dashboard, so read the parent's gamepads). ──

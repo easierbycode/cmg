@@ -165,6 +165,7 @@
       #vc-select { left: 50%; margin-left: -94px; }
       #vc-start { left: 50%; margin-left: 6px; }
     </style>
+    <script src="/gamepad-compatibility-plugin.js"></script>
   </head>
   <body>
     <div id="display"></div>
@@ -298,123 +299,13 @@
           passive: true,
         });
 
-        // Nintendo Online SNES Controller (Vendor 057e Product 2017) reports its
-        // D-pad on axes[9] as an 8-direction hat switch — a single value encoding
-        // one of 8 directions plus neutral. EmulatorJS's EXTRA_STICK mappings only
-        // check the sign of an axis, so Down/Left/Right all collide as "positive".
-        //
-        // Instead, wrap navigator.getGamepads to *decode* the hat and synthesize
-        // proper DPAD_UP/DOWN/LEFT/RIGHT button presses at indices 12-15. With
-        // those buttons in place, EmulatorJS's stock defaults just work and so do
-        // diagonals.
-        var SNES_RE = /SNES Controller|057e.{0,8}2017/i;
-
-        function decodeHat(v) {
-          var none = { up: false, down: false, left: false, right: false };
-          if (typeof v !== "number" || v < -1.05 || v > 1.05) return none;
-          // Standard 8-direction hat encoding: -1..1 mapped to 8 slots.
-          //   -7/7 = Up, -5/7 = Up-Right, -3/7 = Right, -1/7 = Down-Right,
-          //    1/7 = Down,  3/7 = Down-Left,  5/7 = Left,  7/7 = Up-Left.
-          var pos = Math.round((v + 1) * 3.5); // 0..7
-          var labels = [
-            "up",
-            "upright",
-            "right",
-            "downright",
-            "down",
-            "downleft",
-            "left",
-            "upleft",
-          ];
-          var d = labels[pos] || "";
-          return {
-            up: d === "up" || d === "upright" || d === "upleft",
-            down: d === "down" || d === "downright" || d === "downleft",
-            left: d === "left" || d === "downleft" || d === "upleft",
-            right: d === "right" || d === "upright" || d === "downright",
-          };
-        }
-
-        function mkBtn(pressed) {
-          return { pressed: pressed, touched: pressed, value: pressed ? 1 : 0 };
-        }
-
-        function wrapSnesPad(p) {
-          // Use a Proxy so EmulatorJS sees a fresh `buttons` array each frame with
-          // synthesized D-pad entries at 12-15. All other properties pass through.
-          return new Proxy(p, {
-            get: function (t, prop) {
-              if (prop === "index") return 0;
-              if (prop === "buttons") {
-                var dirs = decodeHat(t.axes[9]);
-                var orig = t.buttons;
-                var out = new Array(Math.max(orig.length, 16));
-                for (var i = 0; i < out.length; i++) {
-                  out[i] = orig[i] || mkBtn(false);
-                }
-                if (dirs.up) out[12] = mkBtn(true);
-                if (dirs.down) out[13] = mkBtn(true);
-                if (dirs.left) out[14] = mkBtn(true);
-                if (dirs.right) out[15] = mkBtn(true);
-                return out;
-              }
-              var v = t[prop];
-              return typeof v === "function" ? v.bind(t) : v;
-            },
+        if (window.CMGGamepadCompat) {
+          window.CMGGamepadCompat.install({
+            sourceParent: true,
+            preferSinglePad: true,
+            forceIndexZero: true,
           });
         }
-
-        // The Gamepad API only exposes pads to the *focused* frame, and the
-        // launcher's dashboard (the top frame) holds focus — so this iframe's
-        // own navigator.getGamepads() is empty and EmulatorJS sees no
-        // controller (its config panel greys out; nothing drives the game).
-        // The dashboard, however, does see the pad. Since this iframe is
-        // same-origin with it, read the parent frame's gamepads and hand them
-        // to EmulatorJS, which then polls them natively (correct mapping,
-        // working controller-config UI, analog sticks). Fall back to our own
-        // frame's pads if the parent is unreachable or this frame has focus.
-        var origGetGamepads = navigator.getGamepads.bind(navigator);
-        function sourcePads() {
-          try {
-            var pp = window.parent;
-            if (
-              pp && pp !== window && pp.navigator && pp.navigator.getGamepads
-            ) {
-              var pg = pp.navigator.getGamepads() || [];
-              for (var i = 0; i < pg.length; i++) {
-                if (pg[i] && pg[i].connected) return pg;
-              }
-            }
-          } catch (_) { /* cross-origin or unavailable — fall through */ }
-          return origGetGamepads() || [];
-        }
-        function padPriority(p) {
-          var id = (p && p.id) || "";
-          if (SNES_RE.test(id)) return 3;
-          if (/Xbox|XInput|Microsoft|Legion Go/i.test(id)) return 2;
-          return 1;
-        }
-        function selectPreferredPad(pads) {
-          var best = null;
-          var bestScore = -1;
-          for (var i = 0; i < pads.length; i++) {
-            var p = pads[i];
-            if (!p || !p.connected) continue;
-            var score = padPriority(p);
-            if (score > bestScore) {
-              best = p;
-              bestScore = score;
-            }
-          }
-          return best;
-        }
-        navigator.getGamepads = function () {
-          var pads = sourcePads();
-          // Returning an Array is fine; EmulatorJS iterates by index + length.
-          var p = selectPreferredPad(pads);
-          if (!p) return [];
-          return [SNES_RE.test(p.id || "") ? wrapSnesPad(p) : p];
-        };
 
         // Custom on-screen controller: a dynamic analog on the left half that
         // appears wherever the player touches (driving the TG16 D-pad), plus the

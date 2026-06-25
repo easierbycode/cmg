@@ -217,14 +217,17 @@ export default define.page(function Game2028() {
           }
           `}
         </style>
+        <script src="/gamepad-compatibility-plugin.js"></script>
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
         <script dangerouslySetInnerHTML={{ __html: AUDIO_UNLOCK }} />
         <script dangerouslySetInnerHTML={{ __html: FIT_PORTRAIT }} />
       </Head>
 
-      {/* Read by the level-loader plugin's custom-BGM path. Kept relative
+      {
+        /* Read by the level-loader plugin's custom-BGM path. Kept relative
           ("./") because the Phaser loader already has setBaseURL("/games/2028-ai/"),
-          so an absolute value here would double the prefix. */}
+          so an absolute value here would double the prefix. */
+      }
       <div id="baseUrl" hidden>./</div>
       <div id="phaser-canvas"></div>
 

@@ -30,6 +30,7 @@ export default define.page(function HeadphonesRecommended() {
   return (
     <>
       <Head>
+        <script src="/gamepad-compatibility-plugin.js"></script>
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
         <title>Headphones Recommended — Phaser 4.1.0 demo</title>
         <style>

@@ -32,6 +32,7 @@ export default define.page(function Akuma() {
   return (
     <>
       <Head>
+        <script src="/gamepad-compatibility-plugin.js"></script>
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
         <title>Akuma — Three.js character demo</title>
         <style>
