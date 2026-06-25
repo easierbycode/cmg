@@ -38,6 +38,7 @@ export default define.page(function Home() {
         <meta key="theme-color" name="theme-color" content="#000000" />
       </Head>
       <div id="app-root"></div>
+      <script src="/gamepad-compatibility-plugin.js"></script>
       <script type="module" src="/dashboard.bundle.js"></script>
       <script type="module" src="/gamepad-support.js"></script>
       <script type="module" src="/controller-configurator.js"></script>

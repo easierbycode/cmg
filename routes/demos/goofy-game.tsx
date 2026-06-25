@@ -32,9 +32,11 @@ export default define.page(function GoofyGame() {
   return (
     <>
       <Head>
+        <script src="/gamepad-compatibility-plugin.js"></script>
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
         <title>Goofy Game — multiplayer demo</title>
-        <style>{`
+        <style>
+          {`
           html, body {
             margin: 0;
             padding: 0;
@@ -100,7 +102,8 @@ export default define.page(function GoofyGame() {
           }
           #scoreboard .score-name { min-width: 56px; }
           #scoreboard .score-coins { margin-left: auto; color: #ffd95a; }
-        `}</style>
+        `}
+        </style>
       </Head>
       <div id="phaser-example"></div>
       <div id="role-badge" class="connecting">connecting…</div>
