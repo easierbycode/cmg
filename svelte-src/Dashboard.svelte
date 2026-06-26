@@ -79,6 +79,10 @@
   let clockStr = $state('--:--:--');
   let gameSrc = $state(null);
   let gameOn = $state(false);
+  // Opposite-corner easter egg: the "normal secret touch" (bottom-left +
+  // top-right) opens the OSD; touching the OPPOSITE corners (top-left +
+  // bottom-right) boots the soft-mod cinematic overlay instead.
+  let softmodOn = $state(false);
   let bootGone = $state(false);
   let menuEls = $state([]);
   let gameRowEls = $state([]);
@@ -412,6 +416,25 @@
     if (cornerState.bl && cornerState.tr) { cornerState.bl = false; cornerState.tr = false; openOsd(); }
   }
   function cornerUp(c) { cornerState[c] = false; }
+
+  // Mirror gesture on the OTHER diagonal (top-left + bottom-right) launches the
+  // soft-mod cinematic. Kept separate from cornerState so the two diagonals
+  // never interfere.
+  const softCornerState = { tl: false, br: false };
+  function softCornerDown(c) {
+    softCornerState[c] = true;
+    if (softCornerState.tl && softCornerState.br) {
+      softCornerState.tl = false; softCornerState.br = false; openSoftmod();
+    }
+  }
+  function softCornerUp(c) { softCornerState[c] = false; }
+  function openSoftmod() {
+    if (softmodOn) return;
+    if (osdOpen) closeOsd();
+    sfx.boot();
+    softmodOn = true;
+  }
+  function closeSoftmod() { softmodOn = false; }
 
   $effect(() => {
     if (screen !== 'games') return;
@@ -1756,6 +1779,15 @@
     } catch (_) { /* cross-origin frame — can't inject; it must postMessage instead */ }
   }
 
+  // The soft-mod cinematic overlay (same-origin /demos/softmod) posts this when
+  // its simulated reboot finishes — close the overlay (the "rebooted" console).
+  function onSoftmodMessage(e) {
+    if (!softmodOn) return;
+    const frame = document.getElementById('softmodframe');
+    if (!frame || e.source !== frame.contentWindow) return;
+    if (e?.data?.type === 'softmod-done') closeSoftmod();
+  }
+
   function onWindowMessage(e) {
     // Identify our own mounted game frame by window reference. That comparison
     // holds even for a cross-origin game (window identities compare across
@@ -1858,6 +1890,7 @@
 
     window.addEventListener('keydown', onKey);
     window.addEventListener('message', onWindowMessage);
+    window.addEventListener('message', onSoftmodMessage);
     window.addEventListener('gamepadconnected', onPadConnect);
     window.addEventListener('gamepaddisconnected', onPadDisconnect);
     refreshPadConnected();
@@ -1944,6 +1977,7 @@
     document.removeEventListener('click', unlockAudio);
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('message', onWindowMessage);
+    window.removeEventListener('message', onSoftmodMessage);
     window.removeEventListener('gamepadconnected', onPadConnect);
     window.removeEventListener('gamepaddisconnected', onPadDisconnect);
     document.body.classList.remove('playing');
@@ -2587,6 +2621,28 @@
   <div class="osd-corner tr" aria-hidden="true"
        onpointerdown={() => cornerDown('tr')} onpointerup={() => cornerUp('tr')}
        onpointercancel={() => cornerUp('tr')} onpointerleave={() => cornerUp('tr')}></div>
+{/if}
+
+<!-- Opposite-corner easter egg: top-left + bottom-right two-finger tap boots
+     the soft-mod cinematic. Layered in-game (the same context as the OSD
+     gesture, just the other diagonal); never shown while it's already playing
+     or the OSD is open, and only in-game so it can't block the launcher UI. -->
+{#if gameOn && !softmodOn && !osdOpen}
+  <div class="osd-corner tl" aria-hidden="true"
+       onpointerdown={() => softCornerDown('tl')} onpointerup={() => softCornerUp('tl')}
+       onpointercancel={() => softCornerUp('tl')} onpointerleave={() => softCornerUp('tl')}></div>
+  <div class="osd-corner br" aria-hidden="true"
+       onpointerdown={() => softCornerDown('br')} onpointerup={() => softCornerUp('br')}
+       onpointercancel={() => softCornerUp('br')} onpointerleave={() => softCornerUp('br')}></div>
+{/if}
+
+<!-- Soft-mod cinematic overlay (self-contained Phaser 4.1.0 scene). Posts
+     { type: 'softmod-done' } back here when its simulated reboot finishes. -->
+{#if softmodOn}
+  <div class="softmod-overlay">
+    <iframe id="softmodframe" title="Soft Mod" src="/demos/softmod"
+            allow="autoplay" frameborder="0"></iframe>
+  </div>
 {/if}
 
 <Osd open={osdOpen} items={osdItems} sel={osdSel}
