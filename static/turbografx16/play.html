@@ -215,34 +215,86 @@
           } catch (_) {}
         }
 
-        // Attach a parent-notify listener to the "Exit Emulation" menu button.
-        // EmulatorJS doesn't expose an exit() method, so we hook the DOM button.
-        function hookExitButton() {
-          var buttons = document.querySelectorAll(".ejs_menu_button");
-          for (var i = 0; i < buttons.length; i++) {
-            var b = buttons[i];
-            var text = (b.textContent || "").trim();
-            if (text === "Exit Emulation" && !b.dataset.tg16Hooked) {
-              b.dataset.tg16Hooked = "1";
-              b.addEventListener("click", function () {
-                postParent("tg16-exit");
-              });
-              return true;
-            }
-          }
-          return false;
-        }
-        window.EJS_ready = function () {
-          if (hookExitButton()) return;
-          // Button may render slightly after EJS_ready — observe until it appears.
-          var mo = new MutationObserver(function () {
-            if (hookExitButton()) mo.disconnect();
+        // ── Save-state persistence ─────────────────────────────────────
+        // When the player exits we snapshot the running emulator and stash it
+        // in IndexedDB keyed by ROM; on the next launch we hand EmulatorJS that
+        // snapshot via EJS_loadStateURL (see boot() below) so they resume right
+        // where they left off. IndexedDB (not localStorage) because PCE states
+        // are binary and can exceed the localStorage string budget.
+        var STATE_DB = "tg16-save-states";
+        var STATE_STORE = "states";
+        function openStateDB() {
+          return new Promise(function (resolve, reject) {
+            var req = indexedDB.open(STATE_DB, 1);
+            req.onupgradeneeded = function () {
+              req.result.createObjectStore(STATE_STORE);
+            };
+            req.onsuccess = function () { resolve(req.result); };
+            req.onerror = function () { reject(req.error); };
           });
-          mo.observe(document.body, { childList: true, subtree: true });
-          setTimeout(function () {
-            mo.disconnect();
-          }, 15000);
-        };
+        }
+        function loadSavedState(key) {
+          return openStateDB().then(function (db) {
+            return new Promise(function (resolve, reject) {
+              var rq = db.transaction(STATE_STORE, "readonly")
+                .objectStore(STATE_STORE).get(key);
+              rq.onsuccess = function () { resolve(rq.result || null); };
+              rq.onerror = function () { reject(rq.error); };
+            });
+          });
+        }
+        function storeSavedState(key, bytes) {
+          return openStateDB().then(function (db) {
+            return new Promise(function (resolve, reject) {
+              var tx = db.transaction(STATE_STORE, "readwrite");
+              tx.objectStore(STATE_STORE).put(bytes, key);
+              tx.oncomplete = function () { resolve(); };
+              tx.onerror = function () { reject(tx.error); };
+            });
+          });
+        }
+        // Snapshot the live emulator. getState() returns a view into the WASM
+        // heap, so copy it out before the async write. Safe to call on any exit
+        // path — guards on a running game with a non-empty state. Returns (and
+        // tracks in pendingSave) the in-flight IndexedDB write so the exit path
+        // can wait for it to settle before the iframe is torn down; if there's
+        // nothing fresh to snapshot, returns the previous write still pending.
+        var pendingSave = Promise.resolve();
+        function saveStateNow() {
+          try {
+            var e = window.EJS_emulator;
+            if (!e || !e.gameManager || !e.gameManager.getState) return pendingSave;
+            var state = e.gameManager.getState();
+            if (!state || !state.length) return pendingSave;
+            pendingSave = storeSavedState(rom, new Uint8Array(state))
+              .catch(function () {});
+            return pendingSave;
+          } catch (_) {
+            return pendingSave;
+          }
+        }
+
+        // Snapshot before EmulatorJS reacts to its own "Exit Emulation" button.
+        // A capture-phase listener on the document fires ahead of the button's
+        // own click handler, so the emulator is guaranteed still alive here.
+        // We also notify the parent so it can tear down the iframe (the parent
+        // owns the close — EmulatorJS exposes no exit() method).
+        document.addEventListener("click", function (e) {
+          var btn = e.target && e.target.closest &&
+            e.target.closest(".ejs_menu_button");
+          if (btn && (btn.textContent || "").trim() === "Exit Emulation") {
+            saveStateNow();
+            postParent("tg16-exit");
+          }
+        }, true);
+
+        // The parent closes the game on its own paths too (B button, OSD exit),
+        // tearing down the iframe ~500ms later — long enough for this sync
+        // snapshot. pagehide is the belt-and-suspenders for tab close / unload.
+        window.addEventListener("pagehide", saveStateNow);
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "hidden") saveStateNow();
+        });
 
         // Parent controls EJS chrome visibility (gamepad combo / touch).
         window.addEventListener("message", function (e) {
@@ -251,6 +303,13 @@
             document.body.classList.add("show-controls");
           } else if (d.type === "tg16-hide-controls") {
             document.body.classList.remove("show-controls");
+          } else if (d.type === "tg16-save-state") {
+            // Parent is about to tear down the iframe — snapshot, then ack once
+            // the IndexedDB write settles so it doesn't unmount us mid-write.
+            saveStateNow();
+            pendingSave.then(function () {
+              postParent("tg16-save-state-done");
+            });
           }
         });
 
@@ -489,9 +548,38 @@
         }
         setupTouchController();
 
-        var s = document.createElement("script");
-        s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
-        document.body.appendChild(s);
+        // Boot EmulatorJS. If we stashed a save state on the last exit, resume
+        // from it: EmulatorJS loads EJS_loadStateURL on the "start" event, so the
+        // URL must be set before loader.js runs. We read it from IndexedDB first
+        // (with a short fallback so a slow/blocked DB never wedges the boot).
+        function appendLoader() {
+          var s = document.createElement("script");
+          s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
+          document.body.appendChild(s);
+        }
+        function boot() {
+          var started = false;
+          function go() {
+            if (started) return;
+            started = true;
+            appendLoader();
+          }
+          var fallback = setTimeout(go, 1500);
+          loadSavedState(rom).then(function (saved) {
+            if (saved && saved.byteLength) {
+              try {
+                var blob = new Blob([saved], {
+                  type: "application/octet-stream",
+                });
+                window.EJS_loadStateURL = URL.createObjectURL(blob);
+              } catch (_) {}
+            }
+          }).catch(function () {}).then(function () {
+            clearTimeout(fallback);
+            go();
+          });
+        }
+        boot();
       })();
     </script>
   </body>

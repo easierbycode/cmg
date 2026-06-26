@@ -1338,6 +1338,12 @@
   }
 
   function closeGame() {
+    // TG16 persists a save state on exit. Ask the iframe to snapshot, then hold
+    // the unmount until it acks (tg16-save-state-done) so removing the iframe
+    // can't abort a slow IndexedDB write — capped so a missing ack never wedges
+    // the unmount, and floored at 500ms so the fade-out still plays. Other
+    // consoles ignore the message and just use the fade delay.
+    const wasTg16 = typeof gameSrc === 'string' && gameSrc.startsWith('/turbografx16/');
     gameOn = false;
     controlsShown = false;
     chromeDismissed = false;
@@ -1346,7 +1352,24 @@
     // is only reachable when no game is on), so this alone prevents stale carry-over.
     osdCheats = [];
     osdPlugins = [];
-    setTimeout(() => { gameSrc = null; }, 500);
+    let unmounted = false;
+    const unmount = () => { if (!unmounted) { unmounted = true; gameSrc = null; } };
+    if (wasTg16) {
+      let acked = false, faded = false;
+      const onAck = (e) => {
+        if ((e.data || {}).type !== 'tg16-save-state-done') return;
+        window.removeEventListener('message', onAck);
+        acked = true;
+        if (faded) unmount();
+      };
+      window.addEventListener('message', onAck);
+      postToGameframe('tg16-save-state');
+      setTimeout(() => { faded = true; if (acked) unmount(); }, 500);
+      // Hard cap: unmount even if the ack never arrives (e.g. write failed).
+      setTimeout(() => { window.removeEventListener('message', onAck); unmount(); }, 3000);
+    } else {
+      setTimeout(unmount, 500);
+    }
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
     try { delete window.__saturnByodFile; } catch (_) {}
