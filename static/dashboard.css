@@ -413,3 +413,32 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   .disc { width: 14vmin; height: 14vmin; }
   .meta { flex: 1; }
 }
+.osd-corner.tl { left: 0; top: 0; }
+.osd-corner.br { right: 0; bottom: 0; }
+
+.softmod-cinematic {
+  position: fixed; inset: 0; z-index: 130; overflow: hidden; display: grid; place-items: center;
+  color: #dfffe8; background: radial-gradient(circle at 50% 44%, rgba(0, 80, 160, .28), #02060d 48%, #000 100%);
+  font-family: 'Share Tech Mono', monospace; perspective: 900px; animation: softmod-camera 2.8s ease-in-out infinite alternate;
+}
+.softmod-lights { position: absolute; inset: -20%; background:
+  radial-gradient(circle at 30% 28%, rgba(47, 174, 255, .45), transparent 16%),
+  radial-gradient(circle at 72% 62%, rgba(89, 255, 141, .28), transparent 18%),
+  conic-gradient(from 80deg, transparent, rgba(50, 150, 255, .16), transparent 38%);
+  filter: blur(18px); animation: softmod-lights 5s linear infinite; }
+.softmod-orb { width: min(34vmin, 320px); height: min(34vmin, 320px); border-radius: 50%; position: relative;
+  background: radial-gradient(circle, #e9fdff 0 8%, #46c7ff 20%, #0a58ff 42%, rgba(0, 40, 150, .2) 68%, transparent 72%);
+  box-shadow: 0 0 50px #25b9ff, 0 0 140px rgba(0, 120, 255, .85); animation: flutter-orb 1.7s ease-in-out infinite; }
+.softmod-orb span { position: absolute; inset: -18%; border-radius: 50%; border: 2px solid rgba(120, 220, 255, .45); animation: orb-ring 1.1s linear infinite; }
+.softmod-caption { position: absolute; bottom: 13vh; letter-spacing: .18em; text-transform: uppercase; color: #93dfff; text-shadow: 0 0 18px #159bff; }
+.softmod-monkey { font-size: min(28vmin, 240px); filter: drop-shadow(0 0 34px rgba(120, 255, 90, .7)); animation: monkey-pop 1.3s ease both; }
+.softmod-logo { position: absolute; bottom: 18vh; font-family: Orbitron, sans-serif; font-weight: 900; font-size: clamp(24px, 5vmin, 72px); color: #7cff4f; letter-spacing: .25em; text-shadow: 0 0 28px rgba(124,255,79,.65); }
+.softmod-panel, .softmod-terminal { position: relative; width: min(78vw, 720px); padding: 28px; border: 1px solid #126dc5; background: linear-gradient(180deg, rgba(0, 35, 82, .93), rgba(0, 5, 18, .95)); box-shadow: 0 0 70px rgba(0, 120, 255, .35); transform: rotateX(5deg); }
+.softmod-bar { margin: -28px -28px 22px; padding: 12px 22px; background: linear-gradient(180deg, #074c98, #042b5d); font-family: Orbitron, sans-serif; letter-spacing: .18em; }
+.softmod-item { padding: 7px 12px; font-size: clamp(16px, 2.2vmin, 24px); }.softmod-item.active { background: linear-gradient(90deg, #248e22, #42d432); color: white; text-shadow: 0 0 8px #000; }
+.softmod-panel p { color: #d7e7ff; font-size: clamp(16px, 2vmin, 22px); }.softmod-terminal { color: #92ff98; min-height: 260px; font-size: clamp(15px, 2vmin, 22px); line-height: 1.6; }.softmod-terminal span { color: #4fb8ff; }.cursor { animation: blink .6s steps(1) infinite; }
+.tsop-track { height: 30px; border: 1px solid #9fc8ff; background: #020812; padding: 4px; box-shadow: inset 0 0 18px #000; }.tsop-fill { height: 100%; background: repeating-linear-gradient(90deg, #58e537 0 18px, #2c9c22 18px 22px); box-shadow: 0 0 20px #58e537; transition: width .08s linear; }.tsop-pct { margin-top: 14px; text-align: right; color: #7cff4f; font-size: 28px; }
+.xbox-reboot { position: relative; text-align: center; color: #7cff4f; font-family: Orbitron, sans-serif; font-size: clamp(44px, 9vmin, 120px); letter-spacing: .12em; text-shadow: 0 0 28px rgba(124,255,79,.7); }.xbox-reboot p { font-family: 'Share Tech Mono'; font-size: clamp(15px, 2.4vmin, 28px); color: white; letter-spacing: .06em; }.xmark { font-size: 1.25em; line-height: .8; }
+@keyframes softmod-camera { from { transform: scale(1) rotateZ(-.25deg); } to { transform: scale(1.025) rotateZ(.25deg); } }
+@keyframes softmod-lights { to { transform: rotate(360deg); } } @keyframes flutter-orb { 0%,100% { transform: translate3d(-2vw, 0, 80px) scale(.96); } 50% { transform: translate3d(2vw, -2vh, 140px) scale(1.06); } }
+@keyframes orb-ring { to { transform: scale(1.35); opacity: 0; } } @keyframes monkey-pop { from { opacity: 0; transform: scale(.4) rotateY(80deg); } to { opacity: 1; transform: scale(1) rotateY(0); } } @keyframes blink { 50% { opacity: 0; } }

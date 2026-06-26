@@ -126,6 +126,12 @@
   // First touch in-game dismisses transient chrome (kept for the tg16 message
   // path). The upper-right close button is gone — Exit Game in the OSD replaces it.
   let chromeDismissed = $state(false);
+  let softmodOn = $state(false);
+  let softmodStage = $state('orb');
+  let softmodProgress = $state(0);
+  let softmodLines = $state([]);
+  let softmodTimers = [];
+  let softmodProgressTimer = null;
 
   // ─── In-game OSD ("Guide") ───────────────────────────────────────────────
   // Opened by SELECT + Down (gamepad) or a two-finger bottom-left + top-right
@@ -404,14 +410,70 @@
     else if (it.key === 'cheats-back') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); }
   }
 
-  // Two-finger corner gesture (bottom-left + top-right at once) opens the OSD on
-  // touch, where the SELECT + Down chord isn't available.
-  const cornerState = { bl: false, tr: false };
+  // Two-finger corner gestures. The normal secret touch (bottom-left + top-right)
+  // opens the Guide. The opposite corners (top-left + bottom-right) launch the
+  // softmod cinematic overlay without disturbing the running game iframe.
+  const cornerState = { bl: false, tr: false, tl: false, br: false };
+  function clearCornerState() {
+    cornerState.bl = false; cornerState.tr = false; cornerState.tl = false; cornerState.br = false;
+  }
   function cornerDown(c) {
     cornerState[c] = true;
-    if (cornerState.bl && cornerState.tr) { cornerState.bl = false; cornerState.tr = false; openOsd(); }
+    if (cornerState.bl && cornerState.tr) { clearCornerState(); openOsd(); }
+    else if (cornerState.tl && cornerState.br) { clearCornerState(); startSoftmodCinematic(); }
   }
   function cornerUp(c) { cornerState[c] = false; }
+
+  function softmodAfter(ms, fn) {
+    const id = setTimeout(fn, ms);
+    softmodTimers.push(id);
+    return id;
+  }
+  function stopSoftmodCinematic() {
+    softmodTimers.forEach((id) => clearTimeout(id));
+    softmodTimers = [];
+    if (softmodProgressTimer) clearInterval(softmodProgressTimer);
+    softmodProgressTimer = null;
+    softmodOn = false;
+    softmodProgress = 0;
+    softmodLines = [];
+  }
+  function startSoftmodCinematic() {
+    if (softmodOn) return;
+    osdOpen = false;
+    softmodOn = true;
+    softmodStage = 'orb';
+    softmodProgress = 0;
+    softmodLines = [];
+    sfx.enter();
+    softmodAfter(2400, () => { softmodStage = 'monkey'; });
+    softmodAfter(4300, () => { softmodStage = 'save'; });
+    softmodAfter(6500, () => {
+      softmodStage = 'terminal';
+      const lines = [
+        'Tux Penguin Script v1.0',
+        'mounting MechAssault save partition...',
+        'selected game save: SLOT 2',
+        'probing Winbond TSOP: W49F020T detected',
+        'unlocking flash sectors...',
+        'writing softmod payload...',
+      ];
+      lines.forEach((line, i) => softmodAfter(i * 520, () => { softmodLines = [...softmodLines, line]; }));
+    });
+    softmodAfter(9900, () => {
+      softmodStage = 'flash';
+      softmodProgress = 0;
+      softmodProgressTimer = setInterval(() => {
+        softmodProgress = Math.min(100, softmodProgress + 2);
+        if (softmodProgress >= 100) {
+          clearInterval(softmodProgressTimer);
+          softmodProgressTimer = null;
+          softmodAfter(700, () => { softmodStage = 'reboot'; });
+          softmodAfter(3600, () => { stopSoftmodCinematic(); closeGame(); bootGone = false; });
+        }
+      }, 90);
+    });
+  }
 
   $effect(() => {
     if (screen !== 'games') return;
@@ -1318,6 +1380,7 @@
     gameOn = false;
     controlsShown = false;
     chromeDismissed = false;
+    if (softmodOn) stopSoftmodCinematic();
     // Drop the prior game's advertised cheats; the next game re-broadcasts its
     // own on boot. closeGame is the single chokepoint between games (the list
     // is only reachable when no game is on), so this alone prevents stale carry-over.
@@ -2580,13 +2643,56 @@
      hit-zones layered above the game iframe, rendered only while a game is up
      and the OSD is closed. (Gamepad opens it with SELECT + Down; keyboard with
      ` or Esc.) -->
-{#if gameOn && !osdOpen}
+{#if gameOn && !osdOpen && !softmodOn}
   <div class="osd-corner bl" aria-hidden="true"
        onpointerdown={() => cornerDown('bl')} onpointerup={() => cornerUp('bl')}
        onpointercancel={() => cornerUp('bl')} onpointerleave={() => cornerUp('bl')}></div>
   <div class="osd-corner tr" aria-hidden="true"
        onpointerdown={() => cornerDown('tr')} onpointerup={() => cornerUp('tr')}
        onpointercancel={() => cornerUp('tr')} onpointerleave={() => cornerUp('tr')}></div>
+  <div class="osd-corner tl" aria-hidden="true"
+       onpointerdown={() => cornerDown('tl')} onpointerup={() => cornerUp('tl')}
+       onpointercancel={() => cornerUp('tl')} onpointerleave={() => cornerUp('tl')}></div>
+  <div class="osd-corner br" aria-hidden="true"
+       onpointerdown={() => cornerDown('br')} onpointerup={() => cornerUp('br')}
+       onpointercancel={() => cornerUp('br')} onpointerleave={() => cornerUp('br')}></div>
+{/if}
+
+{#if softmodOn}
+  <div class="softmod-cinematic stage-{softmodStage}" aria-live="polite">
+    <div class="softmod-lights"></div>
+    {#if softmodStage === 'orb'}
+      <div class="softmod-orb"><span></span></div>
+      <div class="softmod-caption">blue flutter orb initializing hidden Phaser 4.1.0 scene</div>
+    {:else if softmodStage === 'monkey'}
+      <div class="softmod-monkey">🐵</div>
+      <div class="softmod-logo">CODE MONKEY</div>
+    {:else if softmodStage === 'save'}
+      <div class="softmod-panel">
+        <div class="softmod-bar">TSOP FLASH</div>
+        <div class="softmod-item active">SELECT GAME SAVE</div>
+        <div class="softmod-item">BACKUP TSOP</div>
+        <div class="softmod-item">ERASE TSOP</div>
+        <div class="softmod-item">WRITE TSOP</div>
+        <div class="softmod-item">VERIFY TSOP</div>
+        <p>Choose SELECT GAME SAVE to store the softmod save.</p>
+      </div>
+    {:else if softmodStage === 'terminal'}
+      <div class="softmod-terminal">
+        {#each softmodLines as line}<div><span>&gt;</span> {line}</div>{/each}
+        <div class="cursor">_</div>
+      </div>
+    {:else if softmodStage === 'flash'}
+      <div class="softmod-panel flash">
+        <div class="softmod-bar">WINBOND TSOP FLASH</div>
+        <p>Programming onboard flash. Do not power off.</p>
+        <div class="tsop-track"><div class="tsop-fill" style="width:{softmodProgress}%"></div></div>
+        <div class="tsop-pct">{softmodProgress}%</div>
+      </div>
+    {:else}
+      <div class="xbox-reboot"><div class="xmark">✕</div><div>XBOX</div><p>Restarting console… softmod installed.</p></div>
+    {/if}
+  </div>
 {/if}
 
 <Osd open={osdOpen} items={osdItems} sel={osdSel}
