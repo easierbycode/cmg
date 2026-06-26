@@ -255,15 +255,23 @@
         }
         // Snapshot the live emulator. getState() returns a view into the WASM
         // heap, so copy it out before the async write. Safe to call on any exit
-        // path — guards on a running game with a non-empty state.
+        // path — guards on a running game with a non-empty state. Returns (and
+        // tracks in pendingSave) the in-flight IndexedDB write so the exit path
+        // can wait for it to settle before the iframe is torn down; if there's
+        // nothing fresh to snapshot, returns the previous write still pending.
+        var pendingSave = Promise.resolve();
         function saveStateNow() {
           try {
             var e = window.EJS_emulator;
-            if (!e || !e.gameManager || !e.gameManager.getState) return;
+            if (!e || !e.gameManager || !e.gameManager.getState) return pendingSave;
             var state = e.gameManager.getState();
-            if (!state || !state.length) return;
-            storeSavedState(rom, new Uint8Array(state)).catch(function () {});
-          } catch (_) {}
+            if (!state || !state.length) return pendingSave;
+            pendingSave = storeSavedState(rom, new Uint8Array(state))
+              .catch(function () {});
+            return pendingSave;
+          } catch (_) {
+            return pendingSave;
+          }
         }
 
         // Snapshot before EmulatorJS reacts to its own "Exit Emulation" button.
@@ -296,8 +304,12 @@
           } else if (d.type === "tg16-hide-controls") {
             document.body.classList.remove("show-controls");
           } else if (d.type === "tg16-save-state") {
-            // Parent is about to tear down the iframe — snapshot first.
+            // Parent is about to tear down the iframe — snapshot, then ack once
+            // the IndexedDB write settles so it doesn't unmount us mid-write.
             saveStateNow();
+            pendingSave.then(function () {
+              postParent("tg16-save-state-done");
+            });
           }
         });
 
