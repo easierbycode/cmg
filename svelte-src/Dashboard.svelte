@@ -1338,6 +1338,11 @@
   }
 
   function closeGame() {
+    // Ask the game iframe to snapshot its state before we unmount it. The TG16
+    // page persists this to IndexedDB and resumes from it on the next launch;
+    // other consoles ignore the message. The iframe stays mounted until the
+    // 500ms timeout below, leaving ample time for the synchronous snapshot.
+    postToGameframe('tg16-save-state');
     gameOn = false;
     controlsShown = false;
     chromeDismissed = false;
