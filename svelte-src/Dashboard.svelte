@@ -1344,14 +1344,6 @@
     // the unmount, and floored at 500ms so the fade-out still plays. Other
     // consoles ignore the message and just use the fade delay.
     const wasTg16 = typeof gameSrc === 'string' && gameSrc.startsWith('/turbografx16/');
-    gameOn = false;
-    controlsShown = false;
-    chromeDismissed = false;
-    // Drop the prior game's advertised cheats; the next game re-broadcasts its
-    // own on boot. closeGame is the single chokepoint between games (the list
-    // is only reachable when no game is on), so this alone prevents stale carry-over.
-    osdCheats = [];
-    osdPlugins = [];
     let unmounted = false;
     const unmount = () => { if (!unmounted) { unmounted = true; gameSrc = null; } };
     if (wasTg16) {
@@ -1363,6 +1355,8 @@
         if (faded) unmount();
       };
       window.addEventListener('message', onAck);
+      // Send while the iframe is still mounted with id="gameframe" — setting
+      // gameOn=false below reactively drops that id, so post first.
       postToGameframe('tg16-save-state');
       setTimeout(() => { faded = true; if (acked) unmount(); }, 500);
       // Hard cap: unmount even if the ack never arrives (e.g. write failed).
@@ -1370,6 +1364,14 @@
     } else {
       setTimeout(unmount, 500);
     }
+    gameOn = false;
+    controlsShown = false;
+    chromeDismissed = false;
+    // Drop the prior game's advertised cheats; the next game re-broadcasts its
+    // own on boot. closeGame is the single chokepoint between games (the list
+    // is only reachable when no game is on), so this alone prevents stale carry-over.
+    osdCheats = [];
+    osdPlugins = [];
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
     try { delete window.__saturnByodFile; } catch (_) {}

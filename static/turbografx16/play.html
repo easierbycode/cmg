@@ -265,9 +265,17 @@
             var e = window.EJS_emulator;
             if (!e || !e.gameManager || !e.gameManager.getState) return pendingSave;
             var state = e.gameManager.getState();
-            if (!state || !state.length) return pendingSave;
-            pendingSave = storeSavedState(rom, new Uint8Array(state))
-              .catch(function () {});
+            if (!state) return pendingSave;
+            // getState() may hand back a Uint8Array (a view into the WASM heap)
+            // or a raw ArrayBuffer — copy either into a standalone buffer so the
+            // async IndexedDB write isn't reading freed/moving heap memory.
+            var bytes = (state instanceof Uint8Array)
+              ? new Uint8Array(state)
+              : (state instanceof ArrayBuffer)
+                ? new Uint8Array(state.slice(0))
+                : null;
+            if (!bytes || !bytes.length) return pendingSave;
+            pendingSave = storeSavedState(rom, bytes).catch(function () {});
             return pendingSave;
           } catch (_) {
             return pendingSave;
@@ -549,9 +557,35 @@
         setupTouchController();
 
         // Boot EmulatorJS. If we stashed a save state on the last exit, resume
-        // from it: EmulatorJS loads EJS_loadStateURL on the "start" event, so the
-        // URL must be set before loader.js runs. We read it from IndexedDB first
-        // (with a short fallback so a slow/blocked DB never wedges the boot).
+        // from it. We read it from IndexedDB first (with a short fallback so a
+        // slow/blocked DB never wedges the boot), then apply it ourselves once
+        // the core is running — see resumeSavedState below.
+        var savedState = null;
+
+        // Resume the saved state by calling gameManager.loadState() directly once
+        // the core is running — the exact call EmulatorJS makes internally. We do
+        // NOT use EJS_loadStateURL: that routes through EmulatorJS's downloader,
+        // which mishandles a blob: URL, registers its load handler only after an
+        // async fetch (racing "start"), and aborts the whole launch on a failed
+        // fetch. Polling EJS_emulator.started avoids every event-timing
+        // assumption; the small delay after it flips mirrors downloadStartState.
+        function resumeSavedState() {
+          if (!savedState) return;
+          var attempts = 0;
+          var poll = setInterval(function () {
+            attempts++;
+            var e = window.EJS_emulator;
+            if (e && e.started && e.gameManager) {
+              clearInterval(poll);
+              setTimeout(function () {
+                try { e.gameManager.loadState(savedState); } catch (_) {}
+              }, 100);
+            } else if (attempts > 600) {
+              clearInterval(poll); // ~60s safety stop
+            }
+          }, 100);
+        }
+
         function appendLoader() {
           var s = document.createElement("script");
           s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
@@ -564,15 +598,16 @@
             started = true;
             appendLoader();
           }
+          // resumeSavedState only injects once the core has started (seconds
+          // later), so even if this fallback appends the loader before the read
+          // resolves, savedState is populated well before it's used.
           var fallback = setTimeout(go, 1500);
           loadSavedState(rom).then(function (saved) {
             if (saved && saved.byteLength) {
-              try {
-                var blob = new Blob([saved], {
-                  type: "application/octet-stream",
-                });
-                window.EJS_loadStateURL = URL.createObjectURL(blob);
-              } catch (_) {}
+              savedState = (saved instanceof Uint8Array)
+                ? saved
+                : new Uint8Array(saved);
+              resumeSavedState();
             }
           }).catch(function () {}).then(function () {
             clearTimeout(fallback);
