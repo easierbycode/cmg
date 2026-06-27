@@ -404,6 +404,17 @@ class GamepadManager {
     const b = controller.buttons || [];
     const ax = controller.axes || [];
     const pressed = (i) => !!(b[i] && b[i].pressed);
+
+    // SNES-style pads (e.g. the Switch-Online SNES pad, 057e:2017) report the
+    // D-pad ONLY via the encoded hat axis and repurpose the standard D-pad
+    // button slots 12-15 for other controls — notably ZR shows up as button 15,
+    // which the standard layout calls "D-pad right". Reading buttons 12-15 below
+    // would misfire (ZR → a ghost d-pad-right, both on the diagram and as input),
+    // so for these pads trust the hat exclusively whenever the hat axis exists.
+    if (this.isSnesController(controller) && ax.length > 9) {
+      return this.decodeHat(ax[9]);
+    }
+
     const dpadMap = (mapping && mapping.dpad) || {};
     const mapped = (name, fallback) => {
       const m = dpadMap[name];
