@@ -86,9 +86,18 @@
       body.show-controls #vc-a {
         pointer-events: none;
       }
-      #vc-analog { left: 0; width: 50%; }
-      #vc-b { left: 50%; width: 25%; }
-      #vc-a { left: 75%; width: 25%; }
+      #vc-analog {
+        left: 0;
+        width: 50%;
+      }
+      #vc-b {
+        left: 50%;
+        width: 25%;
+      }
+      #vc-a {
+        left: 75%;
+        width: 25%;
+      }
       /* Face-button cue — the whole column is the hit-box; this is just a
          visual hint that doesn't intercept touches itself. */
       .vc-face {
@@ -120,23 +129,30 @@
         pointer-events: none;
         display: none;
         z-index: 61;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: contain;
+        opacity: 0.94;
       }
       #vc-base {
         width: 132px;
         height: 132px;
         margin-left: -66px;
         margin-top: -66px;
-        border: 2px solid rgba(124, 255, 79, 0.4);
-        background: rgba(124, 255, 79, 0.06);
+        background-image: url("/ui/gfx/virtual-gamepad-circle.png");
+        filter: hue-rotate(-90deg) saturate(0.65) brightness(1.68) drop-shadow(
+          0 0 10px rgba(124, 255, 79, 0.32)
+        );
       }
       #vc-knob {
         width: 60px;
         height: 60px;
         margin-left: -30px;
         margin-top: -30px;
-        border: 2px solid #7cff4f;
-        background: rgba(124, 255, 79, 0.3);
-        box-shadow: 0 0 14px rgba(124, 255, 79, 0.4);
+        background-image: url("/ui/gfx/virtual-gamepad-dot.png");
+        filter: hue-rotate(-90deg) saturate(0.65) brightness(1.68) drop-shadow(
+          0 0 12px rgba(124, 255, 79, 0.42)
+        );
       }
       /* SELECT / START — small pills at top-center, the only way to reach these
          on touch-only devices once the stock gamepad is disabled. */
@@ -166,8 +182,14 @@
         background: rgba(124, 255, 79, 0.35);
         border-color: #7cff4f;
       }
-      #vc-select { left: 50%; margin-left: -94px; }
-      #vc-start { left: 50%; margin-left: 6px; }
+      #vc-select {
+        left: 50%;
+        margin-left: -94px;
+      }
+      #vc-start {
+        left: 50%;
+        margin-left: 6px;
+      }
     </style>
     <script src="/gamepad-compatibility-plugin.js"></script>
   </head>
@@ -314,8 +336,14 @@
 
           // RetroPad indices: B=0, A=8, SELECT=2, START=3, plus the D-pad 4-7.
           var IDX = {
-            up: 4, down: 5, left: 6, right: 7,
-            B: 0, A: 8, select: 2, start: 3,
+            up: 4,
+            down: 5,
+            left: 6,
+            right: 7,
+            B: 0,
+            A: 8,
+            select: 2,
+            start: 3,
           };
 
           function simulate(index, value) {
@@ -325,6 +353,83 @@
                 e.gameManager.simulateInput(0, index, value);
               }
             } catch (_) {}
+          }
+
+          var lastHapticAt = 0;
+          var lastDirectionalHapticAt = 0;
+          var lastDirectionalHapticKind = "";
+          var HAPTIC_ABSOLUTE_GAP = 12;
+          var HAPTIC_REPEAT_GAP = 42;
+          function pulseGamepadHaptics(strong, weak, duration) {
+            var pads = [];
+            try {
+              pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+            } catch (_) {}
+            for (var i = 0; i < pads.length; i++) {
+              var pad = pads[i];
+              if (!pad) continue;
+              var actuator = pad.vibrationActuator ||
+                (pad.hapticActuators && pad.hapticActuators[0]);
+              if (!actuator) continue;
+              try {
+                if (actuator.playEffect) {
+                  var effect = actuator.playEffect("dual-rumble", {
+                    startDelay: 0,
+                    duration: duration,
+                    strongMagnitude: strong,
+                    weakMagnitude: weak,
+                  });
+                  if (effect && effect.catch) effect.catch(function () {});
+                } else if (actuator.pulse) {
+                  var pulse = actuator.pulse(Math.max(strong, weak), duration);
+                  if (pulse && pulse.catch) pulse.catch(function () {});
+                }
+              } catch (_) {}
+            }
+          }
+          function haptic(kind) {
+            var now = (window.performance && performance.now)
+              ? performance.now()
+              : Date.now();
+            if (now - lastHapticAt < HAPTIC_ABSOLUTE_GAP) return;
+            if (
+              kind !== "create" &&
+              kind === lastDirectionalHapticKind &&
+              now - lastDirectionalHapticAt < HAPTIC_REPEAT_GAP
+            ) {
+              return;
+            }
+            lastHapticAt = now;
+            if (kind !== "create") {
+              lastDirectionalHapticAt = now;
+              lastDirectionalHapticKind = kind;
+            }
+
+            var pattern = 6;
+            var strong = 0.035;
+            var weak = 0.035;
+            var duration = 18;
+            if (kind === "create") {
+              pattern = [6, 16, 5];
+              strong = 0.04;
+              weak = 0.04;
+              duration = 32;
+            } else if (kind === "left") {
+              pattern = 7;
+              strong = 0.055;
+              weak = 0.012;
+              duration = 20;
+            } else if (kind === "right") {
+              pattern = [3, 9, 5];
+              strong = 0.012;
+              weak = 0.055;
+              duration = 22;
+            }
+
+            try {
+              if (navigator.vibrate) navigator.vibrate(pattern);
+            } catch (_) {}
+            pulseGamepadHaptics(strong, weak, duration);
           }
 
           // ── Face / system buttons (B, A, SELECT, START) ──────────────
@@ -381,6 +486,7 @@
             if (dirs[name] === on) return;
             dirs[name] = on;
             simulate(IDX[name], on ? 1 : 0);
+            if (on && (name === "left" || name === "right")) haptic(name);
           }
           function clearDirs() {
             setDir("up", false);
@@ -432,6 +538,7 @@
             ox = t.clientX;
             oy = t.clientY;
             showStick(ox, oy);
+            haptic("create");
             updateStick(t.clientX, t.clientY);
             e.preventDefault();
           }, { passive: false });
@@ -464,7 +571,9 @@
           function killDefaultVGamepad() {
             try {
               var e = window.EJS_emulator;
-              if (e && e.virtualGamepad) e.virtualGamepad.style.display = "none";
+              if (e && e.virtualGamepad) {
+                e.virtualGamepad.style.display = "none";
+              }
             } catch (_) {}
             var nodes = document.querySelectorAll(
               '[class*="vgamepad"], [class*="virtualGamepad"]',
