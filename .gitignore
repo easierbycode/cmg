@@ -29,7 +29,8 @@ static/PlayStation/*
 # explicitly if your deployment target needs them.
 static/bios/
 
-# Generated during AppImage builds so the arcade core and local MAME config
-# files are embedded without committing bulky/runtime-local artifacts.
+# Generated during Mac/AppImage builds (deno task arcade:bundle) so the arcade
+# core and local MAME config files are embedded into the self-contained binary
+# without committing bulky/runtime-local artifacts.
 static/arcade/emularity/engine/
 static/arcade/cfg/
