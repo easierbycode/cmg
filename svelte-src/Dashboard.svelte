@@ -171,6 +171,14 @@
   // CRT shader). The dashboard holds the last-known value; the game is only the
   // source of truth at boot, after which the OSD is the sole place it changes.
   let osdPlugins = $state([]);
+  // Actions are momentary OSD buttons a game advertises by postMessage'ing
+  // { type: 'cmg-actions', actions: [{ id, label }] } on boot (handled in
+  // onWindowMessage). Activating one posts { type: 'cmg-action', id } back into
+  // the running frame, which the game turns into an in-game action — e.g.
+  // shmup-party advertises "Controls" and opens its own remapping UI. Like
+  // cheats/plugins this is opt-in per game, so the rows only exist while a game
+  // has broadcast a set.
+  let osdActions = $state([]);
   // Harden the game-supplied payload before it drives the menu: whitelist kind,
   // clamp counts/lengths, coerce slider bounds. Each item keeps a stable `key`
   // for the keyed {#each}. Returns [] on anything malformed.
@@ -251,6 +259,30 @@
     try { iframe?.contentWindow?.postMessage({ type: 'cmg-plugin-set', id, value: !!value }, '*'); }
     catch (_) { /* ignore */ }
   }
+  // Harden a game-advertised action set (mirrors sanitizePlugins). Each action is
+  // a momentary button keyed on a stable id; malformed entries are dropped.
+  function sanitizeActions(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const a of raw.slice(0, 8)) {
+      if (!a || typeof a.id !== 'string' || !a.id) continue;
+      const id = a.id.slice(0, 32);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const label = (typeof a.label === 'string' && a.label) ? a.label.slice(0, 40) : id;
+      out.push({ key: 'action-' + id, id, label });
+    }
+    return out;
+  }
+  // Tell the running game an OSD action button was activated. '*' targetOrigin
+  // for the same reason as setPlugin: action-capable games can load cross-origin
+  // from the manifest/DEPLOY_ORIGIN. The payload is a benign id, so '*' is safe.
+  function sendGameAction(id) {
+    const iframe = document.getElementById('gameframe');
+    try { iframe?.contentWindow?.postMessage({ type: 'cmg-action', id }, '*'); }
+    catch (_) { /* ignore */ }
+  }
   const HUE_SWATCHES = [
     { hex: '#7CFF4F', hue: 130 }, // green (default)
     { hex: '#4FB8FF', hue: 235 }, // blue
@@ -301,6 +333,9 @@
       { key: 'exit', kind: 'button', label: 'Exit Game' },
       { key: 'controller', kind: 'button', label: 'Controller Settings' },
     ];
+    // Game-advertised OSD action buttons (opt-in per game over cmg-actions).
+    // Activating one posts { type:'cmg-action', id } back into the frame.
+    for (const a of osdActions) game.push({ key: a.key, kind: 'button', label: a.label, action: a.id });
     // EmulatorJS control bar toggle is only meaningful for EmulatorJS cores.
     if (hasEmulatorControls) {
       game.push({ key: 'emucontrols', kind: 'toggle', label: 'Emulator Controls', value: controlsShown });
@@ -402,6 +437,15 @@
     if (it.kind === 'section') { toggleSection(it.section); return; }
     if (it.kind === 'toggle') { setOsdValue(i, !it.value); sfx.nav(); return; }
     if (it.kind === 'color' || it.kind === 'slider') { adjustOsd(i, 1); return; }
+    // Game-advertised action button: relay it into the frame and hand focus back
+    // so the game's own UI (e.g. shmup's Controls remapper) receives input.
+    if (it.action) {
+      sfx.enter();
+      osdOpen = false; osdView = 'main';
+      sendGameAction(it.action);
+      if (gameOn && !isTg16Game) { try { document.getElementById('gameframe')?.focus(); } catch (_) {} }
+      return;
+    }
     if (it.key === 'exit') { sfx.enter(); osdOpen = false; closeGame(); }
     else if (it.key === 'controller') { sfx.enter(); osdOpen = false; try { window.openControllerConfigurator?.(); } catch (_) {} }
     else if (it.key === 'cheats') { sfx.enter(); osdView = 'cheats'; osdSel = firstSelectable(osdItems); }
@@ -1372,6 +1416,7 @@
     // is only reachable when no game is on), so this alone prevents stale carry-over.
     osdCheats = [];
     osdPlugins = [];
+    osdActions = [];
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
     try { delete window.__saturnByodFile; } catch (_) {}
@@ -1855,6 +1900,14 @@
       osdPlugins = sanitizePlugins(d.plugins).map((p) =>
         prev.has(p.id) ? { ...p, value: prev.get(p.id) } : p
       );
+      return;
+    }
+    if (d.type === 'cmg-actions') {
+      // The running game advertises momentary OSD buttons (e.g. "Controls"),
+      // which the Guide renders inline in the Game section. Benign — worst case
+      // it shows a button whose cmg-action reply the game ignores — so accept it
+      // from our own frame at any origin (like cmg-plugins). Payload is sanitized.
+      osdActions = sanitizeActions(d.actions);
       return;
     }
     // Sensitive actions — closing the game and BYOD disc-file transfer — stay
