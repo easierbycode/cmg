@@ -63,9 +63,10 @@
   // features, not OTA games — the manifest carries only real games — so we take
   // them from the seed and re-append them after each manifest load.
   const SUBMENUS = SEED_GAMES.filter((g) => g.submenu);
-  // Reactive game list: starts as the baked seed, then replaced at runtime by
-  // the fetched manifest (see loadManifest). Every read of GAMES below reacts.
-  let GAMES = $state(SEED_GAMES);
+  // Reactive base game list (the real OTA games, no submenus): starts as the
+  // baked seed, then replaced at runtime by the fetched manifest (see
+  // loadManifest). The rendered GAMES list is derived from this — see below.
+  let manifestGames = $state(SEED_GAMES.filter((g) => !g.submenu));
   // Origin the active manifest came from; in-repo game `url`s resolve against it
   // ('' = same-origin / relative — the seed and same-origin fallback case).
   let manifestOrigin = $state('');
@@ -121,6 +122,25 @@
   // id → { downloading, pct, cached, error } — drives the e-shop GET/INSTALLED
   // badges and the per-row download progress bar.
   let cmgnetStatus = $state({});
+  // Installed CMG Network games "graduate" into the main Games list. A title is
+  // installed once its files are cached (cmgnetStatus[id].cached). We tag the
+  // graduated entries with __cmgnet so launchGame routes them through
+  // launchCmgnet (run offline from cache) instead of the easierbycode.com/<id>
+  // path, and so the Games screen can offer an Uninstall action.
+  let installedCmgnet = $derived(
+    cmgnetGames
+      // cached → graduated; skip any id already present as an OTA game so GAMES
+      // never carries two rows with the same id (the keyed {#each} would throw).
+      .filter((g) => cmgnetStatus[g.id]?.cached && !manifestGames.some((m) => m.id === g.id))
+      .map((g) => ({ ...g, __cmgnet: true }))
+  );
+  // The rendered Games list: OTA games, then graduated network installs, then
+  // the fixed console/e-shop submenus (kept last). Reassigning manifestGames or
+  // installing/uninstalling a network game re-derives this.
+  let GAMES = $derived([...manifestGames, ...installedCmgnet, ...SUBMENUS]);
+  // CMG Network hides anything already installed (it now lives in Games);
+  // uninstalling drops it back into this list.
+  let cmgnetVisible = $derived(cmgnetGames.filter((g) => !cmgnetStatus[g.id]?.cached));
   let isTouch = $state(false);
   let controlsShown = $state(false);
   let padHadConnection = $state(false);
@@ -528,6 +548,16 @@
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 
+  // Keep selections in range as the Games list grows (a download graduates a
+  // title) and the CMG Network list shrinks (it hides installs). Without this a
+  // completed background download could leave cmgnetSel pointing past the end.
+  $effect(() => {
+    if (gameSel > GAMES.length - 1) gameSel = Math.max(GAMES.length - 1, 0);
+  });
+  $effect(() => {
+    if (cmgnetSel > cmgnetVisible.length - 1) cmgnetSel = Math.max(cmgnetVisible.length - 1, 0);
+  });
+
   // Auto-focus the BYOD button when entering the empty PSX screen so gamepad
   // A can click it. Note: browsers require a *user* gesture to open the native
   // file picker — gamepad input doesn't count. Focusing means a real keyboard
@@ -552,7 +582,7 @@
   let currentNes = $derived(nesGames[nesSel]);
   let onNesByocRow = $derived(nesSel >= nesGames.length);
   let currentDemo = $derived(DEMOS[demosSel]);
-  let currentCmgnet = $derived(cmgnetGames[cmgnetSel]);
+  let currentCmgnet = $derived(cmgnetVisible[cmgnetSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
   let counterText = $derived(
     String(gameSel + 1).padStart(2, '0') + ' / ' + String(GAMES.length).padStart(2, '0')
@@ -586,9 +616,9 @@
     String(demosSel + 1).padStart(2, '0') + ' / ' + String(DEMOS.length).padStart(2, '0')
   );
   let cmgnetCounterText = $derived(
-    cmgnetGames.length === 0
+    cmgnetVisible.length === 0
       ? '00 / 00'
-      : String(cmgnetSel + 1).padStart(2, '0') + ' / ' + String(cmgnetGames.length).padStart(2, '0')
+      : String(cmgnetSel + 1).padStart(2, '0') + ' / ' + String(cmgnetVisible.length).padStart(2, '0')
   );
 
   // WebAudio blips
@@ -703,6 +733,10 @@
       screen = 'cmgnet';
       return;
     }
+    // A graduated CMG Network install lives in this list too — run it from cache
+    // via launchCmgnet (which handles its own sfx / stream / cache logic).
+    const netItem = GAMES.find((g) => g.id === id && g.__cmgnet);
+    if (netItem) { launchCmgnet(netItem); return; }
     sfx.enter();
     chromeDismissed = false;
     // In-repo games carry an explicit `url` (Fresh route); everything else is
@@ -870,6 +904,11 @@
         i++;
         cmgnetStatus[id] = { downloading: true, pct: 80 + Math.round((i / names.length) * 20), cached: false, error: '' };
       }
+      // This title is about to leave the (cached-filtered) CMG Network list. If
+      // it sat above the cursor, decrement so the cursor stays on the same game
+      // instead of having a different row slide silently under it.
+      const removingIdx = cmgnetVisible.findIndex((g) => g.id === id);
+      if (removingIdx !== -1 && removingIdx < cmgnetSel) cmgnetSel = Math.max(cmgnetSel - 1, 0);
       cmgnetStatus[id] = { downloading: false, pct: 100, cached: true, error: '', updateAvailable: false };
       // Record the commit this build came from, so a later check can tell when a
       // newer one is available on GitHub. Only meaningful for source-tracked games.
@@ -905,6 +944,52 @@
       // the row), then play it from cache.
       cmgnetDownload(game).then(() => { if (cmgnetStatus[game.id]?.cached) playCmgnet(game); });
     }
+  }
+
+  // Throttle uninstalls: the currentGame-based entry points (gamepad X, keyboard
+  // Delete — which auto-repeats when held — and the footer chip) act on whatever
+  // row is selected, and an uninstall re-derives the Games list under the cursor.
+  // A short cooldown stops a held key or double-tap from cascading onto the row
+  // that slides into place.
+  let lastUninstallTs = 0;
+
+  // Uninstall a graduated network game: drop every cached file under
+  // /cmg-net/<id>/, then reconcile its status with what's actually left in the
+  // cache, so it leaves the Games list and reappears in CMG Network.
+  async function cmgnetUninstall(game) {
+    if (!game) return;
+    const now = Date.now();
+    if (now - lastUninstallTs < 400) return;
+    lastUninstallTs = now;
+    const id = game.id;
+    const prefix = '/cmg-net/' + id + '/';
+    try {
+      const cache = await caches.open(CMG_CACHE);
+      const keys = await cache.keys();
+      await Promise.all(
+        keys
+          .filter((req) => {
+            // req.url is the stored Request's absolute (percent-encoded) URL;
+            // decode the pathname so the match holds even if id/filenames carried
+            // characters the URL parser would have escaped.
+            try { return decodeURIComponent(new URL(req.url).pathname).startsWith(prefix); }
+            catch (_e) { return false; }
+          })
+          .map((req) => cache.delete(req))
+      );
+    } catch (_e) {
+      // Best-effort purge; the cache re-check below decides the listing.
+    }
+    // Reflect the cache's real state instead of assuming success: only de-list
+    // if the game's entry is actually gone. A failed/partial purge keeps it
+    // shown as installed, so it can't vanish now and reappear on next launch
+    // (where loadCmgnetList would re-detect the leftover cache).
+    const stillCached = await cmgnetIsCached(game);
+    const next = { ...cmgnetStatus };
+    if (stillCached) next[id] = { downloading: false, pct: 100, cached: true, error: 'uninstall failed' };
+    else delete next[id];
+    cmgnetStatus = next;
+    sfx.back();
   }
 
   async function loadCmgnetList() {
@@ -1049,7 +1134,10 @@
       }
     }
     manifestOrigin = res.base;
-    GAMES = [...res.games, ...SUBMENUS];
+    // Write the backing $state; GAMES is a $derived that appends installedCmgnet
+    // and SUBMENUS. (Assigning GAMES directly would only set a transient derived
+    // override that the next cmgnetStatus change discards — reverting to seed.)
+    manifestGames = res.games;
     if (res.demos.length) DEMOS = res.demos;
     if (gameSel >= GAMES.length) gameSel = 0;
     if (demosSel >= DEMOS.length) demosSel = 0;
@@ -1638,7 +1726,7 @@
     else if (screen === 'saturn') saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0));
     else if (screen === 'nes') nesSel = Math.min(nesSel + 1, nesGames.length);
     else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
-    else if (screen === 'cmgnet') cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetGames.length - 1, 0));
+    else if (screen === 'cmgnet') cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetVisible.length - 1, 0));
     sfx.nav();
   }
   function navTop() {
@@ -1662,7 +1750,7 @@
     else if (screen === 'saturn') saturnSel = Math.max(saturnGames.length - 1, 0);
     else if (screen === 'nes') nesSel = nesGames.length;
     else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
-    else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetGames.length - 1, 0);
+    else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetVisible.length - 1, 0);
     sfx.nav();
   }
   function actA() {
@@ -1684,7 +1772,7 @@
       else launchNes(nesGames[nesSel]?.file);
     }
     else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
-    else if (screen === 'cmgnet') launchCmgnet(cmgnetGames[cmgnetSel]);
+    else if (screen === 'cmgnet') launchCmgnet(cmgnetVisible[cmgnetSel]);
   }
   function actB() {
     if (gameOn) closeGame();
@@ -1692,10 +1780,12 @@
   }
   // CMG Network only: pull the latest build from GitHub for the selected game,
   // when one is installed and an update was detected.
+  // Update a graduated network game in the Games list when a newer build is
+  // available (installed games now live there, not in CMG Network).
   function actUpdate() {
-    if (gameOn || screen !== 'cmgnet') return;
-    const g = cmgnetGames[cmgnetSel];
-    if (g && cmgnetStatus[g.id]?.updateAvailable) cmgnetUpdate(g);
+    if (gameOn || screen !== 'games') return;
+    const g = currentGame;
+    if (g && g.__cmgnet && cmgnetStatus[g.id]?.updateAvailable) cmgnetUpdate(g);
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -1846,7 +1936,9 @@
     const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
     if (justPressed(0) || justPressed(9)) actA();   // A or Start
     if (justPressed(1) || justPressed(8)) actB();   // B or Back/Select
-    if (justPressed(2)) actUpdate();                // X — Update (CMG Network)
+    // X — uninstall a graduated network game from the Games list.
+    if (justPressed(2) && screen === 'games' && currentGame?.__cmgnet) cmgnetUninstall(currentGame);
+    if (justPressed(3)) actUpdate();                // Y — update a graduated game (when one is available)
     // Shoulder/trigger navigation — fallback when D-pad isn't recognized
     // (e.g. Firefox + non-standard SNES adapters).
     if (justPressed(5)) navDown();                  // R shoulder
@@ -1890,6 +1982,8 @@
       if (e.key === 'ArrowDown') { gameSel = Math.min(gameSel + 1, GAMES.length - 1); sfx.nav(); }
       else if (e.key === 'ArrowUp') { gameSel = Math.max(gameSel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchGame(GAMES[gameSel].id);
+      else if (e.key === 'Delete' && currentGame?.__cmgnet) cmgnetUninstall(currentGame);
+      else if ((e.key === 'u' || e.key === 'U') && currentGame?.__cmgnet) actUpdate();
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'arcade') {
       if (e.key === 'ArrowDown') { arcadeSel = Math.min(arcadeSel + 1, Math.max(arcadeGames.length - 1, 0)); sfx.nav(); }
@@ -1931,10 +2025,9 @@
       else if (e.key === 'Enter' || e.key === ' ') launchDemo(DEMOS[demosSel]?.url);
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'cmgnet') {
-      if (e.key === 'ArrowDown') { cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetGames.length - 1, 0)); sfx.nav(); }
+      if (e.key === 'ArrowDown') { cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetVisible.length - 1, 0)); sfx.nav(); }
       else if (e.key === 'ArrowUp') { cmgnetSel = Math.max(cmgnetSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') launchCmgnet(cmgnetGames[cmgnetSel]);
-      else if (e.key === 'u' || e.key === 'U') actUpdate();
+      else if (e.key === 'Enter' || e.key === ' ') launchCmgnet(cmgnetVisible[cmgnetSel]);
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     }
   }
@@ -2275,10 +2368,10 @@
       <div class="disc-col">
         <div class="disc"></div>
         <div class="meta">
-          <div><span class="k">name</span><b>{currentGame.name}</b></div>
-          <div><span class="k">size</span><b>{currentGame.size}</b></div>
-          <div><span class="k">type</span><b>{currentGame.submenu ? 'SUBMENU' : 'GAME / IFRAME'}</b></div>
-          <div><span class="k">date</span><b>{currentGame.date}</b></div>
+          <div><span class="k">name</span><b>{currentGame?.name ?? '—'}</b></div>
+          <div><span class="k">size</span><b>{currentGame?.size ?? '—'}</b></div>
+          <div><span class="k">type</span><b>{currentGame?.submenu ? 'SUBMENU' : currentGame?.__cmgnet ? 'NET / INSTALLED' : 'GAME / IFRAME'}</b></div>
+          <div><span class="k">date</span><b>{currentGame?.date ?? '—'}</b></div>
         </div>
       </div>
 
@@ -2306,8 +2399,22 @@
               </div>
               <div class="game-bar">
                 <span class="name">{g.title}{g.submenu ? ' ›' : ''}</span>
-                <span class="sub">{g.sub}</span>
+                {#if g.__cmgnet && cmgnetStatus[g.id]?.updateAvailable}
+                  <span class="net-badge upd" role="button" tabindex="0"
+                        onclick={(e) => { e.stopPropagation(); cmgnetUpdate(g); }}>↻ UPDATE</span>
+                {:else}
+                  <span class="sub">{g.sub}</span>
+                {/if}
               </div>
+              {#if g.__cmgnet}
+                <button
+                  class="uninstall-btn"
+                  type="button"
+                  title="Uninstall {g.name}"
+                  aria-label="Uninstall {g.name}"
+                  onclick={(e) => { e.stopPropagation(); cmgnetUninstall(g); }}
+                >✕</button>
+              {/if}
             </div>
           {/each}
         </div>
@@ -2728,13 +2835,17 @@
           <div class="counter">{cmgnetCounterText}</div>
         </div>
         <div class="games-list">
-          {#if cmgnetGames.length === 0}
+          {#if cmgnetVisible.length === 0}
             <div class="game-row">
               <div class="game-icon"><div class="glass"><span class="ph">··</span></div></div>
-              <div class="game-bar"><span class="name">CATALOG OFFLINE</span><span class="sub">no codemonkey.json reachable</span></div>
+              {#if cmgnetGames.length === 0}
+                <div class="game-bar"><span class="name">CATALOG OFFLINE</span><span class="sub">no codemonkey.json reachable</span></div>
+              {:else}
+                <div class="game-bar"><span class="name">ALL INSTALLED</span><span class="sub">every title is in your Games list</span></div>
+              {/if}
             </div>
           {:else}
-            {#each cmgnetGames as g, i (g.id)}
+            {#each cmgnetVisible as g, i (g.id)}
               <div
                 bind:this={cmgnetRowEls[i]}
                 class="game-row {i === cmgnetSel ? 'sel' : ''}"
@@ -2754,11 +2865,6 @@
                   <span class="name">{g.title}</span>
                   {#if cmgnetStatus[g.id]?.downloading}
                     <span class="net-badge dl">⬇ {cmgnetStatus[g.id].pct}%</span>
-                  {:else if cmgnetStatus[g.id]?.updateAvailable}
-                    <span class="net-badge upd" role="button" tabindex="0"
-                          onclick={(e) => { e.stopPropagation(); cmgnetUpdate(g); }}>↻ UPDATE</span>
-                  {:else if cmgnetStatus[g.id]?.cached}
-                    <span class="net-badge ok">● INSTALLED</span>
                   {:else if cmgnetStatus[g.id]?.error}
                     <span class="net-badge err">! RETRY</span>
                   {:else}
@@ -2782,15 +2888,21 @@
       <span>Back</span>
     </div>
   {/if}
-  {#if screen === 'cmgnet' && cmgnetStatus[currentCmgnet?.id]?.updateAvailable}
-    <div class="footer upd tap" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)}>
-      <div class="btn-hint x">X</div>
-      <span>Update</span>
+  {#if screen === 'games' && currentGame?.__cmgnet}
+    <div class="footer mid acts">
+      {#if cmgnetStatus[currentGame.id]?.updateAvailable}
+        <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)}>
+          <span class="btn-hint y">Y</span><span>Update</span>
+        </span>
+      {/if}
+      <span class="act" role="button" tabindex="0" onpointerup={tapHandler(() => cmgnetUninstall(currentGame))}>
+        <span class="btn-hint x">X</span><span>Uninstall</span>
+      </span>
     </div>
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (cmgnetStatus[currentCmgnet?.id]?.cached ? 'Play' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? 'Get' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
 </div>
 

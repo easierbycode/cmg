@@ -196,7 +196,15 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   border: 1.5px solid rgba(180, 255, 120, .7);
 }
 .btn-hint.b { background: radial-gradient(circle at 35% 30%, #fff0c0 0%, #ffe066 25%, #caa800 60%, #3a2c00 95%); color: #241a00; border-color: rgba(255, 230, 120, .75); box-shadow: 0 0 18px rgba(255, 220, 90, .6), inset -2px -4px 10px rgba(0, 0, 0, .5); }
-.btn-hint.x { background: radial-gradient(circle at 35% 30%, #cfeaff 0%, #6fb8ff 25%, #2a6fca 60%, #06243a 95%); color: #04203a; border-color: rgba(120, 180, 255, .75); box-shadow: 0 0 18px rgba(90, 160, 255, .6), inset -2px -4px 10px rgba(0, 0, 0, .5); }
+.btn-hint.x { background: radial-gradient(circle at 35% 30%, #ffd9d9 0%, #ff8a8a 30%, #c0392b 65%, #3a0c08 95%); color: #2a0606; border-color: rgba(255, 150, 150, .75); box-shadow: 0 0 18px rgba(255, 90, 90, .55), inset -2px -4px 10px rgba(0, 0, 0, .5); }
+.btn-hint.y { background: radial-gradient(circle at 35% 30%, #cffff0 0%, #5effc8 25%, #1f9e7a 60%, #04332a 95%); color: #04241c; border-color: rgba(120, 255, 210, .75); box-shadow: 0 0 18px rgba(94, 255, 200, .55), inset -2px -4px 10px rgba(0, 0, 0, .5); }
+.footer.mid { left: 50%; right: auto; transform: translateX(-50%); }
+.footer.mid.tap:active { transform: translateX(-50%) scale(.96); }
+/* Multi-action footer (graduated CMG Network game: Uninstall + optional Update). */
+.footer.acts { gap: 2.4vmin; }
+.footer .act { display: flex; align-items: center; gap: 1vmin; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+.footer .act:active { transform: scale(.96); }
+.footer .act:active .btn-hint { filter: brightness(1.2); }
 
 /* === Games popover === */
 .games-screen {
@@ -301,6 +309,23 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .game-row:hover:not(.sel) .game-bar {
   background: linear-gradient(180deg, rgba(120, 230, 140, .16), rgba(40, 110, 55, .7) 50%, rgba(40, 110, 55, .7) 50%, rgba(120, 230, 140, .16));
 }
+
+/* Uninstall (✕) control on graduated CMG Network installs in the Games list.
+   Flex sibling after .game-bar so the bar shrinks to make room (no overlap). */
+.uninstall-btn {
+  flex-shrink: 0; width: 4.4vmin; height: 4.4vmin; min-width: 38px; min-height: 38px;
+  border-radius: 50%; cursor: pointer;
+  border: 1.5px solid rgba(255, 150, 150, .7);
+  background: radial-gradient(circle at 35% 30%, #ffd9d9 0%, #ff8a8a 35%, #b3322b 80%);
+  color: #2a0606; font-weight: 800; font-size: clamp(14px, 1.9vmin, 19px); line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 12px rgba(255, 90, 90, .45), inset -1px -2px 6px rgba(0, 0, 0, .4);
+  transition: transform .15s ease, filter .2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.uninstall-btn:hover { filter: brightness(1.1); }
+.uninstall-btn:active { transform: scale(.9); }
+.game-row.sel .uninstall-btn { box-shadow: 0 0 16px rgba(255, 110, 110, .7), inset -1px -2px 6px rgba(0, 0, 0, .4); }
 
 /* clock/info top right */
 .strip-top {
