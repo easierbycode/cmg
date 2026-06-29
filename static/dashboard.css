@@ -181,6 +181,9 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
    .stage) so the footers remain hidden while a game is playing. */
 .footer { position: absolute; right: 5vmin; bottom: 4vmin; z-index: 6; display: flex; align-items: center; gap: 1vmin; font-family: 'Share Tech Mono'; letter-spacing: .2em; color: #dfffc4; text-transform: uppercase; font-size: clamp(12px, 1.5vmin, 16px); }
 .footer.left { left: 5vmin; right: auto; }
+/* Update hint sits left of the A action, centred, without a transform (so the
+   .footer.tap:active scale stays intact). */
+.footer.upd { left: 50%; right: auto; margin-left: -7vmin; color: #5effc8; }
 .footer.tap { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
 .footer.tap:active { transform: scale(.96); }
 .footer.tap:active .btn-hint { filter: brightness(1.2); }
@@ -193,6 +196,7 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   border: 1.5px solid rgba(180, 255, 120, .7);
 }
 .btn-hint.b { background: radial-gradient(circle at 35% 30%, #fff0c0 0%, #ffe066 25%, #caa800 60%, #3a2c00 95%); color: #241a00; border-color: rgba(255, 230, 120, .75); box-shadow: 0 0 18px rgba(255, 220, 90, .6), inset -2px -4px 10px rgba(0, 0, 0, .5); }
+.btn-hint.x { background: radial-gradient(circle at 35% 30%, #cfeaff 0%, #6fb8ff 25%, #2a6fca 60%, #06243a 95%); color: #04203a; border-color: rgba(120, 180, 255, .75); box-shadow: 0 0 18px rgba(90, 160, 255, .6), inset -2px -4px 10px rgba(0, 0, 0, .5); }
 
 /* === Games popover === */
 .games-screen {
@@ -398,6 +402,9 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .net-badge.dl  { color: #7fd8ff; }
 .net-badge.ok  { color: #ffe06a; }
 .net-badge.err { color: #ff9b9b; }
+.net-badge.upd { color: #5effc8; cursor: pointer; animation: net-upd-pulse 1.4s ease-in-out infinite; }
+.net-badge.upd:hover { background: rgba(94, 255, 200, .18); }
+@keyframes net-upd-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 .game-row.sel .net-badge { color: #1a1400; border-color: rgba(20, 20, 0, .45); background: rgba(255, 255, 255, .35); }
 .net-prog {
   position: absolute; left: 7.4vmin; right: 0; bottom: -1px; height: 3px;

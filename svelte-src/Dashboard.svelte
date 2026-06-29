@@ -828,11 +828,12 @@
     return jszipPromise;
   }
 
-  async function cmgnetDownload(game) {
+  async function cmgnetDownload(game, { force = false } = {}) {
     if (!game?.downloadUrl) return;
     const id = game.id;
-    if (cmgnetStatus[id]?.downloading || cmgnetStatus[id]?.cached) return;
-    cmgnetStatus[id] = { downloading: true, pct: 0, cached: false, error: '' };
+    // `force` (used by Update) re-downloads even when already cached.
+    if (!force && (cmgnetStatus[id]?.downloading || cmgnetStatus[id]?.cached)) return;
+    cmgnetStatus[id] = { downloading: true, pct: 0, cached: false, error: '', updateAvailable: false };
     try {
       const JSZip = await loadJsZip();
       const res = await fetch(game.downloadUrl, { mode: 'cors' });
@@ -869,26 +870,41 @@
         i++;
         cmgnetStatus[id] = { downloading: true, pct: 80 + Math.round((i / names.length) * 20), cached: false, error: '' };
       }
-      cmgnetStatus[id] = { downloading: false, pct: 100, cached: true, error: '' };
+      cmgnetStatus[id] = { downloading: false, pct: 100, cached: true, error: '', updateAvailable: false };
+      // Record the commit this build came from, so a later check can tell when a
+      // newer one is available on GitHub. Only meaningful for source-tracked games.
+      if (game.source === 'github') {
+        const sha = await cmgnetLatestSha(game);
+        if (sha) { await cmgnetWriteSha(id, sha); cmgnetStatus[id] = { ...cmgnetStatus[id], installedSha: sha }; }
+      }
     } catch (e) {
       cmgnetStatus[id] = { downloading: false, pct: 0, cached: false, error: String((e && e.message) || e) };
     }
   }
 
+  // Launch the selected e-shop game from its locally-cached copy.
+  function playCmgnet(game) {
+    gameSrc = '/cmg-net/' + game.id + '/' + cmgnetEntry(game);
+    setTimeout(() => { gameOn = true; }, 30);
+  }
   function launchCmgnet(game) {
     if (!game) return;
     sfx.enter();
     chromeDismissed = false;
     if (cmgnetStatus[game.id]?.cached) {
-      // Offline: served from Cache Storage by cmg-sw.js.
-      gameSrc = '/cmg-net/' + game.id + '/' + cmgnetEntry(game);
-    } else {
-      // First play: stream the hosted build now; cache the zip in the background
-      // so the next launch can run offline.
+      // Already downloaded — served from Cache Storage by cmg-sw.js.
+      playCmgnet(game);
+    } else if (game.streamUrl) {
+      // First play with a hosted build: stream it now and cache the zip in the
+      // background so the next launch runs offline.
       gameSrc = game.streamUrl;
+      setTimeout(() => { gameOn = true; }, 30);
       cmgnetDownload(game);
+    } else {
+      // No hosted stream — download the build locally first (progress shows on
+      // the row), then play it from cache.
+      cmgnetDownload(game).then(() => { if (cmgnetStatus[game.id]?.cached) playCmgnet(game); });
     }
-    setTimeout(() => { gameOn = true; }, 30);
   }
 
   async function loadCmgnetList() {
@@ -906,9 +922,98 @@
     catch (_e1) { try { games = await tryFetch(''); } catch (_e2) { return; } }
     cmgnetGames = games;
     if (cmgnetSel >= cmgnetGames.length) cmgnetSel = 0;
-    // Reflect already-downloaded games as INSTALLED in the e-shop.
+    // Reflect already-downloaded games as INSTALLED in the e-shop, restoring the
+    // commit each was installed at so update checks have a baseline.
     for (const g of games) {
-      if (await cmgnetIsCached(g)) cmgnetStatus[g.id] = { downloading: false, pct: 100, cached: true, error: '' };
+      if (await cmgnetIsCached(g)) {
+        const installedSha = await cmgnetReadSha(g.id);
+        cmgnetStatus[g.id] = { downloading: false, pct: 100, cached: true, error: '', installedSha };
+      }
+    }
+    // Then ask GitHub (in the background, non-blocking) whether a newer build
+    // exists for each installed source-controlled game. Offline / rate-limited
+    // checks just leave the game showing INSTALLED.
+    for (const g of games) {
+      if (cmgnetStatus[g.id]?.cached && g.source === 'github') cmgnetCheckUpdate(g);
+    }
+  }
+
+  // --- CMG Network: GitHub-backed updates ------------------------------------
+  // "Is there a newer build?" is answered by the game repo's latest commit on its
+  // branch. cmgnetDownload records the sha it installed (as a cached marker file);
+  // cmgnetCheckUpdate compares that to GitHub's current sha and flags
+  // updateAvailable; cmgnetUpdate wipes the cached files and re-downloads.
+  function cmgnetRepo(game) {
+    // Accept a full URL (https://github.com/owner/repo[.git]) or owner/repo.
+    const raw = (game?.repo || '').trim().replace(/\.git$/, '');
+    if (!raw) return null;
+    const m = raw.match(/(?:github\.com[/:])?([^/\s]+)\/([^/\s]+)\/?$/);
+    return m ? { owner: m[1], repo: m[2] } : null;
+  }
+  const cmgnetShaKey = (id) => '/cmg-net/' + id + '/.cmg-sha';
+  async function cmgnetReadSha(id) {
+    try {
+      const cache = await caches.open(CMG_CACHE);
+      const r = await cache.match(cmgnetShaKey(id));
+      return r ? (await r.text()).trim() : null;
+    } catch (_e) { return null; }
+  }
+  async function cmgnetWriteSha(id, sha) {
+    try {
+      const cache = await caches.open(CMG_CACHE);
+      await cache.put(cmgnetShaKey(id), new Response(sha || '', { headers: { 'Content-Type': 'text/plain' } }));
+    } catch (_e) { /* ignore */ }
+  }
+  // Latest commit sha for the game's branch. The vnd.github.sha media type makes
+  // the response body the bare sha string (cheap, no JSON parse). Returns null on
+  // any failure (offline, 404, rate limit) so callers can no-op gracefully.
+  async function cmgnetLatestSha(game) {
+    const r = cmgnetRepo(game);
+    if (!r) return null;
+    const branch = game.branch || 'main';
+    try {
+      const res = await fetch(
+        'https://api.github.com/repos/' + r.owner + '/' + r.repo + '/commits/' + encodeURIComponent(branch),
+        { headers: { 'Accept': 'application/vnd.github.sha' }, cache: 'no-store' },
+      );
+      if (!res.ok) return null;
+      const sha = (await res.text()).trim();
+      return /^[0-9a-f]{7,40}$/i.test(sha) ? sha : null;
+    } catch (_e) { return null; }
+  }
+  async function cmgnetCheckUpdate(game) {
+    if (!game || game.source !== 'github') return;
+    const id = game.id;
+    if (!cmgnetStatus[id]?.cached) return;        // only installed games can update
+    const installed = cmgnetStatus[id]?.installedSha ?? await cmgnetReadSha(id);
+    const latest = await cmgnetLatestSha(game);
+    if (!latest) return;                          // offline / rate-limited — leave as-is
+    // Only flag an update when we know what's installed AND it differs. A missing
+    // baseline (installed before sha tracking) stays INSTALLED to avoid false
+    // "update available" prompts.
+    cmgnetStatus[id] = { ...cmgnetStatus[id], latestSha: latest, updateAvailable: !!installed && installed !== latest };
+  }
+  async function cmgnetUpdate(game) {
+    if (!game) return;
+    const id = game.id;
+    if (cmgnetStatus[id]?.downloading) return;
+    sfx.enter();
+    // Wipe the game's cached files (including the sha marker) so the fresh build
+    // fully replaces the old one, then re-download.
+    try {
+      const cache = await caches.open(CMG_CACHE);
+      const keys = await cache.keys();
+      await Promise.all(
+        keys.filter((req) => new URL(req.url).pathname.startsWith('/cmg-net/' + id + '/'))
+            .map((req) => cache.delete(req)),
+      );
+    } catch (_e) { /* ignore */ }
+    cmgnetStatus[id] = { downloading: false, pct: 0, cached: false, error: '', updateAvailable: false };
+    await cmgnetDownload(game, { force: true });
+    // If this game is currently on screen, reload it from the refreshed cache.
+    if (cmgnetStatus[id]?.cached && typeof gameSrc === 'string' && gameSrc.startsWith('/cmg-net/' + id + '/')) {
+      const iframe = document.getElementById('gameframe');
+      try { if (iframe) iframe.src = '/cmg-net/' + id + '/' + cmgnetEntry(game); } catch (_e) { /* ignore */ }
     }
   }
 
@@ -1585,6 +1690,13 @@
     if (gameOn) closeGame();
     else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') goBack();
   }
+  // CMG Network only: pull the latest build from GitHub for the selected game,
+  // when one is installed and an update was detected.
+  function actUpdate() {
+    if (gameOn || screen !== 'cmgnet') return;
+    const g = cmgnetGames[cmgnetSel];
+    if (g && cmgnetStatus[g.id]?.updateAvailable) cmgnetUpdate(g);
+  }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
   // is active, body.playing is set and the launcher's gamepad-support.js takes
@@ -1734,6 +1846,7 @@
     const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
     if (justPressed(0) || justPressed(9)) actA();   // A or Start
     if (justPressed(1) || justPressed(8)) actB();   // B or Back/Select
+    if (justPressed(2)) actUpdate();                // X — Update (CMG Network)
     // Shoulder/trigger navigation — fallback when D-pad isn't recognized
     // (e.g. Firefox + non-standard SNES adapters).
     if (justPressed(5)) navDown();                  // R shoulder
@@ -1821,6 +1934,7 @@
       if (e.key === 'ArrowDown') { cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetGames.length - 1, 0)); sfx.nav(); }
       else if (e.key === 'ArrowUp') { cmgnetSel = Math.max(cmgnetSel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchCmgnet(cmgnetGames[cmgnetSel]);
+      else if (e.key === 'u' || e.key === 'U') actUpdate();
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     }
   }
@@ -2640,6 +2754,9 @@
                   <span class="name">{g.title}</span>
                   {#if cmgnetStatus[g.id]?.downloading}
                     <span class="net-badge dl">⬇ {cmgnetStatus[g.id].pct}%</span>
+                  {:else if cmgnetStatus[g.id]?.updateAvailable}
+                    <span class="net-badge upd" role="button" tabindex="0"
+                          onclick={(e) => { e.stopPropagation(); cmgnetUpdate(g); }}>↻ UPDATE</span>
                   {:else if cmgnetStatus[g.id]?.cached}
                     <span class="net-badge ok">● INSTALLED</span>
                   {:else if cmgnetStatus[g.id]?.error}
@@ -2663,6 +2780,12 @@
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
+    </div>
+  {/if}
+  {#if screen === 'cmgnet' && cmgnetStatus[currentCmgnet?.id]?.updateAvailable}
+    <div class="footer upd tap" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)}>
+      <div class="btn-hint x">X</div>
+      <span>Update</span>
     </div>
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
