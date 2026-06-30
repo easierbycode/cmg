@@ -37,7 +37,8 @@
       "sub": "Classic",
       "icon": "/icons/evil-invaders-icon.png",
       "size": "9.6 MB",
-      "date": "04.04.23"
+      "date": "04.04.23",
+      "url": "/games/evil-invaders/index.html?turbo=1&audio=1"
     },
     {
       "id": "monkey-kombat",
