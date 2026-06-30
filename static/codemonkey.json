@@ -29,6 +29,16 @@
       "downloadUrl": "https://raw.githubusercontent.com/easierbycode/shmup-party-phaser4/main/shmup-party-phaser4.zip",
       "size": "8 MB",
       "date": "06.29.26"
+    },
+    {
+      "id": "azlegend-golden",
+      "name": "AZLegendGolden",
+      "title": "AZLEGENDGOLDEN",
+      "sub": "♪ Music // sidebar",
+      "kind": "music",
+      "streamUrl": "https://azlegend.easierbycode.deno.net/",
+      "size": "— MB",
+      "date": "06.30.26"
     }
   ]
 }

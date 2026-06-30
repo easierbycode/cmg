@@ -80,6 +80,16 @@
   let clockStr = $state('--:--:--');
   let gameSrc = $state(null);
   let gameOn = $state(false);
+  // ─── Music app sidebar (a CMG Network entry with kind:'music') ─────────────
+  // Unlike a normal CMG Network game — which takes over the full screen via
+  // gameSrc/gameOn — a music app opens in a docked sidebar overlay that runs IN
+  // PARALLEL to whatever is already playing: the game underneath keeps running
+  // and receiving input while the music app plays alongside it. Held in its own
+  // state so opening/closing it never touches gameSrc/gameOn.
+  let musicSrc = $state(null);
+  let musicId = $state(null);
+  let musicTitle = $state('');
+  let musicOpen = $state(false);
   // Opposite-corner easter egg: the "normal secret touch" (bottom-left +
   // top-right) opens the OSD; touching the OPPOSITE corners (top-left +
   // bottom-right) boots the soft-mod cinematic overlay instead.
@@ -141,6 +151,12 @@
   // CMG Network hides anything already installed (it now lives in Games);
   // uninstalling drops it back into this list.
   let cmgnetVisible = $derived(cmgnetGames.filter((g) => !cmgnetStatus[g.id]?.cached));
+  // Music apps from the catalog (kind:'music'). They open in the sidebar overlay
+  // (openMusic) instead of the full-screen game frame, and are surfaced as
+  // toggles in the in-game Guide so they can be popped open on top of a running
+  // game. They never enter the GET/INSTALLED download flow (no caching), so they
+  // stay in cmgnetVisible and never graduate into the Games list.
+  let musicApps = $derived(cmgnetGames.filter((g) => g && g.kind === 'music'));
   let isTouch = $state(false);
   let controlsShown = $state(false);
   let padHadConnection = $state(false);
@@ -374,6 +390,13 @@
       { key: p.key, kind: 'toggle', label: p.label, value: p.value, plugin: p.id }
     )));
 
+    // Music apps (CMG Network kind:'music') render as toggles so a player can
+    // pop the music sidebar open/closed on top of the running game straight from
+    // the Guide. Section only exists while the catalog advertises a music app.
+    addSection('Music', musicApps.map((m) => (
+      { key: 'music-' + m.id, kind: 'toggle', label: m.title || m.name, value: musicOpen && musicId === m.id, music: m.id }
+    )));
+
     addSection('Look', [
       { key: 'hue', kind: 'color', label: 'Glow color', value: tweaks.hue, options: HUE_SWATCHES },
       { key: 'breathe', kind: 'slider', label: 'Breathe speed', value: tweaks.breatheSpeed, min: 0.4, max: 2.2, step: 0.1, unit: '×' },
@@ -431,6 +454,9 @@
     if (it.param) { setCheat(it.param, it.kind === 'toggle' ? (v ? '1' : null) : v); return; }
     // Plugin rows carry a `plugin` id — flip it live in the running game.
     if (it.plugin) { setPlugin(it.plugin, !!v); return; }
+    // Music rows carry a `music` id — open/close the sidebar overlay (the game
+    // underneath keeps running).
+    if (it.music) { if (v) openMusic(musicApps.find((m) => m.id === it.music)); else closeMusic(); return; }
     if (it.key === 'hue') setTweak('hue', v);
     else if (it.key === 'breathe') setTweak('breatheSpeed', Math.round(v * 10) / 10);
     else if (it.key === 'scanlines') setTweak('scanlines', !!v);
@@ -926,8 +952,39 @@
     gameSrc = '/cmg-net/' + game.id + '/' + cmgnetEntry(game);
     setTimeout(() => { gameOn = true; }, 30);
   }
+  // ─── Music app sidebar (CMG Network kind:'music') ──────────────────────────
+  function musicUrl(app) {
+    return app?.streamUrl || app?.url || (app?.id ? 'https://easierbycode.com/' + app.id : null);
+  }
+  // Open a music app in the docked sidebar. Deliberately does NOT touch
+  // gameSrc/gameOn, so a game already on screen keeps running and receiving
+  // input underneath while the music app plays in parallel.
+  function openMusic(app) {
+    const url = musicUrl(app);
+    if (!url) return;
+    sfx.enter();
+    musicId = app.id;
+    musicTitle = app.title || app.name || 'MUSIC';
+    musicSrc = url;
+    musicOpen = true;
+  }
+  function closeMusic() {
+    if (!musicOpen) return;
+    musicOpen = false;
+    sfx.back();
+    // Keep the iframe mounted through the slide-out, then drop it so its audio
+    // stops (mirrors the .game-iframe unmount delay). Guard against a reopen
+    // during the slide-out clobbering the freshly-opened app.
+    const closingId = musicId;
+    setTimeout(() => {
+      if (!musicOpen && musicId === closingId) { musicSrc = null; musicId = null; }
+    }, 350);
+  }
   function launchCmgnet(game) {
     if (!game) return;
+    // Music apps open in the parallel sidebar overlay, not the full-screen frame,
+    // and never stream/download/cache like a normal e-shop title.
+    if (game.kind === 'music') { openMusic(game); return; }
     sfx.enter();
     chromeDismissed = false;
     if (cmgnetStatus[game.id]?.cached) {
@@ -1616,6 +1673,9 @@
     try { sessionStorage.removeItem('saturn-byod'); } catch (_) {}
     try { delete window.__nesByocFile; } catch (_) {}
     try { sessionStorage.removeItem('nes-byoc'); } catch (_) {}
+    // A music app deliberately OUTLIVES the game it was opened over: exiting the
+    // game leaves the sidebar playing (back at the menu, and on into the next
+    // game) until it's closed explicitly (✕, the Guide toggle, or B/Esc off-game).
     sfx.back();
   }
 
@@ -1776,6 +1836,10 @@
   }
   function actB() {
     if (gameOn) closeGame();
+    // A music sidebar opened from the catalog (no game running) closes on B — its
+    // only gamepad close path off-game, since the Guide (which owns the in-game
+    // toggle) isn't reachable without a game. Closes the topmost overlay first.
+    else if (musicOpen) closeMusic();
     else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') goBack();
   }
   // CMG Network only: pull the latest build from GitHub for the selected game,
@@ -1973,6 +2037,11 @@
         return;
       }
       return;
+    }
+    // Off-game, a music sidebar (opened from the catalog) closes on Esc / B /
+    // Backspace before any screen navigation — the topmost overlay goes first.
+    if (musicOpen && (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B')) {
+      closeMusic(); e.preventDefault(); return;
     }
     if (screen === 'dashboard') {
       if (e.key === 'ArrowDown') { menuSel = Math.min(menuSel + 1, MAIN_MENU.length - 1); sfx.nav(); }
@@ -2824,7 +2893,7 @@
         <div class="meta">
           <div><span class="k">name</span><b>{currentCmgnet ? currentCmgnet.name : '—'}</b></div>
           <div><span class="k">size</span><b>{currentCmgnet ? currentCmgnet.size : '—'}</b></div>
-          <div><span class="k">type</span><b>NET / STREAM</b></div>
+          <div><span class="k">type</span><b>{currentCmgnet?.kind === 'music' ? 'NET / MUSIC' : 'NET / STREAM'}</b></div>
           <div><span class="k">date</span><b>{currentCmgnet ? currentCmgnet.date : '—'}</b></div>
         </div>
       </div>
@@ -2863,7 +2932,9 @@
                 </div>
                 <div class="game-bar">
                   <span class="name">{g.title}</span>
-                  {#if cmgnetStatus[g.id]?.downloading}
+                  {#if g.kind === 'music'}
+                    <span class="net-badge music">♪ OPEN</span>
+                  {:else if cmgnetStatus[g.id]?.downloading}
                     <span class="net-badge dl">⬇ {cmgnetStatus[g.id].pct}%</span>
                   {:else if cmgnetStatus[g.id]?.error}
                     <span class="net-badge err">! RETRY</span>
@@ -2902,7 +2973,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? 'Get' : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
 </div>
 
@@ -2919,6 +2990,28 @@
       title="game"
       allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
       onload={injectOsdKeyForwarder}
+    ></iframe>
+  </div>
+{/if}
+
+<!-- Music app sidebar — a CMG Network kind:'music' app docked to the right edge,
+     layered above a running game (z 101) but below the Guide (z 102/103) so the
+     Guide can still open over it. There is no full-screen scrim: the game stays
+     visible and interactive at the left and keeps running IN PARALLEL while the
+     music app plays. Mounted while musicSrc is set; the iframe is dropped ~350ms
+     after close (in closeMusic) so its audio stops once the panel slides out. -->
+{#if musicSrc}
+  <div class="music-sidebar {musicOpen ? 'on' : ''}" role="dialog" aria-label={musicTitle || 'Music'}>
+    <div class="music-hd">
+      <span class="music-dot" aria-hidden="true">♪</span>
+      <span class="music-title">{musicTitle || 'MUSIC'}</span>
+      <button type="button" class="music-x" aria-label="Close music" onclick={closeMusic}>✕</button>
+    </div>
+    <iframe
+      id="musicframe"
+      src={musicSrc}
+      title={musicTitle || 'music'}
+      allow="autoplay; encrypted-media; clipboard-write; fullscreen"
     ></iframe>
   </div>
 {/if}
