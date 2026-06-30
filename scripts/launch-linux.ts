@@ -24,6 +24,10 @@ const TARGET_URL = `http://localhost:${PORT}`;
 const home = Deno.env.get("HOME") ?? "";
 const profileDir = `${home}/.config/cmg-chrome-profile`;
 const GRACE_MS = 2500;
+// Discard the browser's stdout/stderr unless CMG_VERBOSE is set, so Chromium's
+// startup chatter (GCM, crash helpers, etc.) stays out of the terminal. See
+// scripts/launch-mac.ts for the rationale.
+const VERBOSE = (Deno.env.get("CMG_VERBOSE") ?? "") !== "";
 
 interface Candidate {
   argv: string[]; // [program, ...leading args] (kiosk flags + URL appended later)
@@ -129,6 +133,11 @@ async function tryLaunch(c: Candidate): Promise<Deno.ChildProcess | null> {
   try {
     child = new Deno.Command(c.argv[0], {
       args: [...c.argv.slice(1), ...kioskArgs(c.flatpak)],
+      // Discard the browser's stdio so its chatter stays out of the terminal.
+      // Early-exit detection below relies on the exit code, not output, so this
+      // doesn't affect browser-fallback. CMG_VERBOSE passes output through.
+      stdout: VERBOSE ? "inherit" : "null",
+      stderr: VERBOSE ? "inherit" : "null",
     }).spawn();
   } catch (err) {
     console.error(
@@ -228,8 +237,9 @@ for (const candidate of candidates) {
 
 if (!chrome) {
   console.error(
-    "CMG: every browser candidate failed to start. If you use Flatpak Chrome on\n" +
-      "an immutable distro (e.g. SteamOS / Steam Deck), confirm it runs:\n" +
+    "CMG: every browser candidate failed to start. Re-run with CMG_VERBOSE=1 to\n" +
+      "see the browser's own error output. If you use Flatpak Chrome on an\n" +
+      "immutable distro (e.g. SteamOS / Steam Deck), confirm it runs:\n" +
       "  flatpak run com.google.Chrome --version\n" +
       "and reinstall if needed:\n" +
       "  flatpak install --reinstall flathub com.google.Chrome",

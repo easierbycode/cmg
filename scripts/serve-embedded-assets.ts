@@ -1,4 +1,21 @@
-const dataRoot = "dist/compile-assets";
+import { dirname, fromFileUrl, join } from "jsr:@std/path@^1.1.2";
+
+// Anchor the embedded data dir to THIS module rather than the process CWD. The
+// kiosk launcher is a `deno compile` binary (see scripts/compile-launcher.ts)
+// that embeds dist/compile-assets via --include; at runtime those files live in
+// the binary's virtual FS alongside this script. A CWD-relative path like
+// "dist/compile-assets" instead resolves against the user's shell directory, so
+// every embedded .wasm read returned NotFound whenever the binary was launched
+// from anywhere but the repo root (e.g. `~`), and the request fell through to
+// Fresh's static handler — which 404s because the .wasm was excluded from the
+// compile. Resolving relative to import.meta.url works from any CWD, compiled or
+// not (scripts/ -> ../dist/compile-assets).
+const dataRoot = join(
+  dirname(fromFileUrl(import.meta.url)),
+  "..",
+  "dist",
+  "compile-assets",
+);
 
 function safeRelativePath(pathname: string): string | null {
   let decoded: string;

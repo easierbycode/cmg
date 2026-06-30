@@ -40,12 +40,17 @@ app.get("/api2/:name", (ctx) => {
   );
 });
 
-// this can also be defined via a file. feel free to delete this!
-const exampleLoggerMiddleware = define.middleware((ctx) => {
-  console.log(`${ctx.req.method} ${ctx.req.url}`);
+// Per-request access log. Useful in dev but pure noise in the kiosk (one line per
+// asset the emulators fetch), so it's gated on CMG_VERBOSE — the same switch the
+// launchers use to surface Chrome's output. The env is read per request so the
+// toggle works at runtime in the compiled launcher, not just at build time.
+const requestLoggerMiddleware = define.middleware((ctx) => {
+  if (Deno.env.get("CMG_VERBOSE")) {
+    console.log(`${ctx.req.method} ${ctx.req.url}`);
+  }
   return ctx.next();
 });
-app.use(exampleLoggerMiddleware);
+app.use(requestLoggerMiddleware);
 
 // Include file-system based routes here
 app.fsRoutes();
