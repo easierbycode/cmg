@@ -732,41 +732,75 @@ class GamepadManager {
     // propagate up through poll() and kill the entire polling loop.
     if (targetWin && !sameOrigin) return;
 
-    const target = targetDoc || targetWin || document;
-
-    // Build a KeyboardEvent in the target context if available
     const key = mapping.keyboardKey;
     const code = key === ' ' ? 'Space' : (key.length === 1 ? `Key${key.toUpperCase()}` : key);
-    let EvtCtor = KeyboardEvent;
-    try { if (sameOrigin && targetWin && targetWin.KeyboardEvent) EvtCtor = targetWin.KeyboardEvent; } catch (_) { EvtCtor = KeyboardEvent; }
 
-    const evt = new EvtCtor(eventType, {
-      key,
-      code,
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    });
-
-    const setLegacyProps = (e, codeVal) => {
+    const setLegacyProps = (event, codeVal) => {
       try {
-        Object.defineProperty(e, 'keyCode', { get: () => codeVal });
-        Object.defineProperty(e, 'which', { get: () => codeVal });
-        Object.defineProperty(e, 'charCode', { get: () => codeVal });
+        Object.defineProperty(event, 'keyCode', { get: () => codeVal });
+        Object.defineProperty(event, 'which', { get: () => codeVal });
+        Object.defineProperty(event, 'charCode', { get: () => codeVal });
       } catch (_) { /* ignore */ }
     };
-    setLegacyProps(evt, mapping.keyCode);
 
-    // Optionally synthesize keypress for Space on keydown when not in onlyDown mode
-    const makePress = () => {
-      const press = new EvtCtor('keypress', { key, code, bubbles: true, cancelable: true, composed: true });
-      setLegacyProps(press, mapping.keyCode);
-      return press;
+    const makeEvent = (target, type) => {
+      const view = (target && target.ownerDocument && target.ownerDocument.defaultView) || targetWin || window;
+      let EvtCtor = KeyboardEvent;
+      try { if (view && view.KeyboardEvent) EvtCtor = view.KeyboardEvent; } catch (_) { EvtCtor = KeyboardEvent; }
+
+      const event = new EvtCtor(type, {
+        key,
+        code,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      });
+      setLegacyProps(event, mapping.keyCode);
+      return event;
     };
 
-    try { target.dispatchEvent(evt); } catch (_) {}
+    // Ruffle listens on its custom element; canvas games still receive the
+    // bubbled event from their visible game surface.
+    const target = this.getKeyboardDispatchTarget(targetDoc, targetWin);
+    try { target.dispatchEvent(makeEvent(target, eventType)); } catch (_) { /* ignore dispatch errors */ }
     if (!onlyDown && key === ' ' && eventType === 'keydown') {
-      try { target.dispatchEvent(makePress()); } catch (_) {}
+      try { target.dispatchEvent(makeEvent(target, 'keypress')); } catch (_) { /* ignore dispatch errors */ }
+    }
+  }
+
+  getKeyboardDispatchTarget(targetDoc, targetWin) {
+    try {
+      if (!targetDoc) return targetWin || document;
+
+      const active = targetDoc.activeElement;
+      if (active && active !== targetDoc.body && active !== targetDoc.documentElement) {
+        return active;
+      }
+
+      const selectors = [
+        'ruffle-player',
+        'ruffle-embed',
+        'ruffle-object',
+        'canvas',
+        '[tabindex]',
+      ];
+
+      for (const selector of selectors) {
+        const elements = Array.from(targetDoc.querySelectorAll(selector));
+        const visible = elements.find((element) => {
+          try {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          } catch (_) {
+            return false;
+          }
+        });
+        if (visible) return visible;
+      }
+
+      return targetDoc.body || targetDoc;
+    } catch (_) {
+      return targetDoc || targetWin || document;
     }
   }
 
