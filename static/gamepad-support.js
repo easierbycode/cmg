@@ -629,9 +629,11 @@ class GamepadManager {
   isAnyOverlayOpen() {
     // Input must NOT reach the game while a launcher overlay is up: the in-game
     // OSD (dashboard) sets body.osd-open; the controller configurator adds
-    // .controller-configurator.visible.
+    // .controller-configurator.visible; the soft-mod cinematic sets
+    // body.softmod-open.
+    const body = typeof document !== 'undefined' ? document.body : null;
     return (this.isConfiguratorOpen && this.isConfiguratorOpen()) ||
-      (typeof document !== 'undefined' && !!document.body && document.body.classList.contains('osd-open'));
+      (!!body && (body.classList.contains('osd-open') || body.classList.contains('softmod-open')));
   }
 
   // Minimal check for controller configurator visibility

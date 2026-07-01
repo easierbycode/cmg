@@ -1865,6 +1865,7 @@
       // drive OSD navigation while it's open — body.osd-open makes
       // gamepad-support yield, so these presses don't leak into the game.
       padState.axisDir = 0;
+      if (softmodOn) { padState.btn.clear(); padState.comboLatched = false; osdNav.vDir = 0; osdNav.hDir = 0; return; }
       if (!pad) { padState.btn.clear(); padState.comboLatched = false; osdNav.vDir = 0; osdNav.hDir = 0; return; }
       const pressedNow = new Set();
       pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
@@ -2295,6 +2296,13 @@
     else document.body.classList.remove('osd-open');
   });
 
+  // The soft-mod cinematic is a top-level launcher overlay too: while it is up,
+  // gamepad-support.js must not forward gameplay input into the underlying frame.
+  $effect(() => {
+    if (softmodOn) document.body.classList.add('softmod-open');
+    else document.body.classList.remove('softmod-open');
+  });
+
   // Apply the Look tweaks to the dashboard chrome (and the OSD, via the shared
   // CSS vars). Persisted in setTweak(); re-applied whenever they change.
   $effect(() => {
@@ -2337,6 +2345,7 @@
     document.body.classList.remove('playing');
     document.body.classList.remove('pad-on');
     document.body.classList.remove('osd-open');
+    document.body.classList.remove('softmod-open');
   });
 </script>
 
