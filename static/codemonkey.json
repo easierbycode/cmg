@@ -31,6 +31,20 @@
       "date": "06.29.26"
     },
     {
+      "id": "abobo",
+      "name": "Abobo's Revenge",
+      "title": "ABOBO'S REVENGE",
+      "sub": "Ruffle // Flash",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/abobo",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/abobo/",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/abobo.zip",
+      "size": "18 MB",
+      "date": "11.16.25"
+    },
+    {
       "id": "azlegend-golden",
       "name": "AZLegendGolden",
       "title": "AZLEGENDGOLDEN",
