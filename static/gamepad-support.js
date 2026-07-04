@@ -405,14 +405,20 @@ class GamepadManager {
     const ax = controller.axes || [];
     const pressed = (i) => !!(b[i] && b[i].pressed);
 
-    // SNES-style pads (e.g. the Switch-Online SNES pad, 057e:2017) report the
-    // D-pad ONLY via the encoded hat axis and repurpose the standard D-pad
-    // button slots 12-15 for other controls — notably ZR shows up as button 15,
-    // which the standard layout calls "D-pad right". Reading buttons 12-15 below
-    // would misfire (ZR → a ghost d-pad-right, both on the diagram and as input),
-    // so for these pads trust the hat exclusively whenever the hat axis exists.
-    if (this.isSnesController(controller) && ax.length > 9) {
-      return this.decodeHat(ax[9]);
+    // SNES-style pads (e.g. the Switch-Online SNES pad, 057e:2017) never
+    // report a real D-pad on the raw 12-15 button slots — those hold other
+    // bits (Home/Capture, or Select/Start on some platforms). The compat
+    // plugin (loaded on every page that uses this manager) rebuilds 12-15
+    // from the pad's hat/digital axes, so trust exactly those normalized
+    // slots plus the encoded hat, and skip the generic shifted-index
+    // guesses below that misfire on this pad.
+    if (this.isSnesController(controller)) {
+      const dirs = ax.length > 9 ? this.decodeHat(ax[9]) : { up: false, down: false, left: false, right: false };
+      dirs.up = dirs.up || pressed(12);
+      dirs.down = dirs.down || pressed(13);
+      dirs.left = dirs.left || pressed(14);
+      dirs.right = dirs.right || pressed(15);
+      return dirs;
     }
 
     const dpadMap = (mapping && mapping.dpad) || {};
@@ -451,7 +457,11 @@ class GamepadManager {
   decodeHat(v) {
     const res = { up: false, down: false, left: false, right: false };
     if (typeof v !== 'number' || v > 1.05 || v < -1.05) return res;
-    const state = ((Math.round((v + 1) * 3.5) % 8) + 8) % 8; // inverse of 2*state/7 - 1
+    // Only accept values on the 8-step grid: 0 (an untouched axis on some
+    // stacks) sits between steps and would decode as a phantom "down".
+    const scaled = (v + 1) * 3.5;
+    if (Math.abs(scaled - Math.round(scaled)) > 0.25) return res;
+    const state = ((Math.round(scaled) % 8) + 8) % 8; // inverse of 2*state/7 - 1
     switch (state) {
       case 0: res.up = true; break;
       case 1: res.up = true; res.right = true; break;
