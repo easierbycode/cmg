@@ -166,6 +166,17 @@
         out[9] = source[7] || button(false); // Start
         out[6] = button(false); // clear vacated slots so Select/Start
         out[7] = button(false); // don't ghost as L2/R2
+      } else {
+        // Some >12-button layouts report Select/Start in raw slots 12/13
+        // (which the D-pad rebuild below overwrites). Fold them into the
+        // standard 8/9 slots first — safe on the Nintendo-HID-order layout,
+        // where raw 12/13 are Home/Capture bits the pad physically lacks.
+        const sel = !!(source[8] && source[8].pressed) ||
+          !!(source[12] && source[12].pressed);
+        const start = !!(source[9] && source[9].pressed) ||
+          !!(source[13] && source[13].pressed);
+        out[8] = button(sel);
+        out[9] = button(start);
       }
 
       const dirs = snesDirs(pad);
