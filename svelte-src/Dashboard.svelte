@@ -1695,6 +1695,43 @@
   let padRaf = null;
   const padSeenBtns = new Set();
   const padSeenAxes = new Set();
+
+  // ?paddebug=1 — on-screen gamepad monitor for devices without devtools
+  // (handhelds, TVs). Shows the browser's RAW pad state alongside the
+  // compat-plugin-normalized view, so quirky button/axis layouts can be
+  // reported from the couch.
+  const padDebugOn = typeof location !== 'undefined' && /[?&]paddebug=1/.test(location.search);
+  let padDebugText = $state('');
+
+  function padDebugTick() {
+    if (!padDebugOn) return;
+    const fmt = (p, tag) => {
+      if (!p) return null;
+      const btns = [];
+      for (let i = 0; i < p.buttons.length; i++) if (p.buttons[i]?.pressed) btns.push(i);
+      const axs = [];
+      for (let i = 0; i < p.axes.length; i++) {
+        const v = p.axes[i];
+        if (typeof v === 'number' && Math.abs(v) > 0.2) axs.push(`${i}:${v.toFixed(2)}`);
+      }
+      return `${tag} #${p.index} map:${p.mapping || '""'} b:${p.buttons.length} a:${p.axes.length}\n` +
+        `  pressed:[${btns.join(',')}] axes:[${axs.join(' ')}]\n  ${(p.id || '').slice(0, 48)}`;
+    };
+    const lines = [];
+    try {
+      for (const p of (window.CMGGamepadCompat?.raw?.() || [])) {
+        const s = fmt(p, 'RAW ');
+        if (s) lines.push(s);
+      }
+    } catch (_) { /* ignore */ }
+    try {
+      for (const p of ((navigator.getGamepads && navigator.getGamepads()) || [])) {
+        const s = fmt(p, 'NORM');
+        if (s) lines.push(s);
+      }
+    } catch (_) { /* ignore */ }
+    padDebugText = lines.join('\n') || 'no pads detected';
+  }
   const padState = {
     btn: new Set(),
     axisDir: 0,
@@ -1732,7 +1769,11 @@
   function decodePadHat(v) {
     const none = { up: false, down: false, left: false, right: false };
     if (typeof v !== 'number' || v < -1.05 || v > 1.05) return none;
-    const pos = Math.round((v + 1) * 3.5);
+    // Only accept values on the hat's 8-step grid — 0 (an untouched axis on
+    // some stacks) sits between steps and would decode as a phantom "down".
+    const scaled = (v + 1) * 3.5;
+    if (Math.abs(scaled - Math.round(scaled)) > 0.25) return none;
+    const pos = Math.round(scaled);
     const labels = ['up', 'upright', 'right', 'downright', 'down', 'downleft', 'left', 'upleft'];
     const d = labels[pos] || '';
     return {
@@ -1747,8 +1788,12 @@
     const dirs = { up: false, down: false, left: false, right: false };
     if (!pad) return dirs;
     const btn = (i) => !!pad.buttons[i]?.pressed;
-    dirs.up = btn(12) || btn(16) || btn(18) || btn(20);
-    dirs.down = btn(13) || btn(17) || btn(19) || btn(21);
+    // SNES pads: the compat plugin rebuilds 12-15 from the hat, and the raw
+    // slots past 15 can hold Select/Start on some platforms — reading them as
+    // a D-pad turns Select/Start into phantom up/down presses.
+    const isSnes = SNES_PAD_RE.test(pad?.id || '');
+    dirs.up = btn(12) || (!isSnes && (btn(16) || btn(18) || btn(20)));
+    dirs.down = btn(13) || (!isSnes && (btn(17) || btn(19) || btn(21)));
     dirs.left = btn(14);
     dirs.right = btn(15);
     const ax = pad.axes || [];
@@ -1857,6 +1902,7 @@
   // over and dispatches keys into iframe#gameframe — we yield to it.
   function pollPad() {
     padRaf = requestAnimationFrame(pollPad);
+    padDebugTick();
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
     let pad = pickPrimaryPad(pads);
     if (gameOn) {
@@ -1952,8 +1998,12 @@
     //   - Analog stick Y on axes[1] (or axes[3] / axes[5] on some pads).
     //   - axes[7]: digital -1/0/+1 D-pad Y on some adapters.
     //   - axes[9]: encoded hat switch on others.
-    const upButtonIdxs = [12, 16, 18, 20];
-    const downButtonIdxs = [13, 17, 19, 21];
+    // SNES pads: trust only the plugin-normalized 12/13 — the raw slots past
+    // 15 can hold Select/Start on some platforms, which made Select/Start
+    // scroll the launcher.
+    const isSnesPad = SNES_PAD_RE.test(pad?.id || '');
+    const upButtonIdxs = isSnesPad ? [12] : [12, 16, 18, 20];
+    const downButtonIdxs = isSnesPad ? [13] : [13, 17, 19, 21];
     const dpadUp = upButtonIdxs.some((i) => !!pad.buttons[i]?.pressed);
     const dpadDown = downButtonIdxs.some((i) => !!pad.buttons[i]?.pressed);
     let dir = 0;
@@ -1971,15 +2021,12 @@
       }
     }
     if (dir === 0) {
-      // Hat-switch decode: values near -0.71 / -1.0 are "up",
-      // near 0.14 / 0.43 are "down". Values > 1 are the neutral sentinel.
-      const hat = pad.axes[9];
-      if (typeof hat === 'number' && hat >= -1 && hat <= 1) {
-        const angle = (hat + 1) * Math.PI;
-        const sy = -Math.cos(angle);
-        if (sy < -PAD_DEADZONE) dir = -1;
-        else if (sy > PAD_DEADZONE) dir = 1;
-      }
+      // Hat-switch decode via the shared grid-validated decoder — a raw
+      // angle read here decoded an untouched axes[9] of exactly 0 as a
+      // constant "down".
+      const hat = decodePadHat(pad.axes[9]);
+      if (hat.up) dir = -1;
+      else if (hat.down) dir = 1;
     }
 
     if (dir !== 0 && dir !== padState.axisDir) {
@@ -2005,11 +2052,13 @@
     if (justPressed(2) && screen === 'games' && currentGame?.__cmgnet) cmgnetUninstall(currentGame);
     if (justPressed(3)) actUpdate();                // Y — update a graduated game (when one is available)
     // Shoulder/trigger navigation — fallback when D-pad isn't recognized
-    // (e.g. Firefox + non-standard SNES adapters).
+    // (e.g. Firefox + non-standard SNES adapters). SNES pads have no L2/R2:
+    // on some platforms their Select/Start report in those slots, so the
+    // 6/7 jump-to-top/bottom shortcuts are non-SNES only.
     if (justPressed(5)) navDown();                  // R shoulder
     if (justPressed(4)) navUp();                    // L shoulder
-    if (justPressed(7)) navBottom();                // R2 — jump to bottom
-    if (justPressed(6)) navTop();                   // L2 — jump to top
+    if (!isSnesPad && justPressed(7)) navBottom();  // R2 — jump to bottom
+    if (!isSnesPad && justPressed(6)) navTop();     // L2 — jump to top
     padState.btn = pressedNow;
   }
 
@@ -3058,6 +3107,10 @@
     <iframe id="softmodframe" title="Soft Mod" src="/demos/softmod"
             allow="autoplay" frameborder="0"></iframe>
   </div>
+{/if}
+
+{#if padDebugOn}
+  <pre class="pad-debug">{padDebugText}</pre>
 {/if}
 
 <Osd open={osdOpen} items={osdItems} sel={osdSel}

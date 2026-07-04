@@ -491,3 +491,12 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   /* Too narrow for a side-by-side dock — the music app takes the full width. */
   .music-sidebar { width: 100%; }
 }
+
+/* ?paddebug=1 — on-screen gamepad monitor (raw + normalized pad state) */
+.pad-debug {
+  position: fixed; left: 8px; bottom: 8px; z-index: 300;
+  margin: 0; padding: 6px 8px; max-width: 92vw;
+  font: 11px/1.45 "Share Tech Mono", monospace; color: #9cff6b;
+  background: rgba(0, 0, 0, .78); border: 1px solid rgba(120, 255, 80, .5);
+  white-space: pre-wrap; word-break: break-all; pointer-events: none;
+}
