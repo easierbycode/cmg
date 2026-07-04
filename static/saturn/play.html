@@ -97,6 +97,92 @@
         }
         refreshPadClass();
 
+        // ── SNES gamepad (NSO SNES pad, 057e:2017) ─────────────────────────
+        // The pad reports mapping "" with its face buttons in Nintendo HID
+        // order — B=0, A=1, Y=2, X=3, L=4, R=5, Select=8, Start=9 — and the
+        // D-pad as an encoded hat on axes[9] (which CMGGamepadCompat rewrites
+        // to standard D-pad buttons 12-15). EmulatorJS labels gamepad buttons
+        // purely by index (0→BUTTON_1, 1→BUTTON_2, 2→BUTTON_3, 3→BUTTON_4,
+        // 4→LEFT_TOP_SHOULDER, 5→RIGHT_TOP_SHOULDER, 8→SELECT, 9→START), so
+        // its stock defaults — written for Xbox-labeled standard pads — land
+        // A/B and X/Y swapped positionally on this pad.
+        //
+        // When an SNES pad is detected, install the RetroArch-canonical
+        // mapping instead (RetroPad naming IS the SNES layout, and the
+        // yabause core assigns RetroPad→Saturn as B→A, A→B, R→C, Y→X, X→Y,
+        // L→Z, L2→L, R2→R):
+        //
+        //   Saturn A ← SNES B (bottom)   Saturn X ← SNES Y (left)
+        //   Saturn B ← SNES A (right)    Saturn Y ← SNES X (top)
+        //   Saturn C ← SNES R            Saturn Z ← SNES L
+        //
+        // i.e. Saturn's bottom row A/B/C sits on B/A/R and its top row X/Y/Z
+        // on Y/X/L. The Saturn L/R triggers (controls 12/13) keep only their
+        // keyboard bindings — the SNES pad has no buttons left for them.
+        // Keyboard values mirror the EmulatorJS defaults so keys are
+        // unchanged.
+        var SNES_PAD_RE =
+          /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i;
+
+        function snesPadPresent() {
+          var pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+          for (var i = 0; i < pads.length; i++) {
+            if (pads[i] && pads[i].connected && SNES_PAD_RE.test(pads[i].id || "")) {
+              return true;
+            }
+          }
+          return false;
+        }
+
+        function snesSaturnControls() {
+          return {
+            0: {
+              0: { value: "x", value2: "BUTTON_1" }, // Saturn A ← SNES B
+              1: { value: "s", value2: "BUTTON_3" }, // Saturn X ← SNES Y
+              2: { value: "v", value2: "SELECT" },
+              3: { value: "enter", value2: "START" },
+              4: { value: "up arrow", value2: "DPAD_UP" },
+              5: { value: "down arrow", value2: "DPAD_DOWN" },
+              6: { value: "left arrow", value2: "DPAD_LEFT" },
+              7: { value: "right arrow", value2: "DPAD_RIGHT" },
+              8: { value: "z", value2: "BUTTON_2" }, // Saturn B ← SNES A
+              9: { value: "a", value2: "BUTTON_4" }, // Saturn Y ← SNES X
+              10: { value: "q", value2: "LEFT_TOP_SHOULDER" }, // Saturn Z ← SNES L
+              11: { value: "e", value2: "RIGHT_TOP_SHOULDER" }, // Saturn C ← SNES R
+              12: { value: "tab" }, // Saturn L — keyboard only
+              13: { value: "r" }, // Saturn R — keyboard only
+            },
+            1: {},
+            2: {},
+            3: {},
+          };
+        }
+
+        function applySnesControls() {
+          // Pre-boot: seed EmulatorJS defaults. Post-boot: patch the live
+          // control table (EmulatorJS resolves value2 labels per input event,
+          // so an in-place update takes effect immediately).
+          window.EJS_defaultControls = snesSaturnControls();
+          try {
+            var e = window.EJS_emulator;
+            if (!e || !e.controls || !e.controls[0]) return;
+            var mine = snesSaturnControls()[0];
+            for (var k in mine) {
+              e.controls[0][k] = Object.assign(
+                {},
+                e.controls[0][k] || {},
+                mine[k],
+              );
+            }
+            if (typeof e.setupKeys === "function") e.setupKeys();
+          } catch (_) {}
+        }
+
+        if (snesPadPresent()) applySnesControls();
+        window.addEventListener("gamepadconnected", function () {
+          if (snesPadPresent()) applySnesControls();
+        });
+
         // Only accept control / file messages from our own parent (same-origin).
         function isFromOwnParent(e) {
           if (e.origin && e.origin !== window.location.origin) return false;
