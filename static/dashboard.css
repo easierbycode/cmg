@@ -479,9 +479,8 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   font-size: clamp(11px, 1.1vmin, 13px); max-width: 40ch;
 }
 
-/* BYOC (Bring Your Own Cartridge) — the pinned upload row on the NES screen.
-   Reuses .game-row; a dashed icon ring + ⬆ glyph mark it as "load your own"
-   rather than a launchable title. */
+/* BYOC / BYOB pinned upload rows. Reuses .game-row; a dashed icon ring + upload
+   glyph mark it as "load your own" rather than a launchable title. */
 .byoc-row .game-icon .glass {
   box-shadow: inset 0 0 12px rgba(120, 255, 90, .3);
   border: 2px dashed rgba(140, 255, 110, .7);

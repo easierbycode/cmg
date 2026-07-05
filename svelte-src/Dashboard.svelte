@@ -105,6 +105,8 @@
   let arcadeGames = $state([]);
   let arcadeSel = $state(0);
   let arcadeRowEls = $state([]);
+  let arcadeByobError = $state('');
+  let arcadeFileInput = $state(null);
   let psxGames = $state([]);
   let psxSel = $state(0);
   let psxRowEls = $state([]);
@@ -795,6 +797,7 @@
   let currentGame = $derived(GAMES[gameSel]);
   let currentTg16 = $derived(tg16Games[tg16Sel]);
   let currentArcade = $derived(arcadeGames[arcadeSel]);
+  let onArcadeByobRow = $derived(arcadeSel >= arcadeGames.length);
   let currentPsx = $derived(psxGames[psxSel]);
   let currentSaturn = $derived(saturnGames[saturnSel]);
   // undefined when nesSel is on the pinned BYOC row (index === nesGames.length).
@@ -812,8 +815,8 @@
       : String(tg16Sel + 1).padStart(2, '0') + ' / ' + String(tg16Games.length).padStart(2, '0')
   );
   let arcadeCounterText = $derived(
-    arcadeGames.length === 0
-      ? '00 / 00'
+    onArcadeByobRow
+      ? 'BYOB'
       : String(arcadeSel + 1).padStart(2, '0') + ' / ' + String(arcadeGames.length).padStart(2, '0')
   );
   let psxCounterText = $derived(
@@ -1001,6 +1004,47 @@
     if (Array.isArray(game.bios) && game.bios.length) params.set('bios', game.bios.join(','));
     gameSrc = '/arcade/play.html?' + params.toString();
     setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  // BYOB — Bring Your Own Board (JAMMA).
+  //
+  // Arcade boards are MAME ROM-set zips. The zip filename should be the MAME
+  // shortname (for example sfex2.zip); play.html uses that shortname to fetch
+  // the Emularity engine recipe, then mounts the chosen File as /<shortname>.zip.
+  async function handleArcadeByobFiles(files) {
+    arcadeByobError = '';
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+
+    const main = list.find((f) => /\.zip$/i.test(f.name));
+    if (!main) {
+      arcadeByobError = 'Pick a MAME/JAMMA .zip board file.';
+      return;
+    }
+
+    const shortName = main.name.replace(/\.zip$/i, '').toLowerCase();
+    try {
+      window.__arcadeByobFile = main;
+      sessionStorage.setItem('arcade-byob', JSON.stringify({ name: shortName }));
+    } catch (e) {
+      arcadeByobError = 'BYOB handoff failed: ' + (e && e.message ? e.message : e);
+      return;
+    }
+
+    sfx.enter();
+    chromeDismissed = false;
+    gameSrc = '/arcade/play.html?byob=1';
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function onArcadeByobChange(e) {
+    const input = e.currentTarget;
+    handleArcadeByobFiles(input.files);
+    setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
+  }
+
+  function openArcadeByobPicker() {
+    try { arcadeFileInput?.click(); } catch (_) {}
   }
 
   function launchPsx(file) {
@@ -1416,7 +1460,7 @@
       if (!r.ok) return;
       const list = await r.json();
       arcadeGames = Array.isArray(list) ? list : [];
-      if (arcadeSel >= arcadeGames.length) arcadeSel = 0;
+      if (arcadeSel > arcadeGames.length) arcadeSel = 0;
     } catch (_e) {
       arcadeGames = [];
     }
@@ -1866,6 +1910,8 @@
     twinStickOn = false;
     twinGameId = null;
     twinStickUserSet = false;
+    try { delete window.__arcadeByobFile; } catch (_) {}
+    try { sessionStorage.removeItem('arcade-byob'); } catch (_) {}
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
     try { delete window.__saturnByodFile; } catch (_) {}
@@ -2031,7 +2077,7 @@
   function navDown() {
     if (screen === 'dashboard') menuSel = Math.min(menuSel + 1, MAIN_MENU.length - 1);
     else if (screen === 'games') gameSel = Math.min(gameSel + 1, GAMES.length - 1);
-    else if (screen === 'arcade') arcadeSel = Math.min(arcadeSel + 1, Math.max(arcadeGames.length - 1, 0));
+    else if (screen === 'arcade') arcadeSel = Math.min(arcadeSel + 1, arcadeGames.length);
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
     else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
     else if (screen === 'saturn') saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0));
@@ -2055,7 +2101,7 @@
   function navBottom() {
     if (screen === 'dashboard') menuSel = MAIN_MENU.length - 1;
     else if (screen === 'games') gameSel = GAMES.length - 1;
-    else if (screen === 'arcade') arcadeSel = Math.max(arcadeGames.length - 1, 0);
+    else if (screen === 'arcade') arcadeSel = arcadeGames.length;
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
     else if (screen === 'saturn') saturnSel = Math.max(saturnGames.length - 1, 0);
@@ -2068,7 +2114,10 @@
     if (gameOn) return;
     if (screen === 'dashboard') pickMenu(menuSel);
     else if (screen === 'games') launchGame(GAMES[gameSel].id);
-    else if (screen === 'arcade') launchArcade(arcadeGames[arcadeSel]);
+    else if (screen === 'arcade') {
+      if (onArcadeByobRow) openArcadeByobPicker();
+      else launchArcade(arcadeGames[arcadeSel]);
+    }
     else if (screen === 'tg16') launchTg16(tg16Games[tg16Sel]?.file);
     else if (screen === 'psx') {
       if (psxGames.length === 0) openByodPicker();
@@ -2357,9 +2406,12 @@
       else if ((e.key === 'u' || e.key === 'U') && currentGame?.__cmgnet) actUpdate();
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'arcade') {
-      if (e.key === 'ArrowDown') { arcadeSel = Math.min(arcadeSel + 1, Math.max(arcadeGames.length - 1, 0)); sfx.nav(); }
+      if (e.key === 'ArrowDown') { arcadeSel = Math.min(arcadeSel + 1, arcadeGames.length); sfx.nav(); }
       else if (e.key === 'ArrowUp') { arcadeSel = Math.max(arcadeSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') launchArcade(arcadeGames[arcadeSel]);
+      else if (e.key === 'Enter' || e.key === ' ') {
+        if (onArcadeByobRow) openArcadeByobPicker();
+        else launchArcade(arcadeGames[arcadeSel]);
+      }
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'tg16') {
       if (e.key === 'ArrowDown') { tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0)); sfx.nav(); }
@@ -2513,6 +2565,16 @@
     // same-origin only; never honor them from a cross-origin frame.
     if (!sameOrigin) return;
     if (d.type === 'tg16-exit') closeGame();
+    else if (d.type === 'arcade-byob-ready') {
+      const file = window.__arcadeByobFile;
+      if (!file) return;
+      let name = file.name.replace(/\.zip$/i, '').toLowerCase();
+      try {
+        const raw = sessionStorage.getItem('arcade-byob');
+        if (raw) name = JSON.parse(raw).name || name;
+      } catch (_) {}
+      try { e.source.postMessage({ type: 'arcade-byob-file', file, name }, window.location.origin); } catch (_) {}
+    }
     else if (d.type === 'psx-byod-ready') {
       // Send the BYOD disc File over to the play iframe via structured clone
       // so EmulatorJS receives a same-realm File (its `instanceof File` check
@@ -2833,10 +2895,10 @@
       <div class="disc-col">
         <div class="disc"></div>
         <div class="meta">
-          <div><span class="k">name</span><b>{currentArcade ? currentArcade.name : '—'}</b></div>
-          <div><span class="k">size</span><b>{currentArcade ? currentArcade.size : '—'}</b></div>
-          <div><span class="k">type</span><b>ARCADE / MAME</b></div>
-          <div><span class="k">date</span><b>{currentArcade ? currentArcade.date : '—'}</b></div>
+          <div><span class="k">name</span><b>{onArcadeByobRow ? 'BYOB' : (currentArcade ? currentArcade.name : '—')}</b></div>
+          <div><span class="k">size</span><b>{onArcadeByobRow ? '—' : (currentArcade ? currentArcade.size : '—')}</b></div>
+          <div><span class="k">type</span><b>{onArcadeByobRow ? 'JAMMA / .ZIP' : 'ARCADE / MAME'}</b></div>
+          <div><span class="k">date</span><b>{onArcadeByobRow ? '—' : (currentArcade ? currentArcade.date : '—')}</b></div>
         </div>
       </div>
 
@@ -2846,30 +2908,49 @@
           <div class="counter">{arcadeCounterText}</div>
         </div>
         <div class="games-list">
-          {#if arcadeGames.length === 0}
-            <div class="game-row">
-              <div class="game-icon"><div class="glass"><span class="ph">··</span></div></div>
-              <div class="game-bar"><span class="name">NO ROMS FOUND</span><span class="sub">drop .zip into static/arcade/</span></div>
-            </div>
-          {:else}
-            {#each arcadeGames as g, i (g.file)}
-              <div
-                bind:this={arcadeRowEls[i]}
-                class="game-row {i === arcadeSel ? 'sel' : ''}"
-                onmouseenter={() => { if (i !== arcadeSel) { arcadeSel = i; sfx.nav(); } }}
-                onclick={() => launchArcade(g)}
-              >
-                <div class="game-icon">
-                  <div class="glass">
-                    <span class="ph">{initial(g.name)}</span>
-                  </div>
-                </div>
-                <div class="game-bar">
-                  <span class="name">{g.name.toUpperCase()}</span>
-                  <span class="sub">{g.size}</span>
+          <input
+            type="file"
+            bind:this={arcadeFileInput}
+            accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream"
+            onchange={onArcadeByobChange}
+            class="byod-input"
+          />
+          {#each arcadeGames as g, i (g.file)}
+            <div
+              bind:this={arcadeRowEls[i]}
+              class="game-row {i === arcadeSel ? 'sel' : ''}"
+              onmouseenter={() => { if (i !== arcadeSel) { arcadeSel = i; sfx.nav(); } }}
+              onclick={() => launchArcade(g)}
+            >
+              <div class="game-icon">
+                <div class="glass">
+                  <span class="ph">{initial(g.name)}</span>
                 </div>
               </div>
-            {/each}
+              <div class="game-bar">
+                <span class="name">{g.name.toUpperCase()}</span>
+                <span class="sub">{g.size}</span>
+              </div>
+            </div>
+          {/each}
+          <div
+            bind:this={arcadeRowEls[arcadeGames.length]}
+            class="game-row byoc-row {onArcadeByobRow ? 'sel' : ''}"
+            onmouseenter={() => { if (!onArcadeByobRow) { arcadeSel = arcadeGames.length; sfx.nav(); } }}
+            onclick={openArcadeByobPicker}
+          >
+            <div class="game-icon">
+              <div class="glass">
+                <span class="ph">⬆</span>
+              </div>
+            </div>
+            <div class="game-bar">
+              <span class="name">BRING YOUR OWN BOARD (JAMMA)</span>
+              <span class="sub">load a .zip from disk</span>
+            </div>
+          </div>
+          {#if arcadeByobError}
+            <div class="byod-err">{arcadeByobError}</div>
           {/if}
         </div>
       </div>

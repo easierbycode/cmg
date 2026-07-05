@@ -64,6 +64,7 @@
 
         var params = new URLSearchParams(location.search);
         var rom = params.get("rom") || "";
+        var byob = params.get("byob") === "1";
         var canvas = document.getElementById("canvas");
         var errEl = document.getElementById("err");
 
@@ -73,7 +74,7 @@
           try { console.error("[arcade] " + msg); } catch (_) {}
         }
 
-        if (!rom) { fail("No game specified."); return; }
+        if (!byob && !rom) { fail("No game specified."); return; }
         if (!window.Emulator || !window.MAMELoader) {
           fail("Emularity loader failed to load.");
           return;
@@ -105,6 +106,10 @@
         function postParent(type) {
           try { window.parent.postMessage({ type: type }, window.location.origin); } catch (_) {}
         }
+        function isFromOwnParent(e) {
+          if (e.origin && e.origin !== window.location.origin) return false;
+          return e.source === window.parent;
+        }
         // Backquote mirrors the SELECT+Down OSD chord (so Exit is reachable from
         // a keyboard) — same convention as the PSX/TG16/PS2 players.
         window.addEventListener("keydown", function (e) {
@@ -120,8 +125,23 @@
           try { console.warn("[arcade] not cross-origin isolated"); } catch (_) {}
         }
 
-        var romName = rom.replace(/\.zip$/i, "");
-        var romZip = "/arcade/" + encodeURIComponent(romName) + ".zip";
+        function basename(p) {
+          return String(p || "").split(/[\\/]/).pop() || "";
+        }
+
+        function shortName(p) {
+          return basename(p).replace(/\.zip$/i, "");
+        }
+
+        function readFileData(file) {
+          if (file && file.arrayBuffer) return file.arrayBuffer();
+          return new Promise(function (resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function () { resolve(reader.result); };
+            reader.onerror = function () { reject(reader.error || new Error("file read failed")); };
+            reader.readAsArrayBuffer(file);
+          });
+        }
 
         function localCoreName(file) {
           return String(file || "").replace(/\.gz$/i, "");
@@ -164,16 +184,19 @@
             .catch(function () { return null; });
         }
 
-        // Fetch the per-game recipe (driver, core, native resolution) from the
-        // engine, then drive the MAME core. This keeps the player generic — any
-        // arcade game with an engine recipe + a local ROM zip works.
-        getRecipe(romName)
-          .then(function (cfg) {
-            var nr = cfg.native_resolution || [640, 480];
-            var wasmjs = cfg.wasmjs_filename || "mamezn.js.gz";
-            var wasm = cfg.wasm_filename || "mamezn.wasm.gz";
-            var driver = cfg.driver || romName;
-            document.title = (cfg.name || romName) + " — Arcade";
+        function startArcade(romName, localRomData) {
+          var romZip = "/arcade/" + encodeURIComponent(romName) + ".zip";
+
+          // Fetch the per-game recipe (driver, core, native resolution) from the
+          // engine, then drive the MAME core. This keeps the player generic — any
+          // arcade game with an engine recipe + a local ROM zip works.
+          return getRecipe(romName)
+            .then(function (cfg) {
+              var nr = cfg.native_resolution || [640, 480];
+              var wasmjs = cfg.wasmjs_filename || "mamezn.js.gz";
+              var wasm = cfg.wasm_filename || "mamezn.wasm.gz";
+              var driver = cfg.driver || romName;
+              document.title = (cfg.name || romName) + " — Arcade";
 
             return Promise.all([
               resolveCoreUrl(cfg, wasmjs),
@@ -197,6 +220,9 @@
             var cfg = boot.cfg;
             var nr = boot.nr;
             var driver = boot.driver;
+            var romSource = localRomData !== null && typeof localRomData !== "undefined"
+              ? MAMELoader.localFile(cfg.name || romName, localRomData)
+              : MAMELoader.fetchFile(cfg.name || romName, romZip);
 
             var args = [
               MAMELoader.driver(driver),
@@ -206,9 +232,12 @@
               MAMELoader.emulatorWASM(boot.wasmUrl),
               MAMELoader.mountFile(
                 "/" + romName + ".zip",
-                MAMELoader.fetchFile(cfg.name || romName, romZip),
+                romSource,
               ),
             ];
+            if (localRomData !== null && typeof localRomData !== "undefined") {
+              args.push(MAMELoader.fileSystemKey("arcade-byob-" + romName + "-" + Date.now()));
+            }
             if (boot.defaultCfg) {
               args.push(MAMELoader.mountFile(
                 "/default.cfg",
@@ -250,6 +279,38 @@
           .catch(function (e) {
             fail("Failed to start arcade game: " + (e && e.message ? e.message : e));
           });
+        }
+
+        if (byob) {
+          var booted = false;
+          window.addEventListener("message", function (ev) {
+            if (booted) return;
+            if (!isFromOwnParent(ev)) return;
+            if (!ev.data || ev.data.type !== "arcade-byob-file") return;
+            if (!ev.data.file) return;
+            booted = true;
+            var name = ev.data.name || shortName(ev.data.file.name).toLowerCase();
+            readFileData(ev.data.file)
+              .then(function (data) {
+                return startArcade(String(name || "").toLowerCase(), data);
+              })
+              .catch(function (e) {
+                fail("BYOB failed: " + (e && e.message ? e.message : e));
+              });
+          });
+          try {
+            window.parent.postMessage(
+              { type: "arcade-byob-ready" },
+              window.location.origin,
+            );
+          } catch (_) {}
+          setTimeout(function () {
+            if (booted) return;
+            fail("BYOB failed: parent did not deliver board zip (10s).");
+          }, 10000);
+        } else {
+          startArcade(shortName(rom), null);
+        }
       })();
     </script>
   </body>
