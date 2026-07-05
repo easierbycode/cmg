@@ -2159,13 +2159,13 @@
     if (justPressed(2) && screen === 'games' && currentGame?.__cmgnet) cmgnetUninstall(currentGame);
     if (justPressed(3)) actUpdate();                // Y — update a graduated game (when one is available)
     // Shoulder/trigger navigation — fallback when D-pad isn't recognized
-    // (e.g. Firefox + non-standard SNES adapters). SNES pads have no L2/R2:
-    // on some platforms their Select/Start report in those slots, so the
-    // 6/7 jump-to-top/bottom shortcuts are non-SNES only.
+    // (e.g. Firefox + non-standard SNES adapters). Safe for SNES pads too:
+    // the compat plugin guarantees normalized 6/7 are either real L2/R2
+    // triggers or cleared (the joydev layout's Select/Start move to 8/9).
     if (justPressed(5)) navDown();                  // R shoulder
     if (justPressed(4)) navUp();                    // L shoulder
-    if (!isSnesPad && justPressed(7)) navBottom();  // R2 — jump to bottom
-    if (!isSnesPad && justPressed(6)) navTop();     // L2 — jump to top
+    if (justPressed(7)) navBottom();                // R2 — jump to bottom
+    if (justPressed(6)) navTop();                   // L2 — jump to top
     padState.btn = pressedNow;
   }
 
