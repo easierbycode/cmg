@@ -171,8 +171,20 @@ class GamepadManager {
     const controllerId = this.getControllerId(gamepad);
 
     this.controllers[gamepad.index] = gamepad;
-    this.controllerMappings[controllerId] = this.loadMapping(controllerId);
-    this.controllerUseWASD[controllerId] = this.loadUseWASDPreference(controllerId);
+    // Never let a bad saved mapping leave this controller half-registered:
+    // the controller is already in this.controllers, and scanGamepads won't
+    // re-add a known index — an uncaught throw here used to strand it with no
+    // buttonState, crashing every subsequent poll frame.
+    try {
+      this.controllerMappings[controllerId] = this.loadMapping(controllerId);
+    } catch (_) {
+      this.controllerMappings[controllerId] = JSON.parse(JSON.stringify(this.defaultMapping));
+    }
+    try {
+      this.controllerUseWASD[controllerId] = this.loadUseWASDPreference(controllerId);
+    } catch (_) {
+      this.controllerUseWASD[controllerId] = false;
+    }
 
     // If this is the 2nd gamepad connecting, ensure one is wasd and the other is arrowkeys
     try {
@@ -194,23 +206,7 @@ class GamepadManager {
     }
 
     // Initialize button state for all expected buttons
-    this.buttonState[gamepad.index] = {
-      // D-pad states
-      dpadLeft: false,
-      dpadRight: false,
-      dpadUp: false,
-      dpadDown: false,
-      // Face button states
-      faceSouth: false,
-      faceNorth: false,
-      faceEast: false,
-      faceWest: false,
-      // Special states
-      osdCombo: false,
-      // Analog stick digital states
-      leftStick: { pressed: false, nav: { left: false, right: false, up: false, down: false } },
-      rightStick: { pressed: false, nav: { left: false, right: false, up: false, down: false } }
-    };
+    this.buttonState[gamepad.index] = this.initialButtonState();
 
     this.analogState[gamepad.index] = { leftStick: { x: 0, y: 0 }, rightStick: { x: 0, y: 0 } };
 
@@ -228,10 +224,46 @@ class GamepadManager {
     this.refreshTestingControllerOptionsIfOpen?.();
   }
 
+  // Full per-controller state shape. Everything that reads stick sub-objects
+  // assumes they exist, so resets must produce this — not a bare {}.
+  initialButtonState() {
+    return {
+      // D-pad states
+      dpadLeft: false,
+      dpadRight: false,
+      dpadUp: false,
+      dpadDown: false,
+      // Face button states
+      faceSouth: false,
+      faceNorth: false,
+      faceEast: false,
+      faceWest: false,
+      // Special states
+      osdCombo: false,
+      // Analog stick digital states
+      leftStick: { pressed: false, nav: { left: false, right: false, up: false, down: false } },
+      rightStick: { pressed: false, nav: { left: false, right: false, up: false, down: false } }
+    };
+  }
+
   resetButtonStates() {
     for (let controllerIndex in this.controllers) {
-      this.buttonState[controllerIndex] = {};
+      this.buttonState[controllerIndex] = this.initialButtonState();
     }
+  }
+
+  // Self-heal: return the state object for a controller, creating it (and its
+  // stick sub-objects) if anything left it missing or partially formed.
+  ensureButtonState(controllerIndex) {
+    let bs = this.buttonState[controllerIndex];
+    if (!bs) bs = this.buttonState[controllerIndex] = this.initialButtonState();
+    if (!bs.leftStick || typeof bs.leftStick !== 'object') {
+      bs.leftStick = { pressed: false, nav: { left: false, right: false, up: false, down: false } };
+    }
+    if (!bs.rightStick || typeof bs.rightStick !== 'object') {
+      bs.rightStick = { pressed: false, nav: { left: false, right: false, up: false, down: false } };
+    }
+    return bs;
   }
 
   processInputs() {
@@ -245,8 +277,10 @@ class GamepadManager {
 
       if (!mapping) continue; // Don't process if no mapping is loaded
 
-      // Snapshot previous button state to detect rising edges reliably within this frame
-      const prevButtonState = { ...(this.buttonState[controllerIndex] || {}) };
+      // Snapshot previous button state to detect rising edges reliably within
+      // this frame. ensureButtonState self-heals a missing/partial entry so a
+      // controller can never crash the poll loop on its stick sub-objects.
+      const prevButtonState = { ...this.ensureButtonState(controllerIndex) };
 
       // Process all mapped buttons
       this.processButtonGroup('dpad', controller, controllerIndex, prevButtonState, mapping, useWASD);

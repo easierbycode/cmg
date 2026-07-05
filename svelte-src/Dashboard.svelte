@@ -369,6 +369,19 @@
     applyTwinStick();
   }
 
+  // A game frame is patchable only when same-origin. Decide from the frame's
+  // src URL rather than probing contentWindow.document: the probe throws a
+  // catchable SecurityError, but Chrome still logs a "Blocked a frame …"
+  // console error at the access point even when it's caught — pure noise on
+  // every cross-origin game load.
+  function frameIsSameOrigin(iframe) {
+    try {
+      const src = iframe?.getAttribute('src') || '';
+      if (!src) return false;
+      return new URL(src, window.location.href).origin === window.location.origin;
+    } catch (_) { return false; }
+  }
+
   // Patch (same-origin) and/or notify (any origin) the running game frame.
   // The patched getGamepads reads twinStickOn live, so it installs once per
   // frame document and the toggle takes effect without a reload.
@@ -379,20 +392,22 @@
       document.querySelector('.game-iframe iframe');
     const w = iframe && iframe.contentWindow;
     if (!w) return;
-    try {
-      void w.document; // throws for a cross-origin frame
-      if (!w.__cmgTwinStickWrapped) {
-        w.__cmgTwinStickWrapped = true;
-        const orig = typeof w.navigator.getGamepads === 'function'
-          ? w.navigator.getGamepads.bind(w.navigator)
-          : () => [];
-        w.navigator.getGamepads = () => {
-          if (!twinStickOn) return orig();
-          try { return window.CMGGamepadCompat.twinStick(navigator.getGamepads() || []); }
-          catch (_) { return orig(); }
-        };
-      }
-    } catch (_) { /* cross-origin — the game applies the toggle itself */ }
+    if (frameIsSameOrigin(iframe)) {
+      try {
+        if (!w.__cmgTwinStickWrapped) {
+          w.__cmgTwinStickWrapped = true;
+          const orig = typeof w.navigator.getGamepads === 'function'
+            ? w.navigator.getGamepads.bind(w.navigator)
+            : () => [];
+          w.navigator.getGamepads = () => {
+            if (!twinStickOn) return orig();
+            try { return window.CMGGamepadCompat.twinStick(navigator.getGamepads() || []); }
+            catch (_) { return orig(); }
+          };
+        }
+      } catch (_) { /* frame navigated mid-flight — the postMessage below still lands */ }
+    }
+    // Cross-origin games apply the toggle themselves off this message.
     try { w.postMessage({ type: 'cmg-twinstick-set', value: twinStickOn }, '*'); } catch (_) { /* ignore */ }
   }
   const HUE_SWATCHES = [
@@ -1824,11 +1839,14 @@
     btn: new Set(),
     axisDir: 0,
     lastNavAt: 0,
-    initialDelayMs: 280,
-    repeatMs: 110,
+    // Hold-to-repeat feel: long enough that a deliberate single tap (which
+    // often lasts 300ms+) never auto-repeats, then a steady scroll.
+    initialDelayMs: 400,
+    repeatMs: 150,
     holdingSince: 0,
     comboLatched: false,
     dirSeenAt: 0,
+    lastPollAt: 0,
   };
   const PAD_DEADZONE = 0.55;
   const SNES_PAD_RE = /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i;
@@ -2136,10 +2154,22 @@
     }
     if (dir !== 0) padState.dirSeenAt = now;
 
+    // A stalled frame (heavy re-render, tab jank) can make one tap look like a
+    // long hold: the next poll arrives with heldFor already past the repeat
+    // threshold and fires a phantom repeat. Restart hold timing after any gap
+    // long enough that the intervening pad state was unobserved.
+    const frameGap = now - (padState.lastPollAt || now);
+    padState.lastPollAt = now;
+    if (frameGap > 200) padState.holdingSince = now;
+
     if (dir !== 0 && dir !== padState.axisDir) {
-      if (dir < 0) navUp(); else navDown();
+      // Edge-triggered nav, rate-limited: bounce trains with gaps past the
+      // dropout window otherwise land as several distinct edges per tap.
+      if (now - padState.lastNavAt >= 150 || padState.lastNavAt === 0) {
+        if (dir < 0) navUp(); else navDown();
+        padState.lastNavAt = now;
+      }
       padState.holdingSince = now;
-      padState.lastNavAt = now;
     } else if (dir !== 0 && dir === padState.axisDir) {
       const heldFor = now - padState.holdingSince;
       const sinceLast = now - padState.lastNavAt;
@@ -2268,6 +2298,9 @@
   function injectOsdKeyForwarder(e) {
     const iframe = e?.currentTarget || document.getElementById('gameframe');
     if (!iframe || isTg16Game) return;
+    // Origin pre-check (see frameIsSameOrigin): probing a cross-origin frame
+    // throws a catchable error but still logs a console "Blocked a frame …".
+    if (!frameIsSameOrigin(iframe)) return;
     try {
       const w = iframe.contentWindow;
       if (!w || w.__cmgOsdForwarder) return;
