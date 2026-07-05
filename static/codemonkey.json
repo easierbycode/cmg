@@ -28,7 +28,10 @@
       "entry": "index.html",
       "downloadUrl": "https://raw.githubusercontent.com/easierbycode/shmup-party-phaser4/main/shmup-party-phaser4.zip",
       "size": "8 MB",
-      "date": "06.29.26"
+      "date": "06.29.26",
+      "twinStick": {
+        "default": true
+      }
     },
     {
       "id": "abobo",

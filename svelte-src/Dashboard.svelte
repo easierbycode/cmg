@@ -319,6 +319,82 @@
     try { iframe?.contentWindow?.postMessage({ type: 'cmg-action', id }, '*'); }
     catch (_) { /* ignore */ }
   }
+
+  // ── Twin-Stick mode ───────────────────────────────────────────────────────
+  // Re-expresses the pad as a dual-analog controller for twin-stick shooters:
+  // D-pad → left stick (move), face buttons → right stick (aim; top=up,
+  // right=right, bottom=down, left=left). The Guide shows the toggle when a
+  // game opts in, three ways:
+  //   - built-in default list (TWIN_STICK_DEFAULT_IDS — defaults ON),
+  //   - a `twinStick` flag on its catalog/manifest entry
+  //     (true, or { default: true } — mirrors the codemonkey.json shape),
+  //   - a boot-time postMessage { type: 'cmg-twinstick', default?: bool },
+  //     same pattern as cmg-cheats/cmg-plugins.
+  // Same-origin games (CMG Network cache, in-repo) get it applied by patching
+  // the frame's navigator.getGamepads with CMGGamepadCompat.twinStick over the
+  // launcher's own (SNES-normalized) pads — zero game changes needed.
+  // Cross-origin games can't be patched; they receive
+  // { type: 'cmg-twinstick-set', value } (sent in both cases) and apply it
+  // themselves. The choice persists per game in localStorage.
+  const TWIN_STICK_DEFAULT_IDS = new Set(['shmup-party-phaser3', 'shmup-party-phaser4']);
+  let twinStickAvail = $state(false);
+  let twinStickOn = $state(false);
+  let twinGameId = null;
+  let twinStickUserSet = false;
+
+  function twinStickKey(id) { return 'cmg-twinstick:' + id; }
+
+  function initTwinStick(id, item) {
+    twinGameId = id || null;
+    twinStickUserSet = false;
+    const flag = item ? item.twinStick : undefined;
+    const catalogAvail = flag === true || (!!flag && typeof flag === 'object');
+    const catalogDefault = flag === true || !!(flag && flag.default);
+    const builtin = !!id && TWIN_STICK_DEFAULT_IDS.has(id);
+    twinStickAvail = builtin || catalogAvail;
+    let on = builtin || catalogDefault;
+    try {
+      const saved = id ? localStorage.getItem(twinStickKey(id)) : null;
+      if (saved !== null) on = saved === '1';
+    } catch (_) { /* ignore */ }
+    twinStickOn = twinStickAvail && on;
+  }
+
+  function setTwinStick(v) {
+    twinStickOn = !!v;
+    twinStickUserSet = true;
+    if (twinGameId) {
+      try { localStorage.setItem(twinStickKey(twinGameId), twinStickOn ? '1' : '0'); } catch (_) { /* ignore */ }
+    }
+    applyTwinStick();
+  }
+
+  // Patch (same-origin) and/or notify (any origin) the running game frame.
+  // The patched getGamepads reads twinStickOn live, so it installs once per
+  // frame document and the toggle takes effect without a reload.
+  function applyTwinStick() {
+    // Fall back to the class selector: on the iframe's own load event the
+    // gameOn-gated id may not be applied yet.
+    const iframe = document.getElementById('gameframe') ||
+      document.querySelector('.game-iframe iframe');
+    const w = iframe && iframe.contentWindow;
+    if (!w) return;
+    try {
+      void w.document; // throws for a cross-origin frame
+      if (!w.__cmgTwinStickWrapped) {
+        w.__cmgTwinStickWrapped = true;
+        const orig = typeof w.navigator.getGamepads === 'function'
+          ? w.navigator.getGamepads.bind(w.navigator)
+          : () => [];
+        w.navigator.getGamepads = () => {
+          if (!twinStickOn) return orig();
+          try { return window.CMGGamepadCompat.twinStick(navigator.getGamepads() || []); }
+          catch (_) { return orig(); }
+        };
+      }
+    } catch (_) { /* cross-origin — the game applies the toggle itself */ }
+    try { w.postMessage({ type: 'cmg-twinstick-set', value: twinStickOn }, '*'); } catch (_) { /* ignore */ }
+  }
   const HUE_SWATCHES = [
     { hex: '#7CFF4F', hue: 130 }, // green (default)
     { hex: '#4FB8FF', hue: 235 }, // blue
@@ -375,6 +451,11 @@
     // EmulatorJS control bar toggle is only meaningful for EmulatorJS cores.
     if (hasEmulatorControls) {
       game.push({ key: 'emucontrols', kind: 'toggle', label: 'Emulator Controls', value: controlsShown });
+    }
+    // Twin-Stick mode appears only for games that opt in (built-in list,
+    // catalog `twinStick` flag, or a cmg-twinstick broadcast).
+    if (twinStickAvail) {
+      game.push({ key: 'twinstick', kind: 'toggle', label: 'Twin-Stick Mode', value: twinStickOn });
     }
     // The Cheats submenu appears only when the running game has advertised a
     // cheat set over postMessage (osdCheats) — opt-in, per game.
@@ -462,6 +543,7 @@
     else if (it.key === 'scanlines') setTweak('scanlines', !!v);
     else if (it.key === 'disco') setTweak('discoMode', !!v);
     else if (it.key === 'emucontrols') controlsShown = !!v;
+    else if (it.key === 'twinstick') setTwinStick(!!v);
   }
   function adjustOsd(i, dir) {
     const it = osdItems[i]; if (!it) return;
@@ -771,6 +853,7 @@
     // binary still loads a newly-added in-repo game from the deploy; offline it
     // falls back to its embedded same-origin copy.
     const item = GAMES.find((g) => g.id === id);
+    initTwinStick(id, item);
     if (item && item.url) {
       gameSrc = manifestOrigin ? new URL(item.url, manifestOrigin).href : item.url;
     } else {
@@ -987,6 +1070,7 @@
     if (game.kind === 'music') { openMusic(game); return; }
     sfx.enter();
     chromeDismissed = false;
+    initTwinStick(game.id, game);
     if (cmgnetStatus[game.id]?.cached) {
       // Already downloaded — served from Cache Storage by cmg-sw.js.
       playCmgnet(game);
@@ -1667,6 +1751,10 @@
     osdCheats = [];
     osdPlugins = [];
     osdActions = [];
+    twinStickAvail = false;
+    twinStickOn = false;
+    twinGameId = null;
+    twinStickUserSet = false;
     try { delete window.__psxByodFile; } catch (_) {}
     try { sessionStorage.removeItem('psx-byod'); } catch (_) {}
     try { delete window.__saturnByodFile; } catch (_) {}
@@ -1740,6 +1828,7 @@
     repeatMs: 110,
     holdingSince: 0,
     comboLatched: false,
+    dirSeenAt: 0,
   };
   const PAD_DEADZONE = 0.55;
   const SNES_PAD_RE = /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i;
@@ -1920,10 +2009,16 @@
       if (osdOpen) {
         // Vertical: D-pad 12/13 or left-stick Y → move selection (edge-latched).
         const dirs = readPadDirs(pad);
+        const nowOsd = performance.now();
         let v = 0;
         if (dirs.up) v = -1;
         else if (dirs.down) v = 1;
         else { const ay = pad.axes[1] ?? 0; if (ay < -PAD_DEADZONE) v = -1; else if (ay > PAD_DEADZONE) v = 1; }
+        // Same bounce/dropout filter as the launcher-list nav: hold the last
+        // direction through sub-80ms neutral blips so a bouncy D-pad doesn't
+        // move the selection several rows per tap.
+        if (v === 0 && osdNav.vDir !== 0 && nowOsd - (osdNav.vSeenAt || 0) < 80) v = osdNav.vDir;
+        if (v !== 0) osdNav.vSeenAt = nowOsd;
         if (v !== 0 && v !== osdNav.vDir) {
           osdSel = Math.max(0, Math.min(osdItems.length - 1, osdSel + v));
           sfx.nav();
@@ -1934,6 +2029,8 @@
         if (dirs.left) h = -1;
         else if (dirs.right) h = 1;
         else { const ax = pad.axes[0] ?? 0; if (ax < -PAD_DEADZONE) h = -1; else if (ax > PAD_DEADZONE) h = 1; }
+        if (h === 0 && osdNav.hDir !== 0 && nowOsd - (osdNav.hSeenAt || 0) < 80) h = osdNav.hDir;
+        if (h !== 0) osdNav.hSeenAt = nowOsd;
         if (h !== 0 && h !== osdNav.hDir) adjustOsd(osdSel, h);
         osdNav.hDir = h;
         if (justPressed(0)) activateOsd(osdSel);              // A
@@ -2028,6 +2125,16 @@
       if (hat.up) dir = -1;
       else if (hat.down) dir = 1;
     }
+
+    // Bounce/dropout filter: a one-or-two-frame neutral blip in the middle of
+    // a press (contact bounce, or duplicate pad entries alternating state)
+    // re-fires the edge nav, which reads as several presses per tap. Hold the
+    // last direction through sub-80ms dropouts so only a real release
+    // re-arms the edge.
+    if (dir === 0 && padState.axisDir !== 0 && now - padState.dirSeenAt < 80) {
+      dir = padState.axisDir;
+    }
+    if (dir !== 0) padState.dirSeenAt = now;
 
     if (dir !== 0 && dir !== padState.axisDir) {
       if (dir < 0) navUp(); else navDown();
@@ -2226,6 +2333,24 @@
       osdPlugins = sanitizePlugins(d.plugins).map((p) =>
         prev.has(p.id) ? { ...p, value: prev.get(p.id) } : p
       );
+      return;
+    }
+    if (d.type === 'cmg-twinstick') {
+      // The running game advertises Twin-Stick support (optionally with a
+      // default). Benign — worst case a toggle appears whose effect the game
+      // ignores — so accept it from our own frame at any origin, like
+      // cmg-cheats. A saved per-game choice or an in-session user toggle
+      // always wins over the advertised default.
+      twinStickAvail = true;
+      if (!twinStickUserSet) {
+        let on = d.default !== false;
+        try {
+          const saved = twinGameId ? localStorage.getItem(twinStickKey(twinGameId)) : null;
+          if (saved !== null) on = saved === '1';
+        } catch (_) { /* ignore */ }
+        twinStickOn = on;
+      }
+      applyTwinStick();
       return;
     }
     if (d.type === 'cmg-actions') {
@@ -3047,7 +3172,7 @@
       src={gameSrc}
       title="game"
       allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
-      onload={injectOsdKeyForwarder}
+      onload={(e) => { injectOsdKeyForwarder(e); applyTwinStick(); }}
     ></iframe>
   </div>
 {/if}

@@ -293,6 +293,51 @@
     return out;
   }
 
+  // Twin-Stick mode: re-express a pad as a dual-analog controller for
+  // twin-stick shooters — D-pad drives the left stick (move), face buttons
+  // drive the right stick (aim: top=up, right=right, bottom=down, left=left).
+  // Expects standard-layout pads (run them through this plugin first), so it
+  // works for the SNES pad and any standard pad alike. Real analog values
+  // pass through whenever the digital override isn't pressed. Returns plain
+  // snapshot objects (not proxies) so they can safely cross into a
+  // same-origin game iframe's realm.
+  function twinStickPads(pads) {
+    const out = [];
+    for (let i = 0; i < (pads ? pads.length : 0); i++) {
+      const p = pads[i];
+      if (!p || !p.connected) {
+        out.push(null);
+        continue;
+      }
+      const b = p.buttons || [];
+      const pr = (j) => !!(b[j] && b[j].pressed);
+      const axes = [];
+      const srcAxes = p.axes || [];
+      for (let a = 0; a < Math.max(srcAxes.length, 4); a++) {
+        axes[a] = typeof srcAxes[a] === "number" ? srcAxes[a] : 0;
+      }
+      axes[0] = pr(14) ? -1 : pr(15) ? 1 : axes[0]; // D-pad → left stick X
+      axes[1] = pr(12) ? -1 : pr(13) ? 1 : axes[1]; // D-pad → left stick Y
+      axes[2] = pr(2) ? -1 : pr(1) ? 1 : axes[2]; // faces → right stick X
+      axes[3] = pr(3) ? -1 : pr(0) ? 1 : axes[3]; // faces → right stick Y
+      out.push({
+        id: p.id,
+        index: p.index,
+        connected: true,
+        mapping: "standard",
+        timestamp: p.timestamp || 0,
+        axes,
+        buttons: Array.prototype.map.call(b, (x) => ({
+          pressed: !!(x && x.pressed),
+          touched: !!(x && (x.touched || x.pressed)),
+          value: x && typeof x.value === "number" ? x.value : (x && x.pressed ? 1 : 0),
+        })),
+        vibrationActuator: p.vibrationActuator || null,
+      });
+    }
+    return out;
+  }
+
   function install(nextOptions) {
     options = merge({}, options, nextOptions || {});
 
@@ -313,6 +358,7 @@
     options() {
       return merge({}, options);
     },
+    twinStick: twinStickPads,
     // Unwrapped pads, for diagnostics (e.g. the dashboard's ?paddebug=1
     // overlay) — shows what the browser actually reports before this plugin
     // normalizes it.
