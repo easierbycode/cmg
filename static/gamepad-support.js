@@ -36,10 +36,10 @@ class GamepadManager {
         right: { gamepadButton: 15, keyboardKey: 'ArrowRight', keyCode: 39 }
       },
       face: {
-        btnBottom: { gamepadButton: 0, keyboardKey: ' ', keyCode: 32 }, // A/Cross
-        btnRight: { gamepadButton: 1, keyboardKey: 'c', keyCode: 67 }, // B/Circle
-        btnLeft: { gamepadButton: 2, keyboardKey: 'c', keyCode: 67 }, // X/Square
-        btnTop: { gamepadButton: 3, keyboardKey: ' ', keyCode: 32 } // Y/Triangle
+        btnBottom: { gamepadButton: 0, keyboardKey: ' ', keyCode: 32 }, // FBTN_BOTTOM
+        btnRight: { gamepadButton: 1, keyboardKey: 'c', keyCode: 67 }, // FBTN_RIGHT
+        btnLeft: { gamepadButton: 2, keyboardKey: 'c', keyCode: 67 }, // FBTN_LEFT
+        btnTop: { gamepadButton: 3, keyboardKey: ' ', keyCode: 32 } // FBTN_TOP
       },
       shoulder: {
         leftShoulder: { gamepadButton: 4, keyboardKey: 'q', keyCode: 81 },
@@ -294,7 +294,8 @@ class GamepadManager {
           if (swallow) {
             // no-op: allow state update below for visualization
           }
-          // B closes controller configurator if open; otherwise fall through
+          // FBTN_RIGHT closes controller configurator if open; otherwise fall
+          // through
           else if (this.isConfiguratorOpen && this.isConfiguratorOpen() && groupName === 'face' && buttonName === 'btnRight') {
             try { this.closeConfigurator(); } catch (_) {}
             this.buttonState[controllerIndex].faceEast = true;
@@ -302,7 +303,8 @@ class GamepadManager {
           }
           // While overlays are open, don't forward most groups to the game
           else if (this.isAnyOverlayOpen && this.isAnyOverlayOpen() && (groupName === 'dpad' || groupName === 'face' || groupName === 'shoulder')) {
-            // Latch A/B so releasing after closing overlay won't trigger launcher actions
+            // Latch FBTN_BOTTOM/FBTN_RIGHT so releasing after closing overlay
+            // won't trigger launcher actions
             if (groupName === 'face' && buttonName === 'btnBottom') this.buttonState[controllerIndex].faceSouth = true;
             if (groupName === 'face' && buttonName === 'btnRight') this.buttonState[controllerIndex].faceEast = true;
             // Overlay-specific handling handled elsewhere

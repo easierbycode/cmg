@@ -514,8 +514,8 @@
     // into — otherwise swallows every arrow/Enter/Esc while the Guide is up.
     if (gameOn) { try { document.getElementById('gameframe')?.blur(); window.focus(); } catch (_) { /* ignore */ } }
   }
-  // B / Esc backs out of the Cheats sub-page to the root before it closes the
-  // whole Guide; the ✕ button and tap-out always close outright.
+  // FBTN_RIGHT / Esc backs out of the Cheats sub-page to the root before it
+  // closes the whole Guide; the ✕ button and tap-out always close outright.
   function osdBack() {
     if (osdView === 'cheats') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); return; }
     closeOsd();
@@ -667,8 +667,8 @@
   });
 
   // Auto-focus the BYOD button when entering the empty PSX screen so gamepad
-  // A can click it. Note: browsers require a *user* gesture to open the native
-  // file picker — gamepad input doesn't count. Focusing means a real keyboard
+  // FBTN_BOTTOM can click it. Note: browsers require a *user* gesture to open
+  // the native file picker — gamepad input doesn't count. Focusing means a real
   // Enter on a USB keyboard will trigger the picker; programmatic .click()
   // from gamepad polling will be silently denied in some browsers.
   $effect(() => {
@@ -1947,7 +1947,7 @@
     else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetVisible.length - 1, 0);
     sfx.nav();
   }
-  function actA() {
+  function actFbtnBottom() {
     if (gameOn) return;
     if (screen === 'dashboard') pickMenu(menuSel);
     else if (screen === 'games') launchGame(GAMES[gameSel].id);
@@ -1968,11 +1968,12 @@
     else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
     else if (screen === 'cmgnet') launchCmgnet(cmgnetVisible[cmgnetSel]);
   }
-  function actB() {
+  function actFbtnRight() {
     if (gameOn) closeGame();
-    // A music sidebar opened from the catalog (no game running) closes on B — its
-    // only gamepad close path off-game, since the Guide (which owns the in-game
-    // toggle) isn't reachable without a game. Closes the topmost overlay first.
+    // A music sidebar opened from the catalog (no game running) closes on
+    // FBTN_RIGHT — its only gamepad close path off-game, since the Guide (which
+    // owns the in-game toggle) isn't reachable without a game. Closes the
+    // topmost overlay first.
     else if (musicOpen) closeMusic();
     else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') goBack();
   }
@@ -2033,8 +2034,8 @@
         if (h !== 0) osdNav.hSeenAt = nowOsd;
         if (h !== 0 && h !== osdNav.hDir) adjustOsd(osdSel, h);
         osdNav.hDir = h;
-        if (justPressed(0)) activateOsd(osdSel);              // A
-        else if (justPressed(1) || justPressed(8)) osdBack(); // B or Select (Cheats → root → close)
+        if (justPressed(0)) activateOsd(osdSel);              // FBTN_BOTTOM
+        else if (justPressed(1) || justPressed(8)) osdBack(); // FBTN_RIGHT or Select (Cheats → root → close)
         padState.btn = pressedNow;
         return;
       }
@@ -2153,11 +2154,11 @@
     const pressedNow = new Set();
     pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
     const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
-    if (justPressed(0) || justPressed(9)) actA();   // A or Start
-    if (justPressed(1) || justPressed(8)) actB();   // B or Back/Select
-    // X — uninstall a graduated network game from the Games list.
+    if (justPressed(0) || justPressed(9)) actFbtnBottom(); // FBTN_BOTTOM or Start
+    if (justPressed(1) || justPressed(8)) actFbtnRight();  // FBTN_RIGHT or Back/Select
+    // FBTN_LEFT — uninstall a graduated network game from the Games list.
     if (justPressed(2) && screen === 'games' && currentGame?.__cmgnet) cmgnetUninstall(currentGame);
-    if (justPressed(3)) actUpdate();                // Y — update a graduated game (when one is available)
+    if (justPressed(3)) actUpdate();                // FBTN_TOP — update a graduated game (when one is available)
     // Shoulder/trigger navigation — fallback when D-pad isn't recognized
     // (e.g. Firefox + non-standard SNES adapters). SNES pads have no L2/R2:
     // on some platforms their Select/Start report in those slots, so the
@@ -2195,8 +2196,9 @@
       }
       return;
     }
-    // Off-game, a music sidebar (opened from the catalog) closes on Esc / B /
-    // Backspace before any screen navigation — the topmost overlay goes first.
+    // Off-game, a music sidebar (opened from the catalog) closes on Esc /
+    // FBTN_RIGHT / Backspace before any screen navigation — the topmost
+    // overlay goes first.
     if (musicOpen && (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B')) {
       closeMusic(); e.preventDefault(); return;
     }
@@ -3154,7 +3156,7 @@
       </span>
     </div>
   {/if}
-  <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
+  <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actFbtnBottom)}>
     <div class="btn-hint">A</div>
     <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
   </div>
