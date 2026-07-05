@@ -11,10 +11,24 @@ interface PsxRom {
   date: string;
 }
 
-const PSX_EXT = /\.(pbp|chd|iso|cue|m3u)$/i;
+// .zip = a cue/bin game packed by scripts/import-openemu.ts — EmulatorJS
+// unpacks it in the browser and auto-selects the cue/m3u sheet.
+const PSX_EXT = /\.(pbp|chd|iso|cue|m3u|zip)$/i;
 
 const dirUrl = new URL("../static/PlayStation/", import.meta.url);
 const manifestPath = new URL("manifest.json", dirUrl);
+
+// Strip trailing region / translation / version tags — "(USA)", "(Beta)",
+// "[T-Eng]" — repeatedly, mirroring scripts/build-nes-manifest.ts.
+function cleanName(file: string): string {
+  let name = file.replace(PSX_EXT, "");
+  let prev: string;
+  do {
+    prev = name;
+    name = name.replace(/\s*[\[(][^\[\]()]*[\])]\s*$/, "").trim();
+  } while (name !== prev);
+  return name || file.replace(PSX_EXT, "");
+}
 
 const games: PsxRom[] = [];
 try {
@@ -24,17 +38,12 @@ try {
     const stat = await Deno.stat(new URL(entry.name, dirUrl));
     const sizeMb = (stat.size / (1024 * 1024)).toFixed(1);
     const d = stat.mtime ?? new Date();
-    const date =
-      `${String(d.getMonth() + 1).padStart(2, "0")}.${
-        String(d.getDate()).padStart(2, "0")
-      }.${String(d.getFullYear()).slice(-2)}`;
-    const display = entry.name
-      .replace(PSX_EXT, "")
-      .replace(/\s*\((USA|U|US|NTSC|J|JP|E|EU|PAL)\)\s*$/i, "")
-      .trim();
+    const date = `${String(d.getMonth() + 1).padStart(2, "0")}.${
+      String(d.getDate()).padStart(2, "0")
+    }.${String(d.getFullYear()).slice(-2)}`;
     games.push({
       file: entry.name,
-      name: display,
+      name: cleanName(entry.name),
       url: `/PlayStation/${encodeURIComponent(entry.name)}`,
       size: `${sizeMb} MB`,
       date,
@@ -50,5 +59,7 @@ games.sort((a, b) => a.name.localeCompare(b.name));
 
 await Deno.writeTextFile(manifestPath, JSON.stringify(games, null, 2) + "\n");
 console.log(
-  `[psx-manifest] wrote ${games.length} ROM${games.length === 1 ? "" : "s"} to ${manifestPath.pathname}`,
+  `[psx-manifest] wrote ${games.length} ROM${
+    games.length === 1 ? "" : "s"
+  } to ${manifestPath.pathname}`,
 );

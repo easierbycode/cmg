@@ -18,6 +18,7 @@
     "psx:manifest": "deno run -A scripts/build-psx-manifest.ts",
     "saturn:manifest": "deno run -A scripts/build-saturn-manifest.ts",
     "arcade:manifest": "deno run -A scripts/build-arcade-manifest.ts",
+    "openemu:import": "deno run -A scripts/import-openemu.ts",
     "arcade:core": "deno run -A scripts/vendor-arcade-core.ts",
     "arcade:configs": "deno run -A scripts/convert-mame-configs.ts",
     "arcade:bundle": "deno task arcade:core && deno task arcade:configs",

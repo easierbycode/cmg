@@ -17,7 +17,9 @@ interface NesRom {
   date: string;
 }
 
-const NES_EXT = /\.(nes|fds|unif|unf)$/i;
+// .zip = a zipped cartridge (OpenEmu keeps most carts zipped) — EmulatorJS
+// unpacks it in the browser and picks the rom inside.
+const NES_EXT = /\.(nes|fds|unif|unf|zip)$/i;
 
 const dirUrl = new URL("../static/Nintendo/", import.meta.url);
 const manifestPath = new URL("manifest.json", dirUrl);
