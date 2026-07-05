@@ -53,6 +53,7 @@
       }
     </style>
     <script src="/gamepad-compatibility-plugin.js"></script>
+    <script src="/shaders/pixellate.js"></script>
   </head>
   <body>
     <div id="display"></div>
@@ -192,6 +193,8 @@
               mo.disconnect();
             }, 15000);
           };
+          // OpenEmu Pixellate shader — on by default, toggled from the OSD.
+          if (window.CMGPixellate) window.CMGPixellate.configure();
           var s = document.createElement("script");
           s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
           document.body.appendChild(s);
@@ -226,7 +229,7 @@
           }, 10000);
         } else {
           var url = "/PlayStation/" + encodeURIComponent(rom);
-          var t = rom.replace(/\.(pbp|chd|iso|bin|cue|m3u)$/i, "");
+          var t = rom.replace(/\.(pbp|chd|iso|bin|cue|m3u|zip)$/i, "");
           boot(url, t);
         }
       })();

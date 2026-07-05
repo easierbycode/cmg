@@ -188,6 +188,7 @@
       }
     </style>
     <script src="/gamepad-compatibility-plugin.js"></script>
+    <script src="/shaders/pixellate.js"></script>
   </head>
   <body>
     <div id="display"></div>
@@ -212,7 +213,7 @@
           return;
         }
         var romUrl = "/TurboGrafx-16/" + encodeURIComponent(rom);
-        var title = rom.replace(/\.pce$/i, "");
+        var title = rom.replace(/\.(pce|zip)$/i, "");
         document.title = title || "TurboGrafx-16";
 
         if ("ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0) {
@@ -712,6 +713,8 @@
         }
 
         function appendLoader() {
+          // OpenEmu Pixellate shader — on by default, toggled from the OSD.
+          if (window.CMGPixellate) window.CMGPixellate.configure();
           var s = document.createElement("script");
           s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
           document.body.appendChild(s);

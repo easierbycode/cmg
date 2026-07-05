@@ -64,3 +64,37 @@ The manifest is served with permissive CORS + `no-store` by the global
 middleware in [`main.ts`](main.ts), so the cross-origin fetch from a launcher on
 `localhost` works. Regenerate it locally with `deno task games:manifest` (it
 also runs as the first step of `deno task build`).
+
+## Importing an OpenEmu game library
+
+`deno task openemu:import` copies every game from OpenEmu's library
+(`~/Library/Application Support/OpenEmu/Game Library/roms/`) into the matching
+bundled emulator's ROM dir and refreshes its manifest, so the games appear in
+the dashboard menus on the next reload:
+
+| OpenEmu system   | Launcher dir            |
+| ---------------- | ----------------------- |
+| Sega Saturn      | `static/SegaSaturn/`    |
+| Sony PlayStation | `static/PlayStation/`   |
+| Nintendo (NES)   | `static/Nintendo/`      |
+| TurboGrafx-16    | `static/TurboGrafx-16/` |
+| Arcade           | `static/arcade/`        |
+
+Single-file games (chd/iso/pbp/carts/zips) are copied as-is (`--link` symlinks
+them instead to save disk). Disc games stored as cue/bin folders are packed into
+one uncompressed `.zip` per game — the EmulatorJS players unpack zips in the
+browser and auto-select the cue/m3u sheet. Useful flags (append after the task
+name): `--systems=saturn,psx`, `--dry-run`, `--force`,
+`"--library=/path/to/Game Library/roms"`. Imported files are gitignored
+(local-only, like the PSX library) — a `deno task build:mac` binary embeds them,
+while Deno Deploy stays ROM-free.
+
+## Pixellate shader (OpenEmu's default look)
+
+The EmulatorJS players (NES / TurboGrafx-16 / PSX / Saturn) render through a
+port of OpenEmu's default **Pixellate** shader
+([`static/shaders/pixellate.js`](static/shaders/pixellate.js)) — anti-aliased
+nearest-neighbour scaling, so pixels stay crisp at any window size. It is on by
+default; toggle it per player from the in-game OSD (SELECT + Down → Plugins →
+Pixellate Shader — the choice persists in `localStorage`), or pick any other
+shader from the EmulatorJS Settings → Graphics menu.

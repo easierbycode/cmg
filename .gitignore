@@ -25,6 +25,19 @@ dist/
 static/PlayStation/*
 !static/PlayStation/manifest.json
 
+# Other imported ROM libraries (deno task openemu:import) — local-only, same
+# policy as the PSX library above. Files committed before these rules were
+# added stay tracked; commit new ones explicitly (git add -f) if a deploy
+# target should bundle them. static/arcade also holds the Emularity player,
+# so only its ROM zips are ignored.
+static/SegaSaturn/*
+!static/SegaSaturn/manifest.json
+static/Nintendo/*
+!static/Nintendo/manifest.json
+static/TurboGrafx-16/*
+!static/TurboGrafx-16/manifest.json
+static/arcade/*.zip
+
 # PSX BIOS (copyrighted). Keep out of public git by default — commit
 # explicitly if your deployment target needs them.
 static/bios/
