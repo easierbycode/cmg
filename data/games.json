@@ -8,6 +8,6 @@
   { "id": "pacman-halloween-2025", "name": "PAC-MAN Halloween", "title": "PAC-MAN: HALLOWEEN", "sub": "Seasonal", "icon": null, "size": "14.2 MB", "date": "10.31.25" },
   { "id": "evil-invaders", "name": "Peachy Skies", "title": "PEACHY SKIES", "sub": "Turbo + Audio", "icon": "/icons/headphone-invader-icon.png", "size": "8.2 MB", "date": "10.13.24" },
   { "id": "hellophaser/v3", "name": "RonaGun", "title": "RONAGUN", "sub": "Phaser v3 demo", "icon": null, "size": "3.1 MB", "date": "08.08.22" },
-  { "id": "shmup-party-phaser3", "name": "Sh’M↑ Party", "title": "SH'M↑ PARTY", "sub": "Multiplayer", "icon": "/icons/shmup-party-icon.png", "size": "7.9 MB", "date": "02.14.24" },
+  { "id": "shmup-party-phaser3", "name": "Sh’M↑ Party", "title": "SH'M↑ PARTY", "sub": "Multiplayer", "icon": "/icons/shmup-party-icon.png", "size": "7.9 MB", "date": "02.14.24", "twinStick": { "default": true } },
   { "id": "squad-game", "name": "Squad Game", "title": "SQUAD GAME", "sub": "👨🏽‍💻 👾💾🖳 👩🏽‍💻", "icon": "/icons/squad-game.png", "size": "5.7 MB", "date": "11.02.23" }
 ]

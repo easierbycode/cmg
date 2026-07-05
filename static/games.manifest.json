@@ -92,7 +92,10 @@
       "sub": "Multiplayer",
       "icon": "/icons/shmup-party-icon.png",
       "size": "7.9 MB",
-      "date": "02.14.24"
+      "date": "02.14.24",
+      "twinStick": {
+        "default": true
+      }
     },
     {
       "id": "squad-game",
