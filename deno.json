@@ -22,6 +22,7 @@
     "arcade:core": "deno run -A scripts/vendor-arcade-core.ts",
     "arcade:configs": "deno run -A scripts/convert-mame-configs.ts",
     "arcade:bundle": "deno task arcade:core && deno task arcade:configs",
+    "test:e2e": "deno test -A tests/e2e/",
     "start": "deno serve -A _fresh/server.js",
     "update": "deno run -A -r jsr:@fresh/update ."
   },
@@ -55,6 +56,9 @@
     "svelte": "npm:svelte@^5.16.0",
     "esbuild": "npm:esbuild@^0.24.0",
     "esbuild-svelte": "npm:esbuild-svelte@^0.9.0",
+    "@astral/astral": "jsr:@astral/astral@^0.5.6",
+    "@std/assert": "jsr:@std/assert@^1.0.0",
+    "@std/http": "jsr:@std/http@^1.1.0",
     "ws": "npm:ws@^8.18.0",
     "@types/ws": "npm:@types/ws@^8.5.10"
   },
