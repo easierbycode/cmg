@@ -72,6 +72,13 @@
         return album;
       });
 
+      // Old synchronous contract: scenes call bgmPlay() right after
+      // initSound() without awaiting readiness — the shim must queue it.
+      if (params.get("eager") === "1") {
+        Sound.bgmPlay("boss_bison_bgm");
+        log("eager bgmPlay boss_bison_bgm (before player ready)");
+      }
+
       // Manual poke buttons (handy outside the automated test).
       const buttons = document.getElementById("buttons");
       for (const key of Object.keys(BOSS_BGM)) {
