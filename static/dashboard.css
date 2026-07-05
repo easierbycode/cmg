@@ -487,6 +487,33 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 }
 .byoc-row .game-icon .glass .ph { font-size: clamp(18px, 2.6vmin, 26px); }
 
+/* Settings → OpenEmu import picker + Controller Sync. Reuses .games-screen /
+   .game-row; adds non-selectable system-section headers (.oe-head), a dimmed
+   already-in-library treatment (.oe-in), and the sync mapping table rows. */
+.oe-head {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 1em;
+  padding: 1.2vmin .6vmin .2vmin;
+  font-family: 'Share Tech Mono', monospace; font-size: clamp(10px, 1.3vmin, 13px);
+  letter-spacing: .24em; text-transform: uppercase;
+  color: rgba(180, 255, 140, .55);
+  border-bottom: 1px solid rgba(140, 255, 110, .18);
+}
+.game-row.oe-in { opacity: .55; }
+.game-row.oe-in .game-icon .glass .ph { color: #4fd06a; }
+.sync-row {
+  flex-shrink: 0;
+  display: grid; grid-template-columns: 1.2fr auto 1.2fr 1.6fr; align-items: center; gap: 1.2em;
+  padding: .9vmin 1.2vmin;
+  font-family: 'Share Tech Mono', monospace; font-size: clamp(11px, 1.5vmin, 15px);
+  letter-spacing: .1em; color: rgba(220, 255, 180, .8);
+  border: 1px solid rgba(140, 255, 110, .16); border-radius: .8vmin;
+  background: linear-gradient(180deg, rgba(70, 180, 90, .05), rgba(20, 60, 30, .25));
+}
+.sync-row .sync-arrow { color: rgba(180, 255, 140, .5); }
+.sync-row .sync-retro { color: #fff; }
+.sync-row .sync-note { text-align: right; font-size: .85em; color: rgba(220, 255, 180, .45); text-transform: uppercase; }
+
 /* CMG Network (e-shop) — reuses .games-screen/.game-row; adds a network-tinted
    disc plus a per-row store badge (GET / downloading % / INSTALLED) and a thin
    download progress bar pinned to the bottom of the row. */
