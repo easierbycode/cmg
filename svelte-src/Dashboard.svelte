@@ -131,11 +131,23 @@
   let cmgnetGames = $state([]);
   let cmgnetSel = $state(0);
   let cmgnetRowEls = $state([]);
-  // ─── Settings → OpenEmu import / Controller sync ──────────────────────────
-  const SETTINGS_ITEMS = [
+  // ─── Settings → Theme / OpenEmu import / Controller sync ──────────────────
+  // Dashboard skins. 'xbox' is the shipped green look; 'nintendo' is the NES
+  // cabinet palette ported from codemonkey-games-launcher (body.theme-nintendo
+  // overrides in dashboard.css).
+  const THEMES = [
+    { id: 'xbox', label: 'XBOX' },
+    { id: 'nintendo', label: 'NINTENDO' },
+  ];
+  let SETTINGS_ITEMS = $derived([
+    {
+      id: 'theme',
+      label: 'THEME',
+      sub: THEMES.map((t) => (t.id === tweaks.theme ? `[ ${t.label} ]` : t.label)).join('  ·  '),
+    },
     { id: 'oeimport', label: 'IMPORT OPENEMU LIBRARY', sub: 'pick games to copy from OpenEmu' },
     { id: 'ctrlsync', label: 'CONTROLLER SYNC', sub: 'CMG ⇄ emulator profiles · beta' },
-  ];
+  ]);
   let settingsSel = $state(0);
   let settingsRowEls = $state([]);
   // OpenEmu import picker. oeScan is null while /api/openemu/scan is in
@@ -514,7 +526,7 @@
     { hex: '#56F0E2', hue: 190 }, // cyan
   ];
   const TWEAK_KEY = 'cmg-tweaks';
-  const TWEAK_DEFAULTS = { hue: 130, breatheSpeed: 1, scanlines: true, discoMode: false };
+  const TWEAK_DEFAULTS = { hue: 130, breatheSpeed: 1, scanlines: true, discoMode: false, theme: 'xbox' };
   function loadTweaks() {
     try { return { ...TWEAK_DEFAULTS, ...JSON.parse(localStorage.getItem(TWEAK_KEY) || '{}') }; }
     catch (_) { return { ...TWEAK_DEFAULTS }; }
@@ -1014,7 +1026,10 @@
     if (!it) return;
     settingsSel = i;
     sfx.enter();
-    if (it.id === 'oeimport') {
+    if (it.id === 'theme') {
+      const cur = THEMES.findIndex((t) => t.id === tweaks.theme);
+      setTweak('theme', THEMES[(cur + 1) % THEMES.length].id);
+    } else if (it.id === 'oeimport') {
       screen = 'oeimport';
       if (!oeScan) loadOeScan();
       oeSel = oeFirstSelectable();
@@ -2517,6 +2532,25 @@
       if (hat.up) dir = -1;
       else if (hat.down) dir = 1;
     }
+    // Nintendo theme: the catalog lists are a horizontal coverflow row, so
+    // D-pad / stick left/right navigate them as prev/next too.
+    if (dir === 0 && !gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard') {
+      if (pad.buttons[14]?.pressed) dir = -1;       // standard-mapping D-pad left
+      else if (pad.buttons[15]?.pressed) dir = 1;   // standard-mapping D-pad right
+      if (dir === 0 && !isSnesPad) {
+        for (const i of [0, 2, 4, 6]) {             // candidate X axes
+          const v = pad.axes[i];
+          if (typeof v !== 'number' || Math.abs(v) > 1.05) continue;
+          if (v < -PAD_DEADZONE) { dir = -1; break; }
+          if (v > PAD_DEADZONE) { dir = 1; break; }
+        }
+      }
+      if (dir === 0) {
+        const hat = decodePadHat(pad.axes[9]);
+        if (hat.left) dir = -1;
+        else if (hat.right) dir = 1;
+      }
+    }
 
     // Bounce/dropout filter: a one-or-two-frame neutral blip in the middle of
     // a press (contact bounce, or duplicate pad entries alternating state)
@@ -2582,6 +2616,16 @@
   function unlockAudio() { try { getAc()?.resume(); } catch (e) { /* ignore */ } }
 
   function onKey(e) {
+    // Nintendo theme lays the catalog lists out as a horizontal coverflow row,
+    // so left/right arrows navigate them too (up/down keeps working).
+    if (!gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      onKey({
+        key: e.key === 'ArrowLeft' ? 'ArrowUp' : 'ArrowDown',
+        preventDefault: () => e.preventDefault(),
+        stopImmediatePropagation: () => e.stopImmediatePropagation?.(),
+      });
+      return;
+    }
     if (gameOn) {
       if (osdOpen) {
         // Keyboard nav of the OSD (mirrors the gamepad mapping).
@@ -2922,7 +2966,15 @@
   // CSS vars). Persisted in setTweak(); re-applied whenever they change.
   $effect(() => {
     const root = document.documentElement;
-    if (!tweaks.discoMode) {
+    const nintendo = tweaks.theme === 'nintendo';
+    document.body.classList.toggle('theme-nintendo', nintendo);
+    if (nintendo) {
+      // The Nintendo skin is a fixed palette (body.theme-nintendo in
+      // dashboard.css) — drop the inline hue overrides so it wins.
+      for (const p of ['--green-glow', '--green', '--tile-edge', '--green-deep']) {
+        root.style.removeProperty(p);
+      }
+    } else if (!tweaks.discoMode) {
       const h = tweaks.hue;
       root.style.setProperty('--green-glow', `oklch(0.78 0.26 ${h})`);
       root.style.setProperty('--green', `oklch(0.86 0.22 ${h})`);
@@ -2935,7 +2987,7 @@
 
   // Disco mode — cycle the glow hue while enabled.
   $effect(() => {
-    if (!tweaks.discoMode) return;
+    if (!tweaks.discoMode || tweaks.theme === 'nintendo') return;
     let h = tweaks.hue;
     const root = document.documentElement;
     const id = setInterval(() => {
@@ -3626,7 +3678,7 @@
               onmouseenter={() => { if (i !== settingsSel) { settingsSel = i; sfx.nav(); } }}
               onclick={() => activateSettings(i)}
             >
-              <div class="game-icon"><div class="glass"><span class="ph">{it.id === 'oeimport' ? '⇩' : '⇄'}</span></div></div>
+              <div class="game-icon"><div class="glass"><span class="ph">{it.id === 'theme' ? '◧' : it.id === 'oeimport' ? '⇩' : '⇄'}</span></div></div>
               <div class="game-bar">
                 <span class="name">{it.label}</span>
                 <span class="sub">{it.sub}</span>
@@ -3892,6 +3944,20 @@
   <div class="osd-corner tr" aria-hidden="true"
        onpointerdown={(e) => cornerDown('tr', e)} onpointerup={() => cornerUp('tr')}
        onpointercancel={() => cornerUp('tr')} onpointerleave={() => cornerUp('tr')}></div>
+{/if}
+
+<!-- Nintendo theme: NES-cabinet bottom bar, ported from
+     codemonkey-games-launcher (gray console shell + logo + vent boxes).
+     Pure chrome — hidden while a game is running. -->
+{#if tweaks.theme === 'nintendo' && !gameOn}
+  <div class="nes-bar" aria-hidden="true">
+    <div class="nes-bar-top">
+      <img class="nes-logo" src="/nes-logo.png" alt="" />
+      <div class="nes-box"></div>
+    </div>
+    <div class="nes-bar-mid"><div class="nes-box"><div class="nes-line"></div></div></div>
+    <div class="nes-bar-bottom"><div class="nes-box"><div class="nes-line"></div></div></div>
+  </div>
 {/if}
 
 <!-- Opposite-corner easter egg: top-left + bottom-right two-finger tap boots

@@ -564,3 +564,203 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   background: rgba(0, 0, 0, .78); border: 1px solid rgba(120, 255, 80, .5);
   white-space: pre-wrap; word-break: break-all; pointer-events: none;
 }
+
+/* ═══ Nintendo theme (Settings → THEME) ═══════════════════════════════════
+   Palette ported from codemonkey-games-launcher: NES cabinet grays
+   (#d5d5d8 / #88848b), Nintendo red (#e4000f), and its dark navy backdrop
+   (#0d0f1a, cards #0f1622, borders #1f2a3c, muted #8ba0c2). Toggled by
+   body.theme-nintendo, applied from the Dashboard tweaks effect. */
+body.theme-nintendo {
+  --green: #e9ecf1;        /* primary text — launcher fg */
+  --green-glow: #ff3b49;   /* glow accent — brightened Nintendo red */
+  --green-deep: #5a0e14;   /* deep red */
+  --yellow: #e4000f;       /* selection color — Nintendo red */
+  --yellow-hot: #ff4554;
+  --tile-edge: rgba(213, 213, 216, .45); /* cabinet-gray tile edges */
+  background:
+    radial-gradient(1000px 500px at 20% -10%, #1b203a 0%, transparent 60%),
+    radial-gradient(1000px 500px at 80% 110%, #1b203a 0%, transparent 60%),
+    radial-gradient(ellipse 60% 70% at 50% 50%, rgba(15, 22, 34, .9), #0d0f1a 80%);
+  background-color: #0d0f1a;
+  color: var(--green);
+}
+body.theme-nintendo .scan { background: repeating-linear-gradient(180deg, rgba(255, 70, 84, .03) 0 1px, transparent 1px 3px); }
+
+/* Top HUD */
+body.theme-nintendo .topbar { color: rgba(139, 160, 194, .8); }
+body.theme-nintendo .topbar .brand { color: rgba(233, 236, 241, .9); }
+
+/* Orb — red core, cabinet-gray rings */
+@keyframes breatheNin {
+  0%, 100% { filter: drop-shadow(0 0 28px rgba(255, 60, 74, .45)) drop-shadow(0 0 80px rgba(228, 0, 15, .3)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 60px rgba(255, 100, 112, .8)) drop-shadow(0 0 140px rgba(255, 69, 84, .5)); transform: scale(1.035); }
+}
+body.theme-nintendo .orb { animation-name: breatheNin; }
+body.theme-nintendo .orb .core {
+  background: radial-gradient(circle at 38% 38%, #ffe9ea 0%, #ff959e 13%, #e4000f 35%, #8c0a14 60%, #2a050a 86%, #000 100%);
+  box-shadow: inset -10px -20px 60px rgba(0, 0, 0, .55), inset 20px 30px 80px rgba(255, 220, 222, .3), 0 0 60px rgba(255, 60, 74, .5);
+}
+body.theme-nintendo .orb .ring { border-color: rgba(213, 213, 216, .4); box-shadow: inset 0 0 30px rgba(255, 90, 102, .16), 0 0 30px rgba(255, 90, 102, .16); }
+body.theme-nintendo .orb .ring.b { border-color: rgba(213, 213, 216, .22); }
+body.theme-nintendo .orb .ring.c { border-color: rgba(213, 213, 216, .12); }
+body.theme-nintendo .orb::before, body.theme-nintendo .orb::after { background: radial-gradient(ellipse 60% 30% at 50% 40%, rgba(255, 70, 84, .2), transparent 70%); }
+
+/* Menu — silver cabinet spheres, navy card bars, Nintendo-red selection */
+body.theme-nintendo .node::before {
+  background: radial-gradient(circle at 35% 30%, #fff 0%, #e9ecf1 18%, #b7bcc6 45%, #565a66 75%, #14161d 100%);
+  box-shadow: 0 0 22px rgba(213, 213, 216, .45), inset -3px -6px 14px rgba(0, 0, 0, .5);
+}
+body.theme-nintendo .node::after { border-color: rgba(213, 213, 216, .5); box-shadow: inset 0 0 14px rgba(213, 213, 216, .2), 0 0 18px rgba(213, 213, 216, .22); }
+body.theme-nintendo .item.sel .node::before {
+  background: radial-gradient(circle at 35% 30%, #ffe3e5 0%, #ff8089 20%, var(--yellow) 50%, #7a000a 80%, #240104 100%);
+  box-shadow: 0 0 28px rgba(255, 69, 84, .75), inset -3px -6px 14px rgba(0, 0, 0, .5);
+}
+body.theme-nintendo .item.sel .node::after { border-color: rgba(255, 128, 137, .85); box-shadow: inset 0 0 16px rgba(255, 69, 84, .35), 0 0 26px rgba(255, 69, 84, .4); }
+body.theme-nintendo .bar {
+  color: #e9ecf1;
+  background: linear-gradient(180deg, rgba(139, 160, 194, .1), rgba(15, 22, 34, .85) 35%, rgba(15, 22, 34, .85) 65%, rgba(139, 160, 194, .08));
+  box-shadow: inset 0 0 0 1px rgba(213, 213, 216, .08), inset 0 2px 0 rgba(233, 236, 241, .15), inset 0 -2px 0 rgba(233, 236, 241, .06), 0 0 24px rgba(228, 0, 15, .12);
+}
+body.theme-nintendo .bar::before { background: linear-gradient(90deg, transparent, rgba(213, 213, 216, .35), transparent); }
+body.theme-nintendo .bar .num { color: rgba(139, 160, 194, .7); }
+body.theme-nintendo .item.sel .bar {
+  color: #fff;
+  background: linear-gradient(180deg, #ff5b66 0%, var(--yellow) 30%, #c00011 70%, #8c000c 100%);
+  border-color: #ff8089;
+  box-shadow: inset 0 0 0 1px rgba(255, 160, 168, .5), inset 0 2px 0 rgba(255, 205, 210, .55), inset 0 -2px 0 rgba(90, 0, 8, .5), 0 0 40px rgba(228, 0, 15, .5), 0 0 80px rgba(228, 0, 15, .22);
+}
+body.theme-nintendo .item.sel .bar .num { color: rgba(255, 225, 228, .8); }
+body.theme-nintendo .item:hover:not(.sel) .bar {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(213, 213, 216, .16), rgba(31, 42, 60, .8) 35%, rgba(31, 42, 60, .8) 65%, rgba(213, 213, 216, .12));
+  box-shadow: inset 0 2px 0 rgba(233, 236, 241, .25), 0 0 32px rgba(228, 0, 15, .25);
+}
+body.theme-nintendo .item .tag { color: rgba(139, 160, 194, .6); }
+
+/* Footer hints — NES-red A button, cabinet-gray B */
+body.theme-nintendo .footer { color: #d5d5d8; }
+body.theme-nintendo .btn-hint {
+  background: radial-gradient(circle at 35% 30%, #ffd9db 0%, #ff6b76 20%, #e4000f 50%, #4a0308 85%);
+  color: #fff; border-color: rgba(255, 140, 148, .75);
+  box-shadow: 0 0 18px rgba(228, 0, 15, .5), inset -2px -4px 10px rgba(0, 0, 0, .5);
+}
+body.theme-nintendo .btn-hint.b {
+  background: radial-gradient(circle at 35% 30%, #fff 0%, #d5d5d8 25%, #88848b 60%, #2f2f2f 95%);
+  color: #e4000f; border-color: rgba(213, 213, 216, .75);
+  box-shadow: 0 0 18px rgba(213, 213, 216, .45), inset -2px -4px 10px rgba(0, 0, 0, .5);
+}
+
+/* Games / catalog screens — the original launcher layout: dark navy page,
+   rounded card boxes (thumbnail on top, name + source + PLAY pill below),
+   laid out as a single horizontal coverflow row. */
+body.theme-nintendo .dashboard { bottom: 132px; }
+body.theme-nintendo .games-screen { bottom: 132px; }
+body.theme-nintendo .footer { bottom: calc(132px + 2.5vmin); }
+body.theme-nintendo .games-panel { grid-template-columns: 1fr; height: min(calc(92vh - 148px), 1500px); }
+body.theme-nintendo .disc-col { display: none; }
+body.theme-nintendo .strip-top { left: 2vmin; color: rgba(139, 160, 194, .7); }
+body.theme-nintendo .title-bar {
+  clip-path: none;
+  background: #0f1622;
+  border: 1px solid #1f2a3c;
+  border-radius: 14px;
+  color: #e9ecf1;
+  text-shadow: none;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .35);
+}
+body.theme-nintendo .counter { color: #8ba0c2; }
+
+/* Single horizontal coverflow row */
+body.theme-nintendo .games-list {
+  flex-direction: row;
+  align-items: center;
+  overflow-x: auto; overflow-y: visible;
+  gap: 2.4vmin;
+  padding: 3vmin 5vmin;
+  mask-image: linear-gradient(90deg, transparent 0, #000 4vmin, #000 calc(100% - 4vmin), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 4vmin, #000 calc(100% - 4vmin), transparent 100%);
+}
+body.theme-nintendo .game-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: 32vmin; min-width: 240px; max-width: 340px;
+  height: auto; max-height: none; min-height: 0;
+  flex-shrink: 0;
+  scroll-margin: 0 6vmin;
+  background: #0f1622;
+  border: 1px solid #1f2a3c;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, .35);
+  animation: none;
+  transform: scale(.9);
+  transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+}
+body.theme-nintendo .game-row.sel {
+  transform: scale(1);
+  border-color: #49c2ff;
+  box-shadow: 0 0 0 2px rgba(73, 194, 255, .35), 0 22px 40px rgba(0, 0, 0, .45);
+}
+body.theme-nintendo .game-row:hover:not(.sel) { transform: scale(.94); border-color: rgba(73, 194, 255, .6); }
+
+/* Card thumbnail (red placeholder stripe shows when there's no cover art) */
+body.theme-nintendo .game-icon {
+  width: 100%; max-width: none; height: 18vmin; max-height: 180px; min-height: 120px;
+  border-radius: 0;
+  background: #05080c;
+  box-shadow: none;
+  position: relative;
+}
+body.theme-nintendo .game-icon::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 14px;
+  background: var(--nintendo-red, #e4000f);
+}
+body.theme-nintendo .game-icon .glass {
+  position: absolute; inset: 0; border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+body.theme-nintendo .game-icon .glass img { width: 100%; height: 100%; object-fit: cover; filter: none; }
+body.theme-nintendo .game-icon .glass .ph { color: #fff; font-size: clamp(20px, 3vmin, 30px); text-shadow: none; letter-spacing: .04em; }
+body.theme-nintendo .game-row.sel .game-icon,
+body.theme-nintendo .game-row.sel .game-icon .glass { box-shadow: none; }
+
+/* Card footer: name on top, source label bottom-left, PLAY pill bottom-right */
+body.theme-nintendo .game-bar {
+  clip-path: none;
+  height: auto; min-width: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; row-gap: 1vmin;
+  padding: 1.6vmin 1.8vmin;
+  background: none; border: none; box-shadow: none;
+  color: #e9ecf1; font-weight: 800;
+  font-size: clamp(13px, 1.8vmin, 17px); letter-spacing: .05em;
+}
+body.theme-nintendo .game-bar .name { grid-column: 1 / -1; text-shadow: none; }
+body.theme-nintendo .game-bar .sub { margin-left: 0; color: #8ba0c2; letter-spacing: .12em; text-transform: uppercase; }
+body.theme-nintendo .game-bar::after {
+  content: "PLAY";
+  grid-column: 2; justify-self: end;
+  padding: .55em 1.2em; border-radius: 999px;
+  background: linear-gradient(135deg, #49c2ff, #00ffa7);
+  color: #04283b; font-weight: 800; font-size: .78em; letter-spacing: .1em;
+}
+body.theme-nintendo .game-row.sel .game-bar { color: #fff; background: none; border-color: transparent; box-shadow: none; }
+body.theme-nintendo .game-row.sel .game-bar .sub { color: #49c2ff; }
+body.theme-nintendo .uninstall-btn { position: absolute; top: 10px; right: 10px; z-index: 2; }
+
+/* NES-cabinet bottom bar (markup rendered by Dashboard.svelte in this theme).
+   Sits above the scanline/vignette overlays so the plastic reads solid. */
+.nes-bar { position: fixed; left: 0; right: 0; bottom: 0; height: 132px; z-index: 60; display: flex; flex-direction: column; pointer-events: none; }
+.nes-bar-top { position: relative; background: #d5d5d8; height: 74px; }
+.nes-logo { height: 55%; margin: 14px 0 0 60px; image-rendering: pixelated; filter: saturate(3.5); }
+.nes-bar-mid { position: relative; background: #88848b; height: 18px; }
+.nes-bar-bottom { position: relative; background: #88848b; flex: 1; }
+.nes-box { position: absolute; right: 60px; top: 0; bottom: 0; width: 100px; background: #2f2f2f; }
+.nes-line { width: 92px; height: 6px; margin: 4px auto 0; background: #56595a; }
+
+@media (max-width: 720px) {
+  body.theme-nintendo .games-panel { grid-template-rows: auto 1fr; }
+  .nes-logo { margin-left: 20px; }
+  .nes-box { right: 20px; }
+}
