@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<!-- E2E harness: stands in for 2019-turbo with src/sound.js swapped for
+     /music-player/sound.js (backed by the embedded AZ Legend player).
+     Load with ?player=<url of the embedded player page>. The test drives
+     window.Sound exactly like the game's scenes do (bgmPlay / stopBgm). -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>music-player sound.js E2E harness</title>
+    <style>
+      body {
+        font: 14px/1.4 monospace;
+        background: #0a0c10;
+        color: #d7ffe6;
+        padding: 16px;
+      }
+      button {
+        margin: 2px;
+      }
+      #log {
+        white-space: pre-wrap;
+        color: #9fb4c8;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>2019-turbo sound.js → embedded music player</h1>
+    <div id="buttons"></div>
+    <div id="log"></div>
+
+    <script type="module">
+      import * as Sound from "/music-player/sound.js";
+
+      // Loop points mirror BGM_INFO in 2019-turbo/src/constants.js
+      // (microseconds); the mp3 files are the launcher's 2028-ai copies.
+      const BOSS_BGM = {
+        boss_bison_bgm: { start: 914888, end: 6111881 },
+        boss_barlog_bgm: { start: 782400, end: 4315201 },
+        boss_sagat_bgm: { start: 1635142, end: 6883739 },
+        boss_vega_bgm: { start: 513529, end: 4325295 },
+        boss_goki_bgm: { start: 864e3, end: 6130287 },
+        boss_fang_bgm: { start: 888672, end: 5802799 },
+      };
+
+      const params = new URLSearchParams(location.search);
+      const playerUrl = params.get("player") ||
+        "http://localhost:8801/player.html";
+
+      const bgm = Object.fromEntries(
+        Object.entries(BOSS_BGM).map(([key, info]) => [key, {
+          ...info,
+          url: new URL(`/games/2028-ai/assets/sounds/${key}.mp3`, location.href)
+            .href,
+        }]),
+      );
+
+      const log = (msg) => {
+        document.getElementById("log").textContent += msg + "\n";
+      };
+
+      window.Sound = Sound;
+      window.soundReady = Sound.initSound(null, {
+        playerUrl,
+        albumId: "2019-boss-bgm",
+        albumTitle: "2019 Boss BGM",
+        bgm,
+        visible: params.get("visible") === "1",
+      }).then((album) => {
+        log(
+          `player ready — album "${album.title}" with ${album.tracks.length} tracks`,
+        );
+        return album;
+      });
+
+      // Manual poke buttons (handy outside the automated test).
+      const buttons = document.getElementById("buttons");
+      for (const key of Object.keys(BOSS_BGM)) {
+        const b = document.createElement("button");
+        b.textContent = key;
+        b.onclick = () => {
+          log("bgmPlay " + key);
+          Sound.bgmPlay(key);
+        };
+        buttons.appendChild(b);
+      }
+      const stopBtn = document.createElement("button");
+      stopBtn.textContent = "stopAll";
+      stopBtn.onclick = () => {
+        log("stopAll");
+        Sound.stopAll();
+      };
+      buttons.appendChild(stopBtn);
+    </script>
+  </body>
+</html>
