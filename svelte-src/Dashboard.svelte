@@ -731,8 +731,12 @@
       // zones/virtual pad never reach them. Tell the game to run its own
       // Touch Twin-Stick analogs (shmup-party's touch-controls.ts). Sent to
       // cross-origin frames ONLY — a same-origin game also listening would
-      // double up input and visuals with the launcher's zones.
-      try { w.postMessage({ type: 'cmg-twinstick-touch-set', value: twinTouchOn }, '*'); } catch (_) { /* ignore */ }
+      // double up input and visuals with the launcher's zones. Send the
+      // EFFECTIVE state (same gate as the same-origin overlay), not the raw
+      // saved toggle: turning Twin-Stick Mode off must also stop the game's
+      // touch analogs even though twinTouchOn stays saved for later.
+      const touchEffective = twinStickAvail && twinStickOn && twinTouchOn;
+      try { w.postMessage({ type: 'cmg-twinstick-touch-set', value: touchEffective }, '*'); } catch (_) { /* ignore */ }
     }
     // Cross-origin games apply the toggle themselves off this message.
     try { w.postMessage({ type: 'cmg-twinstick-set', value: twinStickOn }, '*'); } catch (_) { /* ignore */ }
