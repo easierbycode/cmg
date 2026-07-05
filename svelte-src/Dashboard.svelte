@@ -1850,6 +1850,9 @@
   };
   const PAD_DEADZONE = 0.55;
   const SNES_PAD_RE = /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i;
+  // Chrome on Android: the compat plugin remaps the SNES pad's R shoulder to
+  // the L2 slot there, and the launcher pairs it with L/L2 nav + SELECT+L2.
+  const IS_ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
   const XBOX_PAD_RE = /Xbox|XInput|Microsoft|Legion Go/i;
 
   function padPriority(p) {
@@ -2032,6 +2035,15 @@
         if (dirs.up) v = -1;
         else if (dirs.down) v = 1;
         else { const ay = pad.axes[1] ?? 0; if (ay < -PAD_DEADZONE) v = -1; else if (ay > PAD_DEADZONE) v = 1; }
+        // Shoulders mirror the launcher-list nav (L up, R/L2 down) — on
+        // Android Chrome the SNES pad's D-pad doesn't report, so these are
+        // the only way to move through the Guide there. Ignored while SELECT
+        // is held so the SELECT+L2 open-chord doesn't nudge the selection on
+        // its opening frame.
+        if (v === 0 && !pad.buttons[8]?.pressed) {
+          if (pad.buttons[4]?.pressed) v = -1;
+          else if (pad.buttons[5]?.pressed || pad.buttons[6]?.pressed) v = 1;
+        }
         // Same bounce/dropout filter as the launcher-list nav: hold the last
         // direction through sub-80ms neutral blips so a bouncy D-pad doesn't
         // move the selection several rows per tap.
@@ -2058,10 +2070,11 @@
       }
 
       // OSD closed: SELECT + Down opens it (SELECT + R is the SNES-adapter
-      // fallback for pads whose D-pad isn't recognized).
+      // fallback for pads whose D-pad isn't recognized; SELECT + L2 is the
+      // Android chord, where R is remapped to L2 by the compat plugin).
       const dirs = readPadDirs(pad);
       const selectBtn = !!pad.buttons[8]?.pressed;
-      const rShoulder = !!pad.buttons[5]?.pressed;
+      const rShoulder = !!pad.buttons[5]?.pressed || !!pad.buttons[6]?.pressed;
       const dpadDown = dirs.down;
       const ayDown = (pad.axes[1] ?? 0) > PAD_DEADZONE;
       const combo = selectBtn && (dpadDown || ayDown || rShoulder);
@@ -2192,10 +2205,16 @@
     // (e.g. Firefox + non-standard SNES adapters). Safe for SNES pads too:
     // the compat plugin guarantees normalized 6/7 are either real L2/R2
     // triggers or cleared (the joydev layout's Select/Start move to 8/9).
+    // On Android Chrome the SNES pad's R arrives remapped to L2 (see the
+    // compat plugin), and the D-pad doesn't report — so there L/L2 are the
+    // primary up/down navigation rather than L2 jumping to the top.
     if (justPressed(5)) navDown();                  // R shoulder
     if (justPressed(4)) navUp();                    // L shoulder
     if (justPressed(7)) navBottom();                // R2 — jump to bottom
-    if (justPressed(6)) navTop();                   // L2 — jump to top
+    if (justPressed(6)) {                           // L2
+      if (IS_ANDROID && isSnesPad) navDown();
+      else navTop();
+    }
     padState.btn = pressedNow;
   }
 
