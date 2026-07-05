@@ -135,20 +135,28 @@
     return dirs;
   }
 
+  function isPressed(b) {
+    return !!(b && b.pressed);
+  }
+
   // Normalize an SNES pad's buttons to the standard-gamepad layout:
   // face 0-3 (bottom/right/left/top), L/R 4/5, Select/Start 8/9, D-pad 12-15.
   //
-  // Two non-standard fingerprints are handled:
-  //   - Nintendo HID bit order (B,A,Y,X,L,R,--,--,Select,Start,...), seen as
-  //     ~18 buttons on Chrome generic-HID. Indices 0-9 already match the
-  //     standard layout positionally — pass through.
-  //   - Linux joydev / hid-nintendo order (B,A,X,Y,L,R,Select,Start), seen as
-  //     ~8-12 buttons. Left/top faces and Select/Start need moving.
+  // Two non-standard families are handled (fingerprinted by axis count —
+  // measured with the dashboard's ?paddebug=1 overlay):
+  //   - Nintendo HID bit order (B,A,Y,X,L,R,--,--,Select,Start,...): ~18
+  //     buttons and 10 axes with the D-pad as an encoded hat on axes[9].
+  //     Indices 0-9 already match the standard layout — pass through.
+  //   - Linux joydev / hid-nintendo order (B,A,X,Y,L,R,Select,Start,...):
+  //     few axes; the D-pad arrives as real buttons 12-15 and/or a digital
+  //     hat pair on the low axes. Top/left faces and Select/Start move.
   //
-  // The D-pad is rebuilt exclusively from the hat/digital axes: on this pad
-  // the raw 12-15 slots are never a D-pad (they hold Home/Capture bits, or on
-  // some platforms even Select/Start — which is how "Select scrolls the
-  // launcher" bugs happen when 12/13 are trusted as up/down).
+  // Select/Start: OR the 6/7 (joydev family) and 8/9 (Nintendo HID order)
+  // pairs — on each layout the other pair maps to buttons the SNES pad
+  // physically lacks (ZL/ZR bits, Home/thumb-stick keys), so it never fires.
+  // Likewise the D-pad ORs real 12-15 buttons with the hat/digital-axis
+  // decode: in the Nintendo HID order raw 12/13 are the (nonexistent)
+  // Home/Capture bits.
   function snesButtons(pad) {
     const source = pad.buttons || [];
     const out = new Array(Math.max(source.length, 16));
@@ -158,32 +166,25 @@
     }
 
     if (pad.mapping !== "standard") {
-      if (source.length <= 12) {
-        // joydev/hid-nintendo fingerprint
-        out[2] = source[3] || button(false); // left face (Y)
-        out[3] = source[2] || button(false); // top face (X)
-        out[8] = source[6] || button(false); // Select
-        out[9] = source[7] || button(false); // Start
-        out[6] = button(false); // clear vacated slots so Select/Start
-        out[7] = button(false); // don't ghost as L2/R2
-      } else {
-        // Some >12-button layouts report Select/Start in raw slots 12/13
-        // (which the D-pad rebuild below overwrites). Fold them into the
-        // standard 8/9 slots first — safe on the Nintendo-HID-order layout,
-        // where raw 12/13 are Home/Capture bits the pad physically lacks.
-        const sel = !!(source[8] && source[8].pressed) ||
-          !!(source[12] && source[12].pressed);
-        const start = !!(source[9] && source[9].pressed) ||
-          !!(source[13] && source[13].pressed);
-        out[8] = button(sel);
-        out[9] = button(start);
+      const axes = pad.axes || [];
+
+      if (axes.length <= 9) {
+        // joydev family reports X (top) at 2 and Y (left) at 3 — standard
+        // wants left at 2, top at 3.
+        out[2] = source[3] || button(false);
+        out[3] = source[2] || button(false);
       }
 
+      out[8] = button(isPressed(source[8]) || isPressed(source[6])); // Select
+      out[9] = button(isPressed(source[9]) || isPressed(source[7])); // Start
+      out[6] = button(false); // clear vacated slots so Select/Start
+      out[7] = button(false); // don't ghost as L2/R2
+
       const dirs = snesDirs(pad);
-      out[12] = button(dirs.up);
-      out[13] = button(dirs.down);
-      out[14] = button(dirs.left);
-      out[15] = button(dirs.right);
+      out[12] = button(isPressed(source[12]) || dirs.up);
+      out[13] = button(isPressed(source[13]) || dirs.down);
+      out[14] = button(isPressed(source[14]) || dirs.left);
+      out[15] = button(isPressed(source[15]) || dirs.right);
     }
 
     return out;
