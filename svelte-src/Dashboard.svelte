@@ -74,7 +74,7 @@
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
 
-  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'saturn' | 'demos'
+  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'saturn' | 'demos' | 'cmgnet' | 'settings' | 'oeimport' | 'ctrlsync'
   let menuSel = $state(1);           // start on Games
   let gameSel = $state(0);
   let clockStr = $state('--:--:--');
@@ -131,6 +131,35 @@
   let cmgnetGames = $state([]);
   let cmgnetSel = $state(0);
   let cmgnetRowEls = $state([]);
+  // ─── Settings → OpenEmu import / Controller sync ──────────────────────────
+  const SETTINGS_ITEMS = [
+    { id: 'oeimport', label: 'IMPORT OPENEMU LIBRARY', sub: 'pick games to copy from OpenEmu' },
+    { id: 'ctrlsync', label: 'CONTROLLER SYNC', sub: 'CMG ⇄ emulator profiles · beta' },
+  ];
+  let settingsSel = $state(0);
+  let settingsRowEls = $state([]);
+  // OpenEmu import picker. oeScan is null while /api/openemu/scan is in
+  // flight; { available:false } when the library (or the API) isn't there —
+  // the deploy / compiled-binary case, where the screen explains itself.
+  let oeScan = $state(null);
+  let oeChecked = $state({}); // 'system/file' → true (pending selection)
+  let oeStatus = $state({}); // 'system/file' → 'importing' | 'imported' | 'failed'
+  let oeSel = $state(0);
+  let oeRowEls = $state([]);
+  let oeBusy = $state(false);
+  // Controller sync (mock): the sync protocol doesn't exist yet — SYNC NOW
+  // "scans" briefly, then reports the link offline. ctrlSel indexes the two
+  // action rows (SYNC NOW / AUTO-SYNC).
+  let ctrlSel = $state(0);
+  let syncPadName = $state('');
+  let syncState = $state('idle'); // 'idle' | 'scanning' | 'offline'
+  const SYNC_MAP = [
+    { cmg: 'D-PAD / HAT', retro: 'D-PAD', note: 'move' },
+    { cmg: 'B · A', retro: 'B · A', note: 'south · east' },
+    { cmg: 'Y · X', retro: 'Y · X', note: 'west · north' },
+    { cmg: 'L · R', retro: 'L1 · R1', note: 'shoulders' },
+    { cmg: 'SELECT + ↓', retro: '—', note: 'guide chord (CMG only)' },
+  ];
   // id → { downloading, pct, cached, error } — drives the e-shop GET/INSTALLED
   // badges and the per-row download progress bar.
   let cmgnetStatus = $state({});
@@ -769,6 +798,18 @@
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
 
+  $effect(() => {
+    if (screen !== 'settings') return;
+    const el = settingsRowEls[settingsSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  $effect(() => {
+    if (screen !== 'oeimport') return;
+    const el = oeRowEls[oeSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
   // Keep selections in range as the Games list grows (a download graduates a
   // title) and the CMG Network list shrinks (it hides installs). Without this a
   // completed background download could leave cmgnetSel pointing past the end.
@@ -884,6 +925,9 @@
     menuSel = idx;
     if (m.id === 'games') {
       screen = 'games';
+    } else if (m.id === 'settings') {
+      screen = 'settings';
+      settingsSel = 0;
     } else {
       const el = menuEls[idx];
       if (el?.animate) {
@@ -904,6 +948,7 @@
   function goBack() {
     sfx.back();
     if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') screen = 'games';
+    else if (screen === 'oeimport' || screen === 'ctrlsync') screen = 'settings';
     else screen = 'dashboard';
   }
 
@@ -918,6 +963,162 @@
       action();
     };
   }
+
+  // ─── Settings / OpenEmu import / Controller sync ───────────────────────────
+  // Flat row list the import picker renders and nav indexes into: a
+  // non-selectable header per system, one row per OpenEmu game, and a pinned
+  // IMPORT SELECTED action row at the end (same pinned-row idea as BYOC).
+  let oeRows = $derived.by(() => {
+    const rows = [];
+    if (!oeScan || !oeScan.available) return rows;
+    for (const sys of oeScan.systems) {
+      if (!sys.games.length) continue;
+      rows.push({ kind: 'header', key: 'h-' + sys.id, label: sys.label, count: sys.games.length });
+      for (const g of sys.games) {
+        rows.push({ kind: 'game', key: sys.id + '/' + g.file, system: sys.id, file: g.file, name: g.name, size: g.size, pack: g.kind === 'pack', imported: g.imported });
+      }
+    }
+    if (rows.length) rows.push({ kind: 'action', key: 'act-import' });
+    return rows;
+  });
+  let oeSelected = $derived(oeRows.filter((r) => r.kind === 'game' && oeChecked[r.key]));
+  let oeGameCount = $derived(oeRows.filter((r) => r.kind === 'game').length);
+  let oeCounterText = $derived(
+    String(oeSelected.length).padStart(2, '0') + ' / ' + String(oeGameCount).padStart(2, '0')
+  );
+  let settingsCounterText = $derived(
+    String(settingsSel + 1).padStart(2, '0') + ' / ' + String(SETTINGS_ITEMS.length).padStart(2, '0')
+  );
+  let onOeActionRow = $derived(oeRows[oeSel]?.kind === 'action');
+
+  function fmtSize(bytes) {
+    const mb = (bytes || 0) / (1024 * 1024);
+    return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb.toFixed(1) + ' MB';
+  }
+  let oeSelectedSize = $derived(fmtSize(oeSelected.reduce((s, r) => s + (r.size || 0), 0)));
+
+  async function loadOeScan(silent) {
+    if (!silent) oeScan = null; // shows the SCANNING row
+    try {
+      const r = await fetch('/api/openemu/scan');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      oeScan = data && typeof data === 'object' ? data : { available: false, systems: [] };
+    } catch (_e) {
+      oeScan = { available: false, systems: [] };
+    }
+  }
+
+  function activateSettings(i) {
+    const it = SETTINGS_ITEMS[i];
+    if (!it) return;
+    settingsSel = i;
+    sfx.enter();
+    if (it.id === 'oeimport') {
+      screen = 'oeimport';
+      if (!oeScan) loadOeScan();
+      oeSel = oeFirstSelectable();
+    } else if (it.id === 'ctrlsync') {
+      screen = 'ctrlsync';
+      ctrlSel = 0;
+      syncState = 'idle';
+    }
+  }
+
+  function oeFirstSelectable() {
+    const i = oeRows.findIndex((r) => r.kind !== 'header');
+    return i < 0 ? 0 : i;
+  }
+  // Move the import-picker selection, skipping the system header rows.
+  function oeMove(dir) {
+    if (!oeRows.length) return;
+    let i = oeSel;
+    do i += dir; while (i >= 0 && i < oeRows.length && oeRows[i].kind === 'header');
+    if (i >= 0 && i < oeRows.length) oeSel = i;
+  }
+
+  function oeToggle(i) {
+    const row = oeRows[i];
+    if (!row || row.kind === 'header') return;
+    oeSel = i;
+    if (row.kind === 'action') { oeImportSelected(); return; }
+    if (oeBusy) return;
+    // Already in the library (and not a failed retry) — nothing to pick.
+    if (row.imported && oeStatus[row.key] !== 'failed') { sfx.back(); return; }
+    oeChecked = { ...oeChecked, [row.key]: !oeChecked[row.key] };
+    sfx.nav();
+  }
+
+  // Import the checked games one request at a time so each row can show
+  // live progress; the API refreshes the system manifest after every import,
+  // and the per-console menus reload once the batch settles.
+  async function oeImportSelected() {
+    if (oeBusy) return;
+    const items = oeSelected;
+    if (!items.length) { sfx.back(); return; }
+    sfx.enter();
+    oeBusy = true;
+    let failed = 0;
+    for (const it of items) {
+      oeStatus = { ...oeStatus, [it.key]: 'importing' };
+      try {
+        const r = await fetch('/api/openemu/import', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ system: it.system, file: it.file }),
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.error || 'HTTP ' + r.status);
+        }
+        oeStatus = { ...oeStatus, [it.key]: 'imported' };
+        oeChecked = { ...oeChecked, [it.key]: false };
+      } catch (_e) {
+        oeStatus = { ...oeStatus, [it.key]: 'failed' };
+        failed++;
+      }
+    }
+    oeBusy = false;
+    if (failed) sfx.back();
+    else sfx.enter();
+    loadOeScan(true); // refresh imported flags without flashing the list
+    loadArcadeList();
+    loadTg16List();
+    loadPsxList();
+    loadSaturnList();
+    loadNesList();
+  }
+
+  // Controller sync is a mock: SYNC NOW pretends to probe the link, then
+  // reports the protocol offline. Real CMG ⇄ EmulatorJS profile sync lands
+  // later; the screen documents the mapping it will push.
+  function ctrlActivate(i) {
+    ctrlSel = i;
+    if (i === 0) {
+      if (syncState === 'scanning') return;
+      sfx.enter();
+      syncState = 'scanning';
+      setTimeout(() => {
+        syncState = 'offline';
+        sfx.back();
+      }, 1400);
+    } else {
+      sfx.back(); // AUTO-SYNC — not available yet
+    }
+  }
+
+  // Live pad readout for the sync screen (1s poll while it's shown).
+  $effect(() => {
+    if (screen !== 'ctrlsync') return;
+    const read = () => {
+      const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+      const p = pickPrimaryPad(pads);
+      syncPadName = p && p.connected ? p.id : '';
+    };
+    read();
+    const t = setInterval(read, 1000);
+    return () => clearInterval(t);
+  });
 
   function launchGame(id) {
     if (id === TG16_ID) {
@@ -2072,6 +2273,9 @@
     else if (screen === 'nes') nesSel = Math.max(nesSel - 1, 0);
     else if (screen === 'demos') demosSel = Math.max(demosSel - 1, 0);
     else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetSel - 1, 0);
+    else if (screen === 'settings') settingsSel = Math.max(settingsSel - 1, 0);
+    else if (screen === 'oeimport') oeMove(-1);
+    else if (screen === 'ctrlsync') ctrlSel = Math.max(ctrlSel - 1, 0);
     sfx.nav();
   }
   function navDown() {
@@ -2084,6 +2288,9 @@
     else if (screen === 'nes') nesSel = Math.min(nesSel + 1, nesGames.length);
     else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
     else if (screen === 'cmgnet') cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetVisible.length - 1, 0));
+    else if (screen === 'settings') settingsSel = Math.min(settingsSel + 1, SETTINGS_ITEMS.length - 1);
+    else if (screen === 'oeimport') oeMove(1);
+    else if (screen === 'ctrlsync') ctrlSel = Math.min(ctrlSel + 1, 1);
     sfx.nav();
   }
   function navTop() {
@@ -2096,6 +2303,9 @@
     else if (screen === 'nes') nesSel = 0;
     else if (screen === 'demos') demosSel = 0;
     else if (screen === 'cmgnet') cmgnetSel = 0;
+    else if (screen === 'settings') settingsSel = 0;
+    else if (screen === 'oeimport') oeSel = oeFirstSelectable();
+    else if (screen === 'ctrlsync') ctrlSel = 0;
     sfx.nav();
   }
   function navBottom() {
@@ -2108,6 +2318,9 @@
     else if (screen === 'nes') nesSel = nesGames.length;
     else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
     else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetVisible.length - 1, 0);
+    else if (screen === 'settings') settingsSel = SETTINGS_ITEMS.length - 1;
+    else if (screen === 'oeimport') oeSel = Math.max(oeRows.length - 1, 0);
+    else if (screen === 'ctrlsync') ctrlSel = 1;
     sfx.nav();
   }
   function actA() {
@@ -2133,6 +2346,9 @@
     }
     else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
     else if (screen === 'cmgnet') launchCmgnet(cmgnetVisible[cmgnetSel]);
+    else if (screen === 'settings') activateSettings(settingsSel);
+    else if (screen === 'oeimport') oeToggle(oeSel);
+    else if (screen === 'ctrlsync') ctrlActivate(ctrlSel);
   }
   function actB() {
     if (gameOn) closeGame();
@@ -2140,7 +2356,7 @@
     // only gamepad close path off-game, since the Guide (which owns the in-game
     // toggle) isn't reachable without a game. Closes the topmost overlay first.
     else if (musicOpen) closeMusic();
-    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') goBack();
+    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
   }
   // CMG Network only: pull the latest build from GitHub for the selected game,
   // when one is installed and an update was detected.
@@ -2451,6 +2667,21 @@
       if (e.key === 'ArrowDown') { cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetVisible.length - 1, 0)); sfx.nav(); }
       else if (e.key === 'ArrowUp') { cmgnetSel = Math.max(cmgnetSel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchCmgnet(cmgnetVisible[cmgnetSel]);
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'settings') {
+      if (e.key === 'ArrowDown') { settingsSel = Math.min(settingsSel + 1, SETTINGS_ITEMS.length - 1); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { settingsSel = Math.max(settingsSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') activateSettings(settingsSel);
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'oeimport') {
+      if (e.key === 'ArrowDown') { oeMove(1); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { oeMove(-1); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') oeToggle(oeSel);
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'ctrlsync') {
+      if (e.key === 'ArrowDown') { ctrlSel = Math.min(ctrlSel + 1, 1); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { ctrlSel = Math.max(ctrlSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') ctrlActivate(ctrlSel);
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     }
   }
@@ -3365,7 +3596,205 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet'}
+  <!-- Settings — entered from the main menu; hosts the OpenEmu import picker
+       and the Controller Sync (mock) screen. -->
+  <div class="games-screen {screen === 'settings' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>sys // config</span>
+        <span>settings</span>
+        <span>{clockStr}</span>
+      </div>
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">section</span><b>{SETTINGS_ITEMS[settingsSel]?.label ?? '—'}</b></div>
+          <div><span class="k">state</span><b>{SETTINGS_ITEMS[settingsSel]?.id === 'ctrlsync' ? 'BETA' : 'READY'}</b></div>
+          <div><span class="k">unit</span><b>CMG DASHBOARD</b></div>
+        </div>
+      </div>
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">SETTINGS</div>
+          <div class="counter">{settingsCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#each SETTINGS_ITEMS as it, i (it.id)}
+            <div
+              bind:this={settingsRowEls[i]}
+              class="game-row {i === settingsSel ? 'sel' : ''}"
+              onmouseenter={() => { if (i !== settingsSel) { settingsSel = i; sfx.nav(); } }}
+              onclick={() => activateSettings(i)}
+            >
+              <div class="game-icon"><div class="glass"><span class="ph">{it.id === 'oeimport' ? '⇩' : '⇄'}</span></div></div>
+              <div class="game-bar">
+                <span class="name">{it.label}</span>
+                <span class="sub">{it.sub}</span>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OpenEmu import picker — mark games with A, then IMPORT SELECTED. Backed
+       by /api/openemu/scan + /api/openemu/import (local library only). -->
+  <div class="games-screen {screen === 'oeimport' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>sys // import</span>
+        <span>openemu bridge</span>
+        <span>{clockStr}</span>
+      </div>
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">marked</span><b>{oeSelected.length} GAME{oeSelected.length === 1 ? '' : 'S'}</b></div>
+          <div><span class="k">size</span><b>{oeSelectedSize}</b></div>
+          <div><span class="k">link</span><b>{oeScan === null ? 'SCANNING…' : oeScan.available ? (oeBusy ? 'IMPORTING…' : 'ONLINE') : 'OFFLINE'}</b></div>
+          <div><span class="k">source</span><b>OPENEMU LIBRARY</b></div>
+        </div>
+      </div>
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">IMPORT OPENEMU LIBRARY</div>
+          <div class="counter">{oeCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#if oeScan === null}
+            <div class="game-row">
+              <div class="game-icon"><div class="glass"><span class="ph">··</span></div></div>
+              <div class="game-bar"><span class="name">SCANNING OPENEMU LIBRARY…</span></div>
+            </div>
+          {:else if !oeScan.available}
+            <div class="game-row">
+              <div class="game-icon"><div class="glass"><span class="ph">✕</span></div></div>
+              <div class="game-bar">
+                <span class="name">OPENEMU LIBRARY NOT FOUND</span>
+                <span class="sub">needs local ~/Library/Application Support/OpenEmu</span>
+              </div>
+            </div>
+          {:else if oeRows.length === 0}
+            <div class="game-row">
+              <div class="game-icon"><div class="glass"><span class="ph">··</span></div></div>
+              <div class="game-bar"><span class="name">NO IMPORTABLE GAMES</span></div>
+            </div>
+          {:else}
+            {#each oeRows as row, i (row.key)}
+              {#if row.kind === 'header'}
+                <div class="oe-head" bind:this={oeRowEls[i]}>
+                  <span>{row.label}</span><span>{row.count}</span>
+                </div>
+              {:else if row.kind === 'game'}
+                <div
+                  bind:this={oeRowEls[i]}
+                  class="game-row {i === oeSel ? 'sel' : ''} {row.imported && oeStatus[row.key] !== 'failed' ? 'oe-in' : ''}"
+                  onmouseenter={() => { if (i !== oeSel) { oeSel = i; sfx.nav(); } }}
+                  onclick={() => oeToggle(i)}
+                >
+                  <div class="game-icon">
+                    <div class="glass">
+                      <span class="ph">{oeStatus[row.key] === 'importing' ? '…' : oeStatus[row.key] === 'failed' ? '✕' : row.imported ? '✓' : oeChecked[row.key] ? '▣' : '▢'}</span>
+                    </div>
+                  </div>
+                  <div class="game-bar">
+                    <span class="name">{row.name.toUpperCase()}</span>
+                    <span class="sub">
+                      {oeStatus[row.key] === 'importing'
+                        ? 'IMPORTING…'
+                        : oeStatus[row.key] === 'failed'
+                        ? 'FAILED · A TO RETRY'
+                        : row.imported
+                        ? 'IN LIBRARY'
+                        : fmtSize(row.size) + (row.pack ? ' · CUE/BIN PACK' : '')}
+                    </span>
+                  </div>
+                </div>
+              {:else}
+                <div
+                  bind:this={oeRowEls[i]}
+                  class="game-row byoc-row {i === oeSel ? 'sel' : ''}"
+                  onmouseenter={() => { if (i !== oeSel) { oeSel = i; sfx.nav(); } }}
+                  onclick={() => oeToggle(i)}
+                >
+                  <div class="game-icon"><div class="glass"><span class="ph">⇩</span></div></div>
+                  <div class="game-bar">
+                    <span class="name">{oeBusy ? 'IMPORTING…' : 'IMPORT SELECTED'}</span>
+                    <span class="sub">{oeBusy ? 'copying from OpenEmu' : oeSelected.length + ' marked · ' + oeSelectedSize}</span>
+                  </div>
+                </div>
+              {/if}
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controller Sync (mock) — documents the CMG ⇄ RetroPad profile mapping a
+       future sync protocol will push into the emulator cores. SYNC NOW probes
+       and reports the link offline until that protocol exists. -->
+  <div class="games-screen {screen === 'ctrlsync' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>sys // input</span>
+        <span>profile bridge · beta</span>
+        <span>{clockStr}</span>
+      </div>
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">pad</span><b>{syncPadName ? syncPadName.replace(/\s*\(.*$/, '').slice(0, 22).toUpperCase() : 'NO PAD DETECTED'}</b></div>
+          <div><span class="k">profile</span><b>SNES-NORMALIZED</b></div>
+          <div><span class="k">target</span><b>EMULATORJS / RETROPAD</b></div>
+          <div><span class="k">link</span><b>{syncState === 'scanning' ? 'PROBING…' : syncState === 'offline' ? 'OFFLINE' : 'IDLE'}</b></div>
+        </div>
+      </div>
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">CONTROLLER SYNC</div>
+          <div class="counter">BETA</div>
+        </div>
+        <div class="games-list">
+          <div class="oe-head"><span>PROFILE MAP · CMG ⇄ RETROPAD</span><span>{SYNC_MAP.length}</span></div>
+          {#each SYNC_MAP as m (m.cmg)}
+            <div class="sync-row">
+              <span class="sync-cmg">{m.cmg}</span>
+              <span class="sync-arrow">⇄</span>
+              <span class="sync-retro">{m.retro}</span>
+              <span class="sync-note">{m.note}</span>
+            </div>
+          {/each}
+          <div class="oe-head"><span>ACTIONS</span><span>2</span></div>
+          <div
+            class="game-row byoc-row {ctrlSel === 0 ? 'sel' : ''}"
+            onmouseenter={() => { if (ctrlSel !== 0) { ctrlSel = 0; sfx.nav(); } }}
+            onclick={() => ctrlActivate(0)}
+          >
+            <div class="game-icon"><div class="glass"><span class="ph">{syncState === 'scanning' ? '…' : '⇄'}</span></div></div>
+            <div class="game-bar">
+              <span class="name">{syncState === 'scanning' ? 'PROBING LINK…' : 'SYNC NOW'}</span>
+              <span class="sub">{syncState === 'offline' ? 'SYNC PROTOCOL OFFLINE · COMING SOON' : 'push CMG profile to emulator cores'}</span>
+            </div>
+          </div>
+          <div
+            class="game-row {ctrlSel === 1 ? 'sel' : ''}"
+            onmouseenter={() => { if (ctrlSel !== 1) { ctrlSel = 1; sfx.nav(); } }}
+            onclick={() => ctrlActivate(1)}
+          >
+            <div class="game-icon"><div class="glass"><span class="ph">◌</span></div></div>
+            <div class="game-bar">
+              <span class="name">AUTO-SYNC ON LAUNCH</span>
+              <span class="sub">COMING SOON</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -3385,7 +3814,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
   </div>
 </div>
 
