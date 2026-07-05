@@ -38,9 +38,12 @@ let frame = null;
 let playerOrigin = "*";
 let readyResolve = null;
 let readyPromise = null;
+let playerReady = false;
+const commandQueue = []; // messages sent before the album was accepted
 let lastState = null;
 let currentBgmKey = null;
-const seCache = new Map(); // key -> HTMLAudioElement
+const seCache = new Map(); // key -> base HTMLAudioElement
+const seClones = new Map(); // key -> Set of in-flight overlapping clones
 let requestSeq = 0;
 const pendingState = new Map(); // requestId -> resolve
 
@@ -52,8 +55,19 @@ function muted() {
   }
 }
 
-function post(message) {
+function rawPost(message) {
   frame?.contentWindow?.postMessage(message, playerOrigin);
+}
+
+// Callers keep the old synchronous contract (initSound() then bgmPlay()
+// without awaiting), so commands issued before the iframe accepted the
+// album are queued and flushed on readiness instead of being lost.
+function post(message) {
+  if (!playerReady) {
+    commandQueue.push(message);
+    return;
+  }
+  rawPost(message);
 }
 
 function bgmAlbum() {
@@ -73,7 +87,10 @@ function bgmAlbum() {
 
 function onMessage(event) {
   const data = event.data;
-  if (!data || typeof data.type !== "string" || !data.type.startsWith(MESSAGE_PREFIX)) return;
+  if (
+    !data || typeof data.type !== "string" ||
+    !data.type.startsWith(MESSAGE_PREFIX)
+  ) return;
   if (frame && event.source !== frame.contentWindow) return;
 
   const command = data.type.slice(MESSAGE_PREFIX.length);
@@ -81,16 +98,22 @@ function onMessage(event) {
 
   if (command === "ready") {
     playerOrigin = event.origin || "*";
-    post({
+    rawPost({
       type: MESSAGE_PREFIX + "add-albums",
       albums: [bgmAlbum()],
       select: config.albumId,
     });
   } else if (command === "event" && data.event === "albums-changed") {
-    const album = (data.state?.albums || []).find((a) => a.id === config.albumId);
-    if (album && readyResolve) {
-      readyResolve(album);
-      readyResolve = null;
+    const album = (data.state?.albums || []).find((a) =>
+      a.id === config.albumId
+    );
+    if (album) {
+      playerReady = true;
+      while (commandQueue.length) rawPost(commandQueue.shift());
+      if (readyResolve) {
+        readyResolve(album);
+        readyResolve = null;
+      }
     }
   } else if (command === "state" && data.requestId !== undefined) {
     const resolve = pendingState.get(data.requestId);
@@ -110,7 +133,9 @@ export function configureSound(options = {}) {
 export function initSound(_game, options = {}) {
   configureSound(options);
   if (!config.playerUrl) {
-    throw new Error("initSound: options.playerUrl (embedded player URL) is required");
+    throw new Error(
+      "initSound: options.playerUrl (embedded player URL) is required",
+    );
   }
   if (readyPromise) return readyPromise;
 
@@ -118,17 +143,19 @@ export function initSound(_game, options = {}) {
     readyResolve = resolve;
   });
 
-  window.addEventListener("message", onMessage);
+  globalThis.addEventListener("message", onMessage);
 
   frame = document.createElement("iframe");
   frame.id = "music-player-frame";
   frame.setAttribute("allow", "autoplay");
   if (!config.visible) {
-    frame.style.cssText = "position:fixed;width:0;height:0;border:0;visibility:hidden;";
+    frame.style.cssText =
+      "position:fixed;width:0;height:0;border:0;visibility:hidden;";
   } else {
-    frame.style.cssText = "position:fixed;right:0;bottom:0;width:480px;height:360px;border:0;z-index:9999;";
+    frame.style.cssText =
+      "position:fixed;right:0;bottom:0;width:480px;height:360px;border:0;z-index:9999;";
   }
-  const url = new URL(config.playerUrl, window.location.href);
+  const url = new URL(config.playerUrl, globalThis.location.href);
   url.searchParams.set("albums", "none"); // skip the artist's default albums
   frame.src = url.href;
   document.body.appendChild(frame);
@@ -161,8 +188,36 @@ function localSe(key) {
   if (seCache.has(key)) return seCache.get(key);
   const audio = new Audio(info.url);
   audio.volume = Number.isFinite(info.volume) ? info.volume : 1;
+  audio.preload = "auto";
   seCache.set(key, audio);
   return audio;
+}
+
+// Overlapping one-shots: if the base element for a key is mid-playback,
+// play a throwaway clone instead of cutting the earlier instance off.
+function playSe(key) {
+  const base = localSe(key);
+  if (!base) return null;
+  let audio = base;
+  if (!base.paused && !base.ended) {
+    audio = base.cloneNode(true);
+    audio.volume = base.volume;
+    let clones = seClones.get(key);
+    if (!clones) {
+      clones = new Set();
+      seClones.set(key, clones);
+    }
+    clones.add(audio);
+    audio.addEventListener("ended", () => clones.delete(audio));
+  }
+  audio.currentTime = 0;
+  audio.play().catch(() => {/* gesture-gated */});
+  return audio;
+}
+
+function eachSe(fn) {
+  seCache.forEach((audio) => fn(audio));
+  seClones.forEach((clones) => clones.forEach((audio) => fn(audio)));
 }
 
 export function play(key) {
@@ -172,11 +227,7 @@ export function play(key) {
     currentBgmKey = key;
     return key;
   }
-  const audio = localSe(key);
-  if (!audio) return null;
-  audio.currentTime = 0;
-  audio.play().catch(() => {/* gesture-gated */});
-  return audio;
+  return playSe(key);
 }
 
 export function stop(key) {
@@ -186,6 +237,11 @@ export function stop(key) {
   }
   const audio = seCache.get(key);
   if (audio && !audio.paused) audio.pause();
+  const clones = seClones.get(key);
+  if (clones) {
+    clones.forEach((clone) => clone.pause());
+    clones.clear();
+  }
 }
 
 // Play once from the top, then loop the [start, end] region — the loop
@@ -202,19 +258,20 @@ export function stopBgm(key) {
   post({ type: MESSAGE_PREFIX + "stop" });
 }
 
+// Stop/pause cleanup must run even while muted — a mute/low-mode toggle
+// mid-battle should silence BGM already playing, not leave it running.
 export function stopAll() {
-  if (muted()) return;
   currentBgmKey = null;
   post({ type: MESSAGE_PREFIX + "stop" });
-  seCache.forEach((audio) => {
+  eachSe((audio) => {
     if (!audio.paused) audio.pause();
   });
+  seClones.forEach((clones) => clones.clear());
 }
 
 export function pauseAll() {
-  if (muted()) return;
   post({ type: MESSAGE_PREFIX + "pause" });
-  seCache.forEach((audio) => {
+  eachSe((audio) => {
     if (!audio.paused) audio.pause();
   });
 }

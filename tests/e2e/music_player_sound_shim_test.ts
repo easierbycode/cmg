@@ -98,7 +98,7 @@ Deno.test("sound.js replacement loads and plays all 6 boss BGMs through the embe
   try {
     const playerUrl = `http://127.0.0.1:${PLAYER_PORT}/player.html`;
     const harnessUrl =
-      `http://127.0.0.1:${CMG_PORT}/tests/music-player/index.html?player=${
+      `http://127.0.0.1:${CMG_PORT}/tests/music-player/index.html?eager=1&player=${
         encodeURIComponent(playerUrl)
       }`;
 
@@ -113,6 +113,19 @@ Deno.test("sound.js replacement loads and plays all 6 boss BGMs through the embe
       album.tracks.map((t: { id: string }) => t.id).sort(),
       [...BOSS_KEYS].sort(),
     );
+
+    // The harness fired bgmPlay("boss_bison_bgm") synchronously after
+    // initSound(), before the player was ready — the shim must have queued
+    // it and started playback once the album was accepted.
+    await waitFor(async () => {
+      const state = await playerState(page);
+      return state &&
+          state.currentTrackId === "boss_bison_bgm" &&
+          state.paused === false &&
+          state.currentTime > 0.1
+        ? state
+        : false;
+    }, "eager (pre-ready) boss_bison_bgm to play");
 
     for (const key of BOSS_KEYS) {
       await page.evaluate(
