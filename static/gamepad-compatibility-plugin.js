@@ -13,6 +13,10 @@
   const SNES_PAD_RE =
     /SNES Controller|Nintendo.*SNES|Vendor:\s*057e\s+Product:\s*2017|057e.*2017/i;
   const XBOX_PAD_RE = /Xbox|XInput|Microsoft|Legion Go/i;
+  // Chrome on Android gets pad-layout tweaks of its own (see snesButtons).
+  const IS_ANDROID = /Android/i.test(
+    (root.navigator && root.navigator.userAgent) || "",
+  );
   const defaultOptions = {
     sourceParent: false,
     preferSinglePad: false,
@@ -190,6 +194,17 @@
       out[13] = button((joydevFamily && isPressed(source[13])) || dirs.down);
       out[14] = button((joydevFamily && isPressed(source[14])) || dirs.left);
       out[15] = button((joydevFamily && isPressed(source[15])) || dirs.right);
+    }
+
+    // Chrome on Android: remap the SNES pad's R shoulder into the L2 slot,
+    // universally (launcher and games alike). Runs after (and regardless of)
+    // the family normalization above, so "R" is whatever landed in the
+    // standard slot 5 — including on Android's standard-mapped pads. The
+    // launcher pairs this with L/L2 list navigation and the SELECT+L2 OSD
+    // chord on Android.
+    if (IS_ANDROID) {
+      out[6] = button(isPressed(out[5]) || isPressed(out[6]));
+      out[5] = button(false);
     }
 
     return out;
