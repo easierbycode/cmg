@@ -342,6 +342,44 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 }
 .game-iframe.on { opacity: 1; transform: scale(1); pointer-events: auto; }
 .game-iframe iframe { width: 100%; height: 100%; border: 0; background: #000; }
+
+/* Touch twin-stick overlay — enabled from the Guide only for twin-stick games.
+   The visuals reuse the Nintendo dynamic analog assets while each half of the
+   screen feeds one analog stick into the same gamepad stream as Twin-Stick Mode. */
+.twin-touch-zone {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: 101;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.twin-touch-zone.left { left: 0; width: 50vw; }
+.twin-touch-zone.right { right: 0; width: 50vw; }
+.twin-touch-base,
+.twin-touch-knob {
+  position: fixed;
+  display: block;
+  border-radius: 50%;
+  pointer-events: none;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  opacity: .94;
+  transform: translate(-50%, -50%);
+  filter: hue-rotate(-90deg) saturate(.65) brightness(1.68) drop-shadow(0 0 12px rgba(124, 255, 79, .42));
+}
+.twin-touch-base {
+  width: 132px;
+  height: 132px;
+  background-image: url('/ui/gfx/virtual-gamepad-circle.png');
+}
+.twin-touch-knob {
+  width: 60px;
+  height: 60px;
+  background-image: url('/ui/gfx/virtual-gamepad-dot.png');
+}
+
 /* In-game OSD trigger zones — small transparent corners layered above the game
    iframe (z 99). A simultaneous touch in both (bottom-left + top-right) opens
    the Guide. Kept small to minimize overlap with a game's own corner controls. */

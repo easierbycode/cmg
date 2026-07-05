@@ -339,14 +339,18 @@
   const TWIN_STICK_DEFAULT_IDS = new Set(['shmup-party-phaser3', 'shmup-party-phaser4']);
   let twinStickAvail = $state(false);
   let twinStickOn = $state(false);
+  let twinTouchOn = $state(false);
+  let osdOpenedByTouch = $state(false);
   let twinGameId = null;
   let twinStickUserSet = false;
 
   function twinStickKey(id) { return 'cmg-twinstick:' + id; }
+  function twinTouchKey(id) { return 'cmg-twinstick-touch:' + id; }
 
   function initTwinStick(id, item) {
     twinGameId = id || null;
     twinStickUserSet = false;
+    osdOpenedByTouch = false;
     const flag = item ? item.twinStick : undefined;
     const catalogAvail = flag === true || (!!flag && typeof flag === 'object');
     const catalogDefault = flag === true || !!(flag && flag.default);
@@ -358,6 +362,13 @@
       if (saved !== null) on = saved === '1';
     } catch (_) { /* ignore */ }
     twinStickOn = twinStickAvail && on;
+    let touchOn = false;
+    try {
+      const savedTouch = id ? localStorage.getItem(twinTouchKey(id)) : null;
+      touchOn = savedTouch === '1';
+    } catch (_) { /* ignore */ }
+    twinTouchOn = twinStickAvail && touchOn;
+    resetTwinTouch();
   }
 
   function setTwinStick(v) {
@@ -367,6 +378,59 @@
       try { localStorage.setItem(twinStickKey(twinGameId), twinStickOn ? '1' : '0'); } catch (_) { /* ignore */ }
     }
     applyTwinStick();
+  }
+
+  function setTwinTouch(v) {
+    twinTouchOn = twinStickAvail && !!v;
+    if (twinGameId) {
+      try { localStorage.setItem(twinTouchKey(twinGameId), twinTouchOn ? '1' : '0'); } catch (_) { /* ignore */ }
+    }
+    if (!twinTouchOn) resetTwinTouch();
+    applyTwinStick();
+  }
+
+  let twinTouch = $state({
+    left: { id: null, ox: 0, oy: 0, x: 0, y: 0, active: false },
+    right: { id: null, ox: 0, oy: 0, x: 0, y: 0, active: false },
+  });
+  const TWIN_TOUCH_RADIUS = 60;
+  const TWIN_TOUCH_DEAD = 10;
+  function resetTwinTouch() {
+    for (const side of ['left', 'right']) {
+      const st = twinTouch[side];
+      st.id = null; st.active = false; st.x = 0; st.y = 0;
+    }
+  }
+  function twinTouchGamepad(pads) {
+    if (!twinTouchOn || !twinStickAvail) return pads;
+    const axes = [0, 0, 0, 0];
+    if (twinTouch.left.active) { axes[0] = twinTouch.left.x; axes[1] = twinTouch.left.y; }
+    if (twinTouch.right.active) { axes[2] = twinTouch.right.x; axes[3] = twinTouch.right.y; }
+    const active = twinTouch.left.active || twinTouch.right.active;
+    if (!active) return pads;
+    const buttons = Array.from({ length: 16 }, () => ({ pressed: false, touched: false, value: 0 }));
+    const base = pads && pads[0];
+    const virtualPad = base ? {
+      id: base.id || 'CMG Touch Twin-Stick',
+      index: 0,
+      connected: true,
+      mapping: 'standard',
+      timestamp: Date.now(),
+      axes: [
+        twinTouch.left.active ? axes[0] : (base.axes?.[0] || 0),
+        twinTouch.left.active ? axes[1] : (base.axes?.[1] || 0),
+        twinTouch.right.active ? axes[2] : (base.axes?.[2] || 0),
+        twinTouch.right.active ? axes[3] : (base.axes?.[3] || 0),
+      ],
+      buttons: base.buttons || buttons,
+      vibrationActuator: base.vibrationActuator || null,
+    } : {
+      id: 'CMG Touch Twin-Stick', index: 0, connected: true, mapping: 'standard',
+      timestamp: Date.now(), axes, buttons, vibrationActuator: null,
+    };
+    const out = Array.prototype.slice.call(pads || []);
+    out[0] = virtualPad;
+    return out;
   }
 
   // A game frame is patchable only when same-origin. Decide from the frame's
@@ -401,7 +465,7 @@
             : () => [];
           w.navigator.getGamepads = () => {
             if (!twinStickOn) return orig();
-            try { return window.CMGGamepadCompat.twinStick(navigator.getGamepads() || []); }
+            try { return twinTouchGamepad(window.CMGGamepadCompat.twinStick(navigator.getGamepads() || [])); }
             catch (_) { return orig(); }
           };
         }
@@ -471,6 +535,9 @@
     // catalog `twinStick` flag, or a cmg-twinstick broadcast).
     if (twinStickAvail) {
       game.push({ key: 'twinstick', kind: 'toggle', label: 'Twin-Stick Mode', value: twinStickOn });
+      if (osdOpenedByTouch) {
+        game.push({ key: 'twinstick-touch', kind: 'toggle', label: 'Touch Twin-Stick', value: twinTouchOn });
+      }
     }
     // The Cheats submenu appears only when the running game has advertised a
     // cheat set over postMessage (osdCheats) — opt-in, per game.
@@ -559,6 +626,7 @@
     else if (it.key === 'disco') setTweak('discoMode', !!v);
     else if (it.key === 'emucontrols') controlsShown = !!v;
     else if (it.key === 'twinstick') setTwinStick(!!v);
+    else if (it.key === 'twinstick-touch') setTwinTouch(!!v);
   }
   function adjustOsd(i, dir) {
     const it = osdItems[i]; if (!it) return;
@@ -598,9 +666,13 @@
   // Two-finger corner gesture (bottom-left + top-right at once) opens the OSD on
   // touch, where the SELECT + Down chord isn't available.
   const cornerState = { bl: false, tr: false };
-  function cornerDown(c) {
+  function cornerDown(c, e) {
     cornerState[c] = true;
-    if (cornerState.bl && cornerState.tr) { cornerState.bl = false; cornerState.tr = false; openOsd(); }
+    if (cornerState.bl && cornerState.tr) {
+      cornerState.bl = false; cornerState.tr = false;
+      osdOpenedByTouch = !e || e.pointerType === 'touch';
+      openOsd();
+    }
   }
   function cornerUp(c) { cornerState[c] = false; }
 
@@ -615,6 +687,30 @@
     }
   }
   function softCornerUp(c) { softCornerState[c] = false; }
+  function twinTouchStart(e, side) {
+    if (!twinTouchOn || !twinStickAvail || osdOpen || (e.pointerType && e.pointerType !== 'touch')) return;
+    const st = twinTouch[side];
+    if (st.id !== null) return;
+    st.id = e.pointerId; st.ox = e.clientX; st.oy = e.clientY; st.x = 0; st.y = 0; st.active = true;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  }
+  function twinTouchMove(e, side) {
+    const st = twinTouch[side];
+    if (st.id !== e.pointerId) return;
+    const dx = e.clientX - st.ox, dy = e.clientY - st.oy;
+    const mag = Math.sqrt(dx * dx + dy * dy);
+    if (mag < TWIN_TOUCH_DEAD) { st.x = 0; st.y = 0; }
+    else { st.x = Math.max(-1, Math.min(1, dx / TWIN_TOUCH_RADIUS)); st.y = Math.max(-1, Math.min(1, dy / TWIN_TOUCH_RADIUS)); }
+    e.preventDefault();
+  }
+  function twinTouchEnd(e, side) {
+    const st = twinTouch[side];
+    if (st.id !== e.pointerId) return;
+    st.id = null; st.active = false; st.x = 0; st.y = 0;
+    e.preventDefault();
+  }
+
   function openSoftmod() {
     if (softmodOn) return;
     if (osdOpen) closeOsd();
@@ -2328,7 +2424,7 @@
         if (ev.code === 'Backquote' || ev.key === '`' || ev.key === '~' || ev.keyCode === 192 || ev.key === 'Escape') {
           ev.preventDefault();
           ev.stopImmediatePropagation();
-          if (osdOpen) closeOsd(); else openOsd();
+          if (osdOpen) closeOsd(); else { osdOpenedByTouch = false; openOsd(); }
         }
       }, true);
     } catch (_) { /* cross-origin frame — can't inject; it must postMessage instead */ }
@@ -3251,16 +3347,40 @@
   </div>
 {/if}
 
+
+{#if gameOn && twinStickAvail && twinStickOn && twinTouchOn && !osdOpen}
+  <div class="twin-touch-zone left" aria-hidden="true"
+       onpointerdown={(e) => twinTouchStart(e, 'left')}
+       onpointermove={(e) => twinTouchMove(e, 'left')}
+       onpointerup={(e) => twinTouchEnd(e, 'left')}
+       onpointercancel={(e) => twinTouchEnd(e, 'left')}>
+    {#if twinTouch.left.active}
+      <span class="twin-touch-base" style={`left:${twinTouch.left.ox}px;top:${twinTouch.left.oy}px`}></span>
+      <span class="twin-touch-knob" style={`left:${twinTouch.left.ox + twinTouch.left.x * TWIN_TOUCH_RADIUS}px;top:${twinTouch.left.oy + twinTouch.left.y * TWIN_TOUCH_RADIUS}px`}></span>
+    {/if}
+  </div>
+  <div class="twin-touch-zone right" aria-hidden="true"
+       onpointerdown={(e) => twinTouchStart(e, 'right')}
+       onpointermove={(e) => twinTouchMove(e, 'right')}
+       onpointerup={(e) => twinTouchEnd(e, 'right')}
+       onpointercancel={(e) => twinTouchEnd(e, 'right')}>
+    {#if twinTouch.right.active}
+      <span class="twin-touch-base" style={`left:${twinTouch.right.ox}px;top:${twinTouch.right.oy}px`}></span>
+      <span class="twin-touch-knob" style={`left:${twinTouch.right.ox + twinTouch.right.x * TWIN_TOUCH_RADIUS}px;top:${twinTouch.right.oy + twinTouch.right.y * TWIN_TOUCH_RADIUS}px`}></span>
+    {/if}
+  </div>
+{/if}
+
 <!-- In-game OSD trigger: two-finger bottom-left + top-right tap. Small corner
      hit-zones layered above the game iframe, rendered only while a game is up
      and the OSD is closed. (Gamepad opens it with SELECT + Down; keyboard with
      ` or Esc.) -->
 {#if gameOn && !osdOpen}
   <div class="osd-corner bl" aria-hidden="true"
-       onpointerdown={() => cornerDown('bl')} onpointerup={() => cornerUp('bl')}
+       onpointerdown={(e) => cornerDown('bl', e)} onpointerup={() => cornerUp('bl')}
        onpointercancel={() => cornerUp('bl')} onpointerleave={() => cornerUp('bl')}></div>
   <div class="osd-corner tr" aria-hidden="true"
-       onpointerdown={() => cornerDown('tr')} onpointerup={() => cornerUp('tr')}
+       onpointerdown={(e) => cornerDown('tr', e)} onpointerup={() => cornerUp('tr')}
        onpointercancel={() => cornerUp('tr')} onpointerleave={() => cornerUp('tr')}></div>
 {/if}
 
