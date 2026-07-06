@@ -1,6 +1,6 @@
 {
-  "version": "0987933",
-  "generatedAt": "2026-06-25T17:41:15.474Z",
+  "version": "210f27f",
+  "generatedAt": "2026-07-06T03:16:47.766Z",
   "games": [
     {
       "id": "2019-turbo",
@@ -9,7 +9,10 @@
       "sub": "Pixi.js · Turbo",
       "icon": null,
       "size": "— MB",
-      "date": "06.13.26"
+      "date": "06.13.26",
+      "levelEditor": {
+        "game": "2028-ai"
+      }
     },
     {
       "id": "2019-es7",
@@ -28,7 +31,8 @@
       "icon": "/icons/2028-icon.png",
       "size": "21 MB",
       "date": "05.28.26",
-      "url": "/games/2028-ai"
+      "url": "/games/2028-ai",
+      "levelEditor": true
     },
     {
       "id": "games/evil-invaders/index.html?turbo=1&audio=1",

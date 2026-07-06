@@ -79,8 +79,28 @@ class PluginBootScene extends BootScene {
             onPrimeState: (recipe, info) => {
                 gameState._phaserRecipe = recipe;
                 gameState.hasCustomEnemies = info.hasCustomEnemies;
-                if (info.bossRush) gameState.shortFlg = true;
-                primeGameStateForStage(recipe, info.stageId);
+                let stageId = info.stageId;
+                let bossRush = info.bossRush;
+                // OSD "Akuma Boss" cheat (?boss=goki): Goki only replaces the
+                // stage-3 boss on a fresh run, so pin the stage there, flag the
+                // override for Boss.bossAdd, and imply boss-rush. Mirrors the
+                // native BootScene._finishBoot path used by the exported APK.
+                try {
+                    const p = new URLSearchParams(location.search);
+                    if (p.get("boss") === "goki") {
+                        gameState.forceBossName = "goki";
+                        // Pin to Goki's stage only when no explicit ?stage was
+                        // given (match the native path; don't override a choice).
+                        if (p.get("stage") == null) stageId = 3;
+                        bossRush = true;
+                    }
+                } catch (_e) { /* ignore */ }
+                // primeGameStateForStage resets shortFlg to false, so apply the
+                // boss-rush flag AFTER it — the previous order set it first and
+                // primeGameStateForStage immediately clobbered it (bossRush never
+                // skipped waves). Matches BootScene._finishBoot's ordering.
+                primeGameStateForStage(recipe, stageId);
+                if (bossRush) gameState.shortFlg = true;
             },
         }).then((result) => {
             if (result.bgmSourceURLs) {

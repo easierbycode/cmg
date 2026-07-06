@@ -70,6 +70,25 @@ function post(message) {
   rawPost(message);
 }
 
+// Mirror the game's BGM album onto a same-origin BroadcastChannel + localStorage
+// so the level editor (served from /editor/ on the same origin) can offer these
+// tracks as BGM replacements even when the game tab is closed. This is a passive
+// side-channel — the authoritative album delivery is still the postMessage to
+// the embedded player below.
+const ALBUM_BROADCAST_CHANNEL = "azlegend-music";
+const ALBUM_STORAGE_KEY = "azlegend:last-album";
+function broadcastAlbumToEditor(album) {
+  if (!album || !Array.isArray(album.tracks) || !album.tracks.length) return;
+  try {
+    localStorage.setItem(ALBUM_STORAGE_KEY, JSON.stringify(album));
+  } catch (_e) { /* private mode / quota — non-fatal */ }
+  try {
+    const ch = new BroadcastChannel(ALBUM_BROADCAST_CHANNEL);
+    ch.postMessage({ type: "album-available", album });
+    ch.close();
+  } catch (_e) { /* BroadcastChannel unsupported — localStorage still set */ }
+}
+
 function bgmAlbum() {
   return {
     id: config.albumId,
@@ -137,6 +156,10 @@ export function initSound(_game, options = {}) {
       "initSound: options.playerUrl (embedded player URL) is required",
     );
   }
+  // Publish the album to the editor side-channel as soon as the BGM set is
+  // known (before the player handshake), so an editor open in another tab can
+  // offer these tracks immediately.
+  broadcastAlbumToEditor(bgmAlbum());
   if (readyPromise) return readyPromise;
 
   readyPromise = new Promise((resolve) => {
