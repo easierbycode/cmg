@@ -225,6 +225,14 @@
   let padConnected = $state(false);
   let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/') || gameSrc.startsWith('/arcade/')));
   let hasEmulatorControls = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/')));
+  // The level editor runs in the game frame but is a button-dense editor UI:
+  // the transparent .osd-corner hit-zones would swallow taps on its toolbar
+  // corners (enemy/item pickers top-left, save/menu top-right) and on grid
+  // cells in the bottom corners. While it's the active frame the overlay zones
+  // are suppressed and the same gestures are detected by listeners injected
+  // into the (guaranteed same-origin) frame instead — see
+  // injectEditorCornerGesture.
+  let editorFrameActive = $derived(typeof gameSrc === 'string' && /^\/editor(\/|\?|$)/.test(gameSrc));
   // First touch in-game dismisses transient chrome (kept for the tg16 message
   // path). The upper-right close button is gone — Exit Game in the OSD replaces it.
   let chromeDismissed = $state(false);
@@ -2879,6 +2887,58 @@
     } catch (_) { /* cross-origin frame — can't inject; it must postMessage instead */ }
   }
 
+  // The level editor frame gets no .osd-corner overlay zones (they'd swallow
+  // taps on its toolbar corners — see editorFrameActive), so the two-finger
+  // corner gestures are detected from INSIDE the frame instead: passive
+  // capture-phase pointer listeners on the frame's window map presses in the
+  // corner regions (same min(13vmin, 104px) squares as the CSS zones) onto the
+  // launcher's cornerDown/cornerUp state. Unlike the overlay zones these don't
+  // eat the events, so the editor UI underneath keeps working. Editor URLs are
+  // hard-guarded same-origin (sanitizeLevelEditor), so injection always works.
+  function injectEditorCornerGesture(e) {
+    if (!editorFrameActive) return;
+    const iframe = e?.currentTarget || document.getElementById('gameframe');
+    if (!iframe || !frameIsSameOrigin(iframe)) return;
+    try {
+      const w = iframe.contentWindow;
+      if (!w || w.__cmgCornerGesture) return;
+      w.__cmgCornerGesture = true;
+      const cornersAt = (ev) => {
+        const s = Math.min(0.13 * Math.min(w.innerWidth, w.innerHeight), 104);
+        const L = ev.clientX <= s, R = ev.clientX >= w.innerWidth - s;
+        const T = ev.clientY <= s, B = ev.clientY >= w.innerHeight - s;
+        const c = [];
+        if (B && L) c.push('bl');
+        if (T && R) c.push('tr');
+        if (T && L) c.push('tl');
+        if (B && R) c.push('br');
+        return c;
+      };
+      const held = new Map(); // pointerId -> corners pressed by that pointer
+      w.addEventListener('pointerdown', (ev) => {
+        if (osdOpen) return;
+        const c = cornersAt(ev);
+        if (!c.length) return;
+        held.set(ev.pointerId, c);
+        for (const k of c) {
+          if (k === 'bl' || k === 'tr') cornerDown(k, ev);
+          else if (!softmodOn) softCornerDown(k);
+        }
+      }, true);
+      const release = (ev) => {
+        const c = held.get(ev.pointerId);
+        if (!c) return;
+        held.delete(ev.pointerId);
+        for (const k of c) {
+          if (k === 'bl' || k === 'tr') cornerUp(k);
+          else softCornerUp(k);
+        }
+      };
+      w.addEventListener('pointerup', release, true);
+      w.addEventListener('pointercancel', release, true);
+    } catch (_) { /* frame navigated cross-origin — zones stay suppressed, gesture unavailable */ }
+  }
+
   // The soft-mod cinematic overlay (same-origin /demos/softmod) posts this when
   // its simulated reboot finishes — close the overlay (the "rebooted" console).
   function onSoftmodMessage(e) {
@@ -4021,7 +4081,7 @@
       src={gameSrc}
       title="game"
       allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
-      onload={(e) => { injectOsdKeyForwarder(e); applyTwinStick(); }}
+      onload={(e) => { injectOsdKeyForwarder(e); injectEditorCornerGesture(e); applyTwinStick(); }}
     ></iframe>
   </div>
 {/if}
@@ -4075,8 +4135,10 @@
 <!-- In-game OSD trigger: two-finger bottom-left + top-right tap. Small corner
      hit-zones layered above the game iframe, rendered only while a game is up
      and the OSD is closed. (Gamepad opens it with SELECT + Down; keyboard with
-     ` or Esc.) -->
-{#if gameOn && !osdOpen}
+     ` or Esc.) Suppressed while the level editor is the active frame — its
+     toolbar/grid has controls in all four corners the zones would swallow;
+     the same gestures are detected in-frame instead (injectEditorCornerGesture). -->
+{#if gameOn && !osdOpen && !editorFrameActive}
   <div class="osd-corner bl" aria-hidden="true"
        onpointerdown={(e) => cornerDown('bl', e)} onpointerup={() => cornerUp('bl')}
        onpointercancel={() => cornerUp('bl')} onpointerleave={() => cornerUp('bl')}></div>
@@ -4103,7 +4165,7 @@
      the soft-mod cinematic. Layered in-game (the same context as the OSD
      gesture, just the other diagonal); never shown while it's already playing
      or the OSD is open, and only in-game so it can't block the launcher UI. -->
-{#if gameOn && !softmodOn && !osdOpen}
+{#if gameOn && !softmodOn && !osdOpen && !editorFrameActive}
   <div class="osd-corner tl" aria-hidden="true"
        onpointerdown={() => softCornerDown('tl')} onpointerup={() => softCornerUp('tl')}
        onpointercancel={() => softCornerUp('tl')} onpointerleave={() => softCornerUp('tl')}></div>
