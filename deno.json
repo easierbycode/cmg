@@ -10,6 +10,9 @@
     "build:linux": "deno task build && deno task arcade:bundle && deno task compile:linux && deno run -A scripts/build-appimage.ts",
     "compile:mac": "deno run -A scripts/compile-launcher.ts mac",
     "compile:linux": "deno run -A scripts/compile-launcher.ts linux",
+    "desktop:build": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh main.ts",
+    "desktop:mac": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh --target aarch64-apple-darwin main.ts",
+    "desktop:linux": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh --target x86_64-unknown-linux-gnu main.ts",
     "dashboard:build": "deno run -A scripts/build-dashboard.ts",
     "2028-ai:bgm": "deno run -A scripts/2028-ai/download-custom-bgm.ts",
     "games:manifest": "deno run -A scripts/build-games-manifest.ts",
@@ -94,5 +97,20 @@
   "deploy": {
     "org": "easierbycode",
     "app": "cmg"
+  },
+  "desktop": {
+    "name": "CMG",
+    "identifier": "com.easierbycode.cmg",
+    "backend": "webview",
+    "icon": {
+      "windows": "static/app-icons/cmg.ico",
+      "macos": "static/app-icons/icon-512.png",
+      "linux": "static/app-icons/icon-512.png"
+    },
+    "output": {
+      "windows": "dist/CMG.exe",
+      "macos": "dist/CMG.app",
+      "linux": "dist/CMG.AppImage"
+    }
   }
 }

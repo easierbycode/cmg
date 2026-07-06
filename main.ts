@@ -54,3 +54,10 @@ app.use(requestLoggerMiddleware);
 
 // Include file-system based routes here
 app.fsRoutes();
+
+// Default export so the app is a valid `deno serve` / `deno desktop` entry
+// (Fresh's App exposes a `fetch` handler). The Vite dev/build path imports the
+// App via the @fresh/plugin-vite convention and ignores this; it exists for the
+// Deno Desktop packaging task (`deno task desktop:*`, see deno.json) which wraps
+// this server in a native webview window.
+export default app;

@@ -139,6 +139,13 @@
     { id: 'xbox', label: 'XBOX' },
     { id: 'nintendo', label: 'NINTENDO' },
   ];
+  // Desktop "Install" — probed once at mount from /api/install. installInfo is
+  // null until the probe resolves; { local:true } means a local launcher (the
+  // build is meaningful here, even if the Deno toolchain needs upgrading), which
+  // is what gates the Settings row's visibility below.
+  let installInfo = $state(null);
+  let installStatus = $state('');
+  let installBusy = $state(false);
   let SETTINGS_ITEMS = $derived([
     {
       id: 'theme',
@@ -147,6 +154,18 @@
     },
     { id: 'oeimport', label: 'IMPORT OPENEMU LIBRARY', sub: 'pick games to copy from OpenEmu' },
     { id: 'ctrlsync', label: 'CONTROLLER SYNC', sub: 'CMG ⇄ emulator profiles · beta' },
+    // Only on a local desktop launcher (not the hosted web app, not touch).
+    // Builds a native binary of the launcher with Deno Desktop on demand.
+    ...((installInfo && installInfo.local && !isTouch)
+      ? [{
+          id: 'install',
+          label: 'INSTALL DESKTOP APP',
+          sub: installStatus ||
+            (installInfo.available
+              ? 'build a native app with Deno Desktop'
+              : (installInfo.reason || 'unavailable here')),
+        }]
+      : []),
   ]);
   let settingsSel = $state(0);
   let settingsRowEls = $state([]);
@@ -361,6 +380,59 @@
     const iframe = document.getElementById('gameframe');
     try { iframe?.contentWindow?.postMessage({ type: 'cmg-action', id }, '*'); }
     catch (_) { /* ignore */ }
+  }
+
+  // ── Level Editor capability ───────────────────────────────────────────────
+  // A game can advertise that it ships a level editor two ways, mirroring the
+  // cmg-cheats/cmg-actions pattern:
+  //   - a `levelEditor` field on its catalog/manifest entry (resolved at launch,
+  //     works for external games that can't postMessage), or
+  //   - a boot-time postMessage { type: 'cmg-level-editor', game?, url? }.
+  // Either yields an OSD "Edit Levels" button that swaps the frame to the ported
+  // level editor (/editor/), which authors custom "Game" records in Firebase.
+  // Only a SAME-ORIGIN /editor… path is ever honored — the editor is same-origin
+  // by construction, and refusing off-origin URLs keeps a hostile game from
+  // pointing the button at an arbitrary site.
+  let osdLevelEditor = $state(null); // { url } | null
+  function sanitizeLevelEditor(raw, fallbackGameId) {
+    // Explicit same-origin path wins; otherwise derive /editor/?game=<id>.
+    let url = null;
+    if (raw && typeof raw === 'object' && typeof raw.url === 'string') url = raw.url;
+    else if (typeof raw === 'string' && raw.startsWith('/')) url = raw;
+    if (!url) {
+      // Prefer an explicit editor game id, else the launched game id with any
+      // "games/" manifest prefix stripped (2028-ai's catalog id is "games/2028-ai",
+      // but its assets live at /games/2028-ai/, so the editor game id is "2028-ai").
+      let g = (raw && typeof raw === 'object' && raw.game) ? String(raw.game) : String(fallbackGameId || '');
+      g = g.replace(/^games\//, '').replace(/[^a-zA-Z0-9_-]/g, '');
+      url = '/editor/' + (g ? ('?game=' + encodeURIComponent(g)) : '');
+    }
+    // Hard guard: only a root-relative /editor… path (never an absolute URL to
+    // another origin, and no ".." — raw or percent-encoded — that could resolve
+    // back out of /editor to the launcher root and nest a launcher in the frame)
+    // is allowed through.
+    if (url.includes('..') || /%2e/i.test(url) || !/^\/editor(\/|\?|$)/.test(url)) return null;
+    return { url };
+  }
+  // Swap the running frame to the level editor. Treated like launching a new
+  // in-frame view: reset the prior game's advertised OSD capabilities so none
+  // of its cheats/plugins/actions linger over the editor.
+  function openLevelEditor() {
+    const le = osdLevelEditor;
+    if (!le || !le.url) return;
+    sfx.enter();
+    osdOpen = false; osdView = 'main';
+    osdCheats = []; osdPlugins = []; osdActions = [];
+    // Clear the editor's own capability too, so the "Edit Levels" button doesn't
+    // linger in the OSD while the editor is the active frame.
+    osdLevelEditor = null;
+    twinStickAvail = false; twinStickOn = false;
+    // Deliberately root-relative (NOT resolved against manifestOrigin like games):
+    // the editor must stay on the launcher's own origin so its /api/build-apk
+    // call and Firebase writes run against the local dev/desktop host, not the
+    // read-only deploy.
+    gameSrc = le.url;
+    setTimeout(() => { gameOn = true; }, 30);
   }
 
   // ── Twin-Stick mode ───────────────────────────────────────────────────────
@@ -587,6 +659,11 @@
     if (osdCheats.length) {
       game.push({ key: 'cheats', kind: 'button', label: 'Cheats' });
     }
+    // "Edit Levels" appears only for games that ship a level editor (catalog
+    // `levelEditor` flag or a cmg-level-editor broadcast) — opt-in, per game.
+    if (osdLevelEditor) {
+      game.push({ key: 'leveleditor', kind: 'button', label: 'Edit Levels' });
+    }
     addSection('Game', game);
 
     // Game-advertised live plugins render as toggles under a "Plugins" header.
@@ -702,6 +779,7 @@
     }
     if (it.key === 'exit') { sfx.enter(); osdOpen = false; closeGame(); }
     else if (it.key === 'controller') { sfx.enter(); osdOpen = false; try { window.openControllerConfigurator?.(); } catch (_) {} }
+    else if (it.key === 'leveleditor') { openLevelEditor(); }
     else if (it.key === 'cheats') { sfx.enter(); osdView = 'cheats'; osdSel = firstSelectable(osdItems); }
     else if (it.key === 'cheats-back') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); }
   }
@@ -1037,6 +1115,34 @@
       screen = 'ctrlsync';
       ctrlSel = 0;
       syncState = 'idle';
+    } else if (it.id === 'install') {
+      startInstall();
+    }
+  }
+
+  // Kick off an on-demand Deno Desktop build of the launcher. When the probe
+  // reported the build isn't possible (old Deno, wrong OS), just surface that
+  // reason in the row's sub instead of firing a doomed request.
+  async function startInstall() {
+    if (installBusy) return;
+    if (!installInfo || !installInfo.available) {
+      installStatus = (installInfo && installInfo.reason) || 'Desktop install unavailable here.';
+      return;
+    }
+    installBusy = true;
+    installStatus = 'Building desktop app — this can take a few minutes…';
+    try {
+      const resp = await fetch('/api/install', { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.ok) {
+        installStatus = 'Built: ' + (data.artifact || 'see dist/');
+      } else {
+        installStatus = 'Failed: ' + (data.error || ('HTTP ' + resp.status));
+      }
+    } catch (e) {
+      installStatus = 'Error: ' + (e && e.message ? e.message : e);
+    } finally {
+      installBusy = false;
     }
   }
 
@@ -1184,6 +1290,11 @@
     // falls back to its embedded same-origin copy.
     const item = GAMES.find((g) => g.id === id);
     initTwinStick(id, item);
+    // Level-editor availability from the catalog entry (games that broadcast
+    // cmg-level-editor on boot override this in onWindowMessage).
+    osdLevelEditor = (item && item.levelEditor)
+      ? sanitizeLevelEditor(item.levelEditor, id)
+      : null;
     if (item && item.url) {
       gameSrc = manifestOrigin ? new URL(item.url, manifestOrigin).href : item.url;
     } else {
@@ -2122,6 +2233,7 @@
     osdCheats = [];
     osdPlugins = [];
     osdActions = [];
+    osdLevelEditor = null;
     twinStickAvail = false;
     twinStickOn = false;
     twinGameId = null;
@@ -2846,6 +2958,16 @@
       osdActions = sanitizeActions(d.actions);
       return;
     }
+    if (d.type === 'cmg-level-editor') {
+      // The running game advertises that it ships a level editor. The Guide
+      // shows an "Edit Levels" button that swaps the frame to /editor/. Benign
+      // and same-origin-guarded in sanitizeLevelEditor (only a /editor… path is
+      // ever honored), so accept it from our own frame at any origin like the
+      // other cmg-* capability signals. `twinGameId` is the id of the launched
+      // game, used to derive the editor's ?game= when none is given.
+      osdLevelEditor = sanitizeLevelEditor(d, twinGameId);
+      return;
+    }
     // Sensitive actions — closing the game and BYOD disc-file transfer — stay
     // same-origin only; never honor them from a cross-origin frame.
     if (!sameOrigin) return;
@@ -2907,6 +3029,13 @@
     clockTimer = setInterval(tick, 1000);
 
     isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+
+    // Probe whether an on-demand desktop build is offerable here (local launcher
+    // vs. the hosted web app). Best-effort — a failure just hides the Install row.
+    fetch('/api/install')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j) installInfo = j; })
+      .catch(() => { /* keep Install hidden */ });
 
     sfx.boot();
     document.addEventListener('click', unlockAudio, { once: true });

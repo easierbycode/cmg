@@ -1488,6 +1488,16 @@
       }
       var stageParam = readStageParam();
       var bossRush = readBossRushParam();
+      var forceBoss = null;
+      try {
+        forceBoss = new URLSearchParams(window.location.search).get("boss");
+      } catch (e) {
+      }
+      if (forceBoss === "goki") {
+        gameState.forceBossName = "goki";
+        if (stageParam == null) stageParam = 3;
+        bossRush = true;
+      }
       var nextSceneKey = "PhaserTitleScene";
       if (editorPlay && recipe) {
         primeGameStateForStage(recipe, editorPlay.stageId);
@@ -2246,6 +2256,7 @@
       gameState.continueCnt = 0;
       gameState.akebonoCnt = 0;
       gameState.shortFlg = false;
+      gameState.forceBossName = null;
       var game = this.game;
       setTimeout(function() {
         game.scene.stop("PhaserTitleScene");
@@ -4452,7 +4463,7 @@
     scene.bossStageId = stageId;
     scene.gokiFlg = false;
     scene.bossIsGoki = false;
-    var isGokiStage = stageId === 3 && Number(gameState.continueCnt || 0) === 0;
+    var isGokiStage = stageId === 3 && Number(gameState.continueCnt || 0) === 0 || gameState.forceBossName === "goki" && stageId === 3;
     if (isGokiStage) {
       scene.gokiFlg = true;
     }
@@ -7954,8 +7965,19 @@
         onPrimeState: (recipe, info) => {
           gameState._phaserRecipe = recipe;
           gameState.hasCustomEnemies = info.hasCustomEnemies;
-          if (info.bossRush) gameState.shortFlg = true;
-          primeGameStateForStage2(recipe, info.stageId);
+          let stageId = info.stageId;
+          let bossRush = info.bossRush;
+          try {
+            const p = new URLSearchParams(location.search);
+            if (p.get("boss") === "goki") {
+              gameState.forceBossName = "goki";
+              if (p.get("stage") == null) stageId = 3;
+              bossRush = true;
+            }
+          } catch (_e) {
+          }
+          primeGameStateForStage2(recipe, stageId);
+          if (bossRush) gameState.shortFlg = true;
         }
       }).then((result) => {
         if (result.bgmSourceURLs) {

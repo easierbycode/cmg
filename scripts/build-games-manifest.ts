@@ -23,6 +23,13 @@ interface ManifestEntry {
   // "/demos/goofy-game"); it is resolved against the manifest's own origin at
   // runtime. External games omit `url` and load from https://easierbycode.com/<id>.
   url?: string;
+  // Opt-in launcher capabilities, carried through verbatim and read by the
+  // dashboard OSD. `twinStick`: dual-analog mode. `levelEditor`: the game ships
+  // a level editor — true (derive /editor/?game=<id>), a same-origin /editor…
+  // path, or { game, url }. Extra keys survive JSON round-trip, so these are
+  // documentation of the shape the dashboard understands, not a filter.
+  twinStick?: boolean | { default?: boolean };
+  levelEditor?: boolean | string | { game?: string; url?: string };
 }
 
 // Read + validate a JSON array of entries. `required` files must exist; optional
