@@ -99,14 +99,16 @@
     "app": "cmg"
   },
   "desktop": {
-    "name": "CMG",
-    "identifier": "com.easierbycode.cmg",
-    "backend": "webview",
-    "icon": {
-      "windows": "static/app-icons/cmg.ico",
-      "macos": "static/app-icons/icon-512.png",
-      "linux": "static/app-icons/icon-512.png"
+    "app": {
+      "name": "CMG",
+      "identifier": "com.easierbycode.cmg",
+      "icons": {
+        "windows": "static/app-icons/cmg.ico",
+        "macos": "static/app-icons/icon-512.png",
+        "linux": "static/app-icons/icon-512.png"
+      }
     },
+    "backend": "webview",
     "output": {
       "windows": "dist/CMG.exe",
       "macos": "dist/CMG.app",
