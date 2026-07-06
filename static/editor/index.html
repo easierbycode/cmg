@@ -399,7 +399,7 @@
             <div class="tb-spacer"></div>
 
             <!-- Boss Viewer -->
-            <a href="boss-viewer.html" class="tb-btn" style="background:#4a1a1a;text-decoration:none">
+            <a id="boss-viewer-link" href="boss-viewer.html" class="tb-btn" style="background:#4a1a1a;text-decoration:none">
                 <span style="font-size:14px">👹</span>
             </a>
             <!-- Save -->
@@ -636,6 +636,8 @@
         // same __editorPhaser*__ localStorage keys and ?editorPlay/?level params
         // this editor writes, so play links work unchanged).
         const GAME_PLAY_URL = '/games/' + GAME_ID;
+        // Keep the boss viewer on the same game this editor session authors for.
+        document.getElementById('boss-viewer-link').href = 'boss-viewer.html?game=' + GAME_ID;
         // The editor's built-in loaders fetch the base game's assets with paths
         // relative to the game dir ("assets/…", "img/…") — a convention from
         // 2019-es7 where the editor was served alongside those assets. In cmg the
