@@ -2422,9 +2422,13 @@
         }
         // Same bounce/dropout filter as the launcher-list nav: hold the last
         // direction through sub-80ms neutral blips so a bouncy D-pad doesn't
-        // move the selection several rows per tap.
+        // move the selection several rows per tap. Only a REAL read re-arms the
+        // window — refreshing it from the synthesized hold latched the
+        // direction and stopped the D-pad responding until the opposite was
+        // pressed.
+        const vReal = v;
         if (v === 0 && osdNav.vDir !== 0 && nowOsd - (osdNav.vSeenAt || 0) < 80) v = osdNav.vDir;
-        if (v !== 0) osdNav.vSeenAt = nowOsd;
+        if (vReal !== 0) osdNav.vSeenAt = nowOsd;
         if (v !== 0 && v !== osdNav.vDir) {
           osdSel = Math.max(0, Math.min(osdItems.length - 1, osdSel + v));
           sfx.nav();
@@ -2435,8 +2439,9 @@
         if (dirs.left) h = -1;
         else if (dirs.right) h = 1;
         else { const ax = pad.axes[0] ?? 0; if (ax < -PAD_DEADZONE) h = -1; else if (ax > PAD_DEADZONE) h = 1; }
+        const hReal = h;
         if (h === 0 && osdNav.hDir !== 0 && nowOsd - (osdNav.hSeenAt || 0) < 80) h = osdNav.hDir;
-        if (h !== 0) osdNav.hSeenAt = nowOsd;
+        if (hReal !== 0) osdNav.hSeenAt = nowOsd;
         if (h !== 0 && h !== osdNav.hDir) adjustOsd(osdSel, h);
         osdNav.hDir = h;
         if (justPressed(0)) activateOsd(osdSel);              // A
@@ -2557,10 +2562,15 @@
     // re-fires the edge nav, which reads as several presses per tap. Hold the
     // last direction through sub-80ms dropouts so only a real release
     // re-arms the edge.
+    const realDir = dir; // pre-filter read — only a real direction re-arms the window
     if (dir === 0 && padState.axisDir !== 0 && now - padState.dirSeenAt < 80) {
       dir = padState.axisDir;
     }
-    if (dir !== 0) padState.dirSeenAt = now;
+    // Re-arm the dropout window from a REAL read only. Refreshing it from the
+    // synthesized hold kept every release inside the 80ms window frame after
+    // frame, so a single tap latched the direction and hold-repeat fired
+    // forever — until another direction replaced it. (SNES / Switch Pro pads.)
+    if (realDir !== 0) padState.dirSeenAt = now;
 
     // A stalled frame (heavy re-render, tab jank) can make one tap look like a
     // long hold: the next poll arrives with heldFor already past the repeat
