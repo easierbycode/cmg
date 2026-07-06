@@ -42,10 +42,13 @@
   // azlegend checkout) → config → none (Music blade shows a hint if absent).
   var playerUrl = qs.get("osdPlayer") || musicCfg.playerUrl || "";
 
+  // Phaser-launcher navy palette (Claude Design "OSD Mobile"): coordinated,
+  // quieter blade accents. `rgb` feeds rgba() tints in CSS; `lt` is the light
+  // tint used for the collapsed-strip label.
   var BLADES = [
-    { id: "game", label: "Game", accent: "#6cc24a", accent2: "#2f6d16" },
-    { id: "music", label: "Music", accent: "#4aa6c2", accent2: "#16506d" },
-    { id: "look", label: "Look", accent: "#c2894a", accent2: "#6d4416" },
+    { id: "game", label: "Game", accent: "#7aa2ee", rgb: "122,162,238", lt: "#b9ccf6" },
+    { id: "music", label: "Music", accent: "#54c9d8", rgb: "84,201,216", lt: "#bdeef4" },
+    { id: "look", label: "Look", accent: "#e2b45f", rgb: "226,180,95", lt: "#f2dca8" },
   ];
 
   var state = { open: false, blade: "game", comboActive: false };
@@ -53,43 +56,49 @@
   // ── styles ────────────────────────────────────────────────────────────────
   var style = document.createElement("style");
   style.textContent = [
-    ".cmg-osd-root{position:fixed;inset:0;z-index:2147483000;display:none;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#fff;-webkit-tap-highlight-color:transparent}",
+    ".cmg-osd-root{position:fixed;inset:0;z-index:2147483000;display:none;font-family:'Sora',system-ui,-apple-system,sans-serif;color:#f2ece3;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}",
     ".cmg-osd-root.open{display:block}",
-    ".cmg-osd-scrim{position:absolute;inset:0;background:radial-gradient(120% 120% at 50% 0,rgba(20,28,20,.72),rgba(0,0,0,.9))}",
-    ".cmg-osd-blades{position:absolute;inset:0;display:flex;gap:6px;padding:14px;box-sizing:border-box}",
-    // A blade: full-height glossy vertical panel. Inactive ones collapse to a
-    // narrow strip that shows only its rotated label (the 360 "peek").
-    ".cmg-osd-blade{position:relative;flex:0 0 66px;border-radius:12px;overflow:hidden;cursor:pointer;transition:flex-basis .28s cubic-bezier(.4,0,.2,1);box-shadow:0 8px 30px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.35);display:flex;flex-direction:column}",
-    ".cmg-osd-blade.active{flex:1 1 auto;cursor:default}",
-    // Glossy top-lit gradient using the blade accent (set inline per blade).
-    ".cmg-osd-blade .sheen{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,0) 42%)}",
-    ".cmg-osd-blade .tab{position:relative;flex:0 0 auto;padding:14px 0;text-align:center;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:13px;text-shadow:0 1px 2px rgba(0,0,0,.5)}",
-    ".cmg-osd-blade:not(.active) .tab{writing-mode:vertical-rl;transform:rotate(180deg);margin:12px auto;font-size:15px}",
-    ".cmg-osd-blade .body{position:relative;flex:1 1 auto;overflow-y:auto;padding:6px 18px 20px;display:none}",
+    // Phaser navy backdrop with a soft blue glow in the top-right.
+    ".cmg-osd-scrim{position:absolute;inset:0;background:radial-gradient(130% 92% at 100% 0%, rgba(122,162,238,0.18), transparent 55%), linear-gradient(155deg,#0c1030 0%,#141d44 48%,#20355c 100%)}",
+    ".cmg-osd-blades{position:absolute;inset:0;display:flex;gap:0;box-sizing:border-box}",
+    // A blade collapses to a narrow accent-tinted strip; the active one expands
+    // and goes transparent so the navy backdrop shows through (per the mockup).
+    ".cmg-osd-blade{position:relative;flex:0 0 46px;overflow:hidden;cursor:pointer;transition:flex-basis .28s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(var(--acc-rgb),0.16),rgba(var(--acc-rgb),0.04));border-left:1px solid rgba(var(--acc-rgb),0.24)}",
+    ".cmg-osd-blade:first-child{border-left:0}",
+    ".cmg-osd-blade.active{flex:1 1 auto;cursor:default;background:transparent;border-left:0}",
+    ".cmg-osd-blade:not(.active):hover{background:linear-gradient(180deg,rgba(var(--acc-rgb),0.26),rgba(var(--acc-rgb),0.08))}",
+    ".cmg-osd-blade .tab{position:relative;flex:0 0 auto;text-align:center;text-transform:uppercase;font-weight:700;letter-spacing:3px;font-size:12px;padding:5px 0 16px;color:var(--acc)}",
+    ".cmg-osd-blade:not(.active) .tab{writing-mode:vertical-rl;transform:rotate(180deg);margin:auto;padding:0;font-weight:600;font-size:13px;letter-spacing:2.5px;color:var(--acc-lt)}",
+    ".cmg-osd-blade .body{position:relative;flex:1 1 auto;overflow-y:auto;padding:0 16px 20px;display:none}",
     ".cmg-osd-blade.active .body{display:block}",
-    ".cmg-osd-h{font-size:22px;font-weight:800;margin:2px 0 14px;text-shadow:0 2px 4px rgba(0,0,0,.5)}",
-    // rows / controls
-    ".cmg-osd-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin:8px 0;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14);border-radius:10px}",
-    ".cmg-osd-row .lbl{font-size:15px;font-weight:600}",
-    ".cmg-osd-row .sub{font-size:12px;opacity:.7;margin-top:2px}",
-    ".cmg-osd-sw{position:relative;width:52px;height:28px;border-radius:16px;background:rgba(255,255,255,.22);flex:0 0 auto;transition:background .15s}",
-    ".cmg-osd-sw.on{background:#6cc24a}",
-    ".cmg-osd-sw::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.4)}",
-    ".cmg-osd-sw.on::after{left:27px}",
-    ".cmg-osd-slider{display:flex;align-items:center;gap:10px}",
-    ".cmg-osd-slider input{width:150px}",
-    ".cmg-osd-slider .val{min-width:20px;text-align:center;font-weight:700}",
-    ".cmg-osd-btn{appearance:none;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.12);color:#fff;font:inherit;font-weight:600;padding:10px 16px;border-radius:9px;cursor:pointer}",
-    ".cmg-osd-btn:active{background:rgba(255,255,255,.25)}",
-    ".cmg-osd-close{position:absolute;top:18px;right:22px;z-index:2;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.35);color:#fff;font-size:20px;cursor:pointer}",
-    ".cmg-osd-hint{position:absolute;bottom:16px;left:0;right:0;text-align:center;font-size:12px;opacity:.6}",
-    ".cmg-osd-track{display:flex;align-items:center;gap:10px;padding:10px 12px;margin:4px 0;border-radius:8px;background:rgba(0,0,0,.25);cursor:pointer}",
-    ".cmg-osd-track.playing{background:rgba(74,166,194,.35)}",
-    ".cmg-osd-track .ti{flex:1 1 auto;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".cmg-osd-h{font-family:'Baloo 2',system-ui,sans-serif;font-size:29px;font-weight:800;line-height:1.05;color:#f2ece3;margin:0 0 18px}",
+    ".cmg-osd-h .acc{color:var(--acc)}",
+    ".cmg-osd-h .dash{color:#5a648a;font-weight:700}",
+    // Glass cards.
+    ".cmg-osd-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 17px;margin-bottom:11px;background:rgba(255,255,255,0.045);border:1px solid rgba(131,167,241,0.16);border-radius:16px}",
+    ".cmg-osd-row .lbl{font-size:17px;font-weight:700;color:#f2ece3}",
+    ".cmg-osd-row .sub{font-size:13px;font-weight:400;color:#9fb0d6;margin-top:4px}",
+    ".cmg-osd-sw{position:relative;width:52px;height:30px;border-radius:15px;background:rgba(255,255,255,0.13);flex:0 0 auto;transition:background .18s;cursor:pointer}",
+    ".cmg-osd-sw.on{background:var(--acc)}",
+    ".cmg-osd-sw::after{content:'';position:absolute;top:2px;left:2px;width:26px;height:26px;border-radius:50%;background:#fff;transition:transform .18s;box-shadow:0 2px 5px rgba(0,0,0,0.35)}",
+    ".cmg-osd-sw.on::after{transform:translateX(22px)}",
+    ".cmg-osd-slider{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0}",
+    ".cmg-osd-slider input{flex:1;min-width:20px;accent-color:var(--acc)}",
+    ".cmg-osd-slider .val{min-width:14px;text-align:center;font-weight:700;font-size:16px;color:#f2ece3}",
+    ".cmg-osd-btn{appearance:none;font-family:'Sora',sans-serif;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.05);color:#f2ece3;font-weight:700;font-size:15px;padding:11px 17px;border-radius:13px;cursor:pointer;display:inline-flex;align-items:center;gap:9px}",
+    ".cmg-osd-btn:hover{background:rgba(255,255,255,0.1)}",
+    ".cmg-osd-btn.accent{color:#cfe0ff;background:rgba(var(--acc-rgb),0.16);border:1px solid rgba(var(--acc-rgb),0.4);border-radius:11px;padding:9px 14px;font-size:14px}",
+    ".cmg-osd-btn.accent:hover{background:rgba(var(--acc-rgb),0.28)}",
+    ".cmg-osd-close{position:absolute;top:9px;right:8px;z-index:6;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,0.16);background:rgba(10,14,34,0.55);color:#e6ecfb;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}",
+    ".cmg-osd-close:hover{background:rgba(20,26,54,0.85)}",
+    ".cmg-osd-hint{position:absolute;bottom:13px;left:0;right:0;text-align:center;font-size:12px;font-weight:400;color:#7f8db3;padding:0 16px}",
+    ".cmg-osd-track{display:flex;align-items:center;gap:10px;padding:11px 13px;margin:5px 0;border-radius:10px;background:rgba(255,255,255,0.045);border:1px solid rgba(131,167,241,0.16);cursor:pointer}",
+    ".cmg-osd-track.playing{background:rgba(84,201,216,0.22);border-color:rgba(84,201,216,0.4)}",
+    ".cmg-osd-track .ti{flex:1 1 auto;font-size:14px;color:#f2ece3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
     ".cmg-osd-mrow{display:flex;gap:10px;align-items:center;margin:10px 0}",
-    ".cmg-osd-mrow .cmg-osd-btn{min-width:52px;text-align:center}",
+    ".cmg-osd-mrow .cmg-osd-btn{min-width:52px;justify-content:center}",
     ".cmg-osd-frame{width:100%;height:0;border:0}",
-    ".cmg-osd-empty{opacity:.7;font-size:14px;padding:14px 2px}",
+    ".cmg-osd-empty{color:#9fb0d6;font-size:14px;padding:14px 2px}",
     // CRT overlays applied to the whole page by the Look blade.
     "#cmg-osd-crt{position:fixed;inset:0;z-index:2147482000;pointer-events:none;display:none}",
     "#cmg-osd-crt.scan{display:block;background:repeating-linear-gradient(0deg,rgba(0,0,0,.22),rgba(0,0,0,.22) 1px,transparent 1px,transparent 3px)}",
@@ -97,6 +106,13 @@
     "#cmg-osd-crt.scan.vig{background:repeating-linear-gradient(0deg,rgba(0,0,0,.22),rgba(0,0,0,.22) 1px,transparent 1px,transparent 3px)}",
   ].join("\n");
   document.head.appendChild(style);
+
+  // Baloo 2 + Sora (best-effort; falls back to system-ui offline / under CSP).
+  var fontLink = document.createElement("link");
+  fontLink.rel = "stylesheet";
+  fontLink.href =
+    "https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Sora:wght@400;500;600;700&display=swap";
+  document.head.appendChild(fontLink);
 
   // CRT overlay element (persists across OSD open/close).
   var crt = document.createElement("div");
@@ -120,9 +136,12 @@
     var el = document.createElement("div");
     el.className = "cmg-osd-blade" + (b.id === state.blade ? " active" : "");
     el.dataset.blade = b.id;
-    el.style.background = "linear-gradient(180deg," + b.accent + "," + b.accent2 + ")";
-    el.innerHTML = '<div class="sheen"></div>' +
-      '<div class="tab">' + b.label + "</div>" +
+    // Per-blade accent drives the strip tint, header, toggles, slider and Apply
+    // button via the --acc / --acc-rgb / --acc-lt custom properties.
+    el.style.setProperty("--acc", b.accent);
+    el.style.setProperty("--acc-rgb", b.rgb);
+    el.style.setProperty("--acc-lt", b.lt);
+    el.innerHTML = '<div class="tab">' + b.label + "</div>" +
       '<div class="body"></div>';
     el.addEventListener("click", function (e) {
       if (el.classList.contains("active")) return;
@@ -145,14 +164,32 @@
     if (id === "music") ensureMusic();
   }
 
+  // Two-tone Baloo 2 blade heading: "<plain> — <accentWord>" (dash only when
+  // asked), the accent word tinted in the blade's accent per the mockup.
+  function bladeTitle(plain, accentWord, dash) {
+    var h = document.createElement("div");
+    h.className = "cmg-osd-h";
+    h.appendChild(document.createTextNode(plain + " "));
+    if (dash) {
+      var d = document.createElement("span");
+      d.className = "dash";
+      d.textContent = "— ";
+      h.appendChild(d);
+    }
+    if (accentWord) {
+      var a = document.createElement("span");
+      a.className = "acc";
+      a.textContent = accentWord;
+      h.appendChild(a);
+    }
+    return h;
+  }
+
   // ── Game blade (cheats) ─────────────────────────────────────────────────────
   function renderGame() {
     var body = bladeBody("game");
     body.innerHTML = "";
-    var h = document.createElement("div");
-    h.className = "cmg-osd-h";
-    h.textContent = CFG.title ? CFG.title + " — Cheats" : "Cheats";
-    body.appendChild(h);
+    body.appendChild(bladeTitle(CFG.title || "Game", "Cheats", true));
 
     if (!cheats.length) {
       var e = document.createElement("div");
@@ -194,7 +231,7 @@
         wrap.appendChild(input);
         wrap.appendChild(val);
         var apply = document.createElement("button");
-        apply.className = "cmg-osd-btn";
+        apply.className = "cmg-osd-btn accent";
         apply.textContent = "Apply";
         apply.addEventListener("click", function () {
           applyCheat(c.param, input.value);
@@ -280,10 +317,7 @@
     var body = bladeBody("music");
     if (music.frame) { requestState(); return; }
     body.innerHTML = "";
-    var h = document.createElement("div");
-    h.className = "cmg-osd-h";
-    h.textContent = "Music";
-    body.appendChild(h);
+    body.appendChild(bladeTitle("Sound", "Mix", false));
 
     if (!playerUrl) {
       var e = document.createElement("div");
@@ -381,10 +415,7 @@
   function renderLook() {
     var body = bladeBody("look");
     body.innerHTML = "";
-    var h = document.createElement("div");
-    h.className = "cmg-osd-h";
-    h.textContent = "Look";
-    body.appendChild(h);
+    body.appendChild(bladeTitle("Display", "Look", false));
 
     var opts = [];
     if (lookCfg.scanlines !== false) opts.push({ key: "cmg-osd-scanlines", label: "CRT Scanlines", sub: "Retro scanline overlay" });
