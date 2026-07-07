@@ -7,6 +7,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
         @font-face {
             font-family: 'Orbitron';
@@ -17,50 +19,121 @@
             font-display: swap;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-        body { font-family: 'Orbitron', system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #fff; overflow: hidden; touch-action: manipulation; }
+        body {
+            font-family: 'Orbitron', system-ui, -apple-system, sans-serif; color: #fff; overflow: hidden; touch-action: manipulation;
+            background: radial-gradient(ellipse 80% 60% at 38% 55%, rgba(20,90,40,.45), transparent 70%),
+                        radial-gradient(ellipse 60% 70% at 50% 50%, rgba(8,40,18,.85), #000 80%), #000;
+        }
+        body.theme-nintendo {
+            background: radial-gradient(ellipse 80% 55% at 40% 45%, rgba(228,0,15,.1), transparent 70%), #0d0f1a;
+        }
 
         /* ===== APP LAYOUT ===== */
         #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 
-        /* ===== TOOLBAR ===== */
-        #toolbar {
-            flex-shrink: 0; height: 52px; background: #111; border-bottom: 1px solid #2a2a2a;
-            display: flex; align-items: center; padding: 0 6px; gap: 4px; z-index: 10;
+        /* ===== OSD TOPBAR ===== */
+        #osd-topbar {
+            flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 6px;
+            font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: .18em; color: rgba(156,255,107,.65);
         }
-        .tb-btn {
-            height: 40px; min-width: 40px; border-radius: 8px; border: 2px solid transparent;
-            display: flex; align-items: center; justify-content: center; gap: 4px;
-            cursor: pointer; font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 600; padding: 0 8px;
-            transition: all 0.15s; flex-shrink: 0; color: #fff;
+        #osd-topbar .osd-left, #osd-topbar .osd-right { display: flex; align-items: center; }
+        #osd-topbar .osd-left { gap: 7px; }
+        #osd-topbar .osd-right { gap: 10px; }
+        #osd-topbar .osd-core { color: rgba(220,255,180,.45); }
+        #status-dot { width: 7px; height: 7px; border-radius: 50%; background: #7CFF4F; box-shadow: 0 0 8px #7CFF4F; }
+        body.theme-nintendo #osd-topbar { color: rgba(139,160,194,.8); }
+        body.theme-nintendo #osd-topbar .osd-left span { color: rgba(233,236,241,.9); }
+        body.theme-nintendo #osd-topbar .osd-core { color: rgba(139,160,194,.55); }
+        body.theme-nintendo #status-dot { background: #ff3b49; box-shadow: 0 0 8px #ff3b49; }
+
+        /* ===== CHEVRON STAGE BANNER ===== */
+        #stage-banner {
+            flex-shrink: 0; margin-top: 6px; height: 46px; display: flex; align-items: center; position: relative;
+            background: linear-gradient(180deg, rgba(70,180,90,.18), rgba(20,60,30,.7) 50%, rgba(20,60,30,.7) 50%, rgba(70,180,90,.05));
+            border-top: 1px solid rgba(140,255,110,.35); border-bottom: 1px solid rgba(140,255,110,.35);
+            clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 50%, calc(100% - 20px) 100%, 0 100%);
         }
-        .tb-btn:active { transform: scale(0.95); }
-        .tb-btn.active { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.15); }
-        .tb-btn img { width: 28px; height: 28px; image-rendering: pixelated; object-fit: contain; }
-        .tb-sep { width: 1px; height: 28px; background: #333; flex-shrink: 0; }
-        .tb-pills { display: flex; gap: 2px; align-items: center; overflow-x: auto; flex-shrink: 1; min-width: 0; }
-        .tb-pill {
-            width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
-            font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; transition: all 0.15s;
+        #stage-banner-title { flex: 1; text-align: center; font-size: 18px; font-weight: 800; letter-spacing: .32em; color: #d9ffcb; text-shadow: 0 0 14px rgba(124,255,79,.8); padding-left: 12px; }
+        #stage-banner-waves { font-family: 'Share Tech Mono', monospace; font-size: 11px; letter-spacing: .14em; color: rgba(220,255,180,.7); padding-right: 34px; }
+        body.theme-nintendo #stage-banner {
+            background: linear-gradient(180deg, rgba(139,160,194,.1), rgba(15,22,34,.85) 35%, rgba(15,22,34,.85) 65%, rgba(139,160,194,.08));
+            border-top-color: rgba(213,213,216,.3); border-bottom-color: rgba(213,213,216,.3);
         }
-        .tb-pill.on { background: #d39438; color: #000; }
-        .tb-pill.off { background: #333; color: #888; }
-        .tb-pill.off:active { background: #555; }
-        .tb-pill.add { background: #27ae60; color: #fff; font-size: 15px; }
+        body.theme-nintendo #stage-banner-title { color: #e9ecf1; text-shadow: 0 0 14px rgba(255,59,73,.7); }
+        body.theme-nintendo #stage-banner-waves { color: rgba(139,160,194,.8); }
+
+        /* ===== TOOLBAR: monogram badges ===== */
+        #toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 12px 14px 4px; z-index: 10; }
+        .badge {
+            width: 46px; height: 46px; border-radius: 50%; border: 2px solid rgba(140,255,110,.3);
+            background: radial-gradient(circle at 35% 30%, rgba(40,90,45,.5), rgba(6,30,12,.95) 70%);
+            display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; padding: 0;
+            font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 800; letter-spacing: .05em;
+            color: rgba(156,255,107,.6); text-decoration: none; transition: all 0.15s;
+        }
+        .badge:active { transform: scale(0.95); }
+        .badge.menu-badge { font-size: 15px; }
+        .badge img { width: 30px; height: 30px; image-rendering: pixelated; object-fit: contain; }
+        .badge.active {
+            border-color: #F6FF4A; color: #F6FF4A;
+            background: radial-gradient(circle at 35% 30%, rgba(60,120,60,.9), rgba(6,30,12,.95) 70%);
+            box-shadow: 0 0 16px rgba(246,255,74,.55);
+        }
+        body.theme-nintendo .badge {
+            border-color: rgba(213,213,216,.28); color: rgba(139,160,194,.75);
+            background: radial-gradient(circle at 35% 30%, rgba(49,58,78,.5), rgba(12,16,26,.95) 70%);
+        }
+        body.theme-nintendo .badge.active {
+            border-color: #ff5b66; color: #ff5b66;
+            background: radial-gradient(circle at 35% 30%, rgba(90,20,26,.9), rgba(20,8,12,.95) 70%);
+            box-shadow: 0 0 16px rgba(228,0,15,.5);
+        }
         .tb-spacer { flex: 1; min-width: 4px; }
-        .tb-label { font-size: 10px; color: #888; font-weight: 700; white-space: nowrap; }
+
+        /* ===== STAGE ORB RAIL ===== */
+        #stage-rail { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 8px 16px 10px; }
+        .rail-label { font-family: 'Share Tech Mono', monospace; font-size: 9px; letter-spacing: .2em; color: rgba(156,255,107,.5); }
+        body.theme-nintendo .rail-label { color: rgba(139,160,194,.7); }
+        .tb-pills { display: flex; gap: 12px; align-items: center; overflow-x: auto; flex-shrink: 1; min-width: 0; }
+        .tb-pill {
+            width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 800; cursor: pointer; flex-shrink: 0;
+        }
+        .tb-pill.off { background: radial-gradient(circle at 35% 30%, #b9ffb0 0%, #4d9f52 40%, #0e3a1a 80%); border: 1px solid rgba(140,255,110,.4); color: rgba(214,255,196,.85); }
+        .tb-pill.on {
+            background: radial-gradient(circle at 35% 30%, #fffdc9 0%, #FFEE5A 30%, #a4b00b 65%, #3a3d04 100%);
+            box-shadow: 0 0 18px rgba(255,238,90,.7); color: #1a1a02; font-weight: 900;
+            animation: orbBreathe 3.2s ease-in-out infinite;
+        }
+        .tb-pill.add { background: none; border: 1px dashed rgba(140,255,110,.5); font-size: 13px; color: rgba(156,255,107,.7); }
+        @keyframes orbBreathe { 50% { box-shadow: 0 0 26px rgba(255,238,90,.85), inset -2px -4px 8px rgba(0,0,0,.55); } }
+        body.theme-nintendo .tb-pill.off {
+            background: radial-gradient(circle at 35% 30%, #fff 0%, #e9ecf1 18%, #b7bcc6 45%, #565a66 75%, #14161d 100%);
+            border: none; box-shadow: inset -2px -4px 8px rgba(0,0,0,.5); color: #14161d;
+        }
+        body.theme-nintendo .tb-pill.on {
+            background: radial-gradient(circle at 35% 30%, #ffe3e5 0%, #ff8089 20%, #e4000f 50%, #7a000a 80%, #240104 100%);
+            box-shadow: 0 0 18px rgba(255,69,84,.75); color: #fff; animation: none;
+        }
+        body.theme-nintendo .tb-pill.add { background: none; border: 1px dashed rgba(213,213,216,.55); color: rgba(213,213,216,.8); box-shadow: none; }
 
         /* ===== GRID ===== */
-        #grid-area { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; background: #0a0a0a; }
-        #grid-icon-view { padding: 2px; }
-        .editor-grid { display: grid; gap: 1px; }
-        .col-hdr { display: flex; align-items: center; justify-content: center; font-size: 10px; color: #84cc16; font-family: monospace; font-weight: 700; padding: 2px 0; }
-        .row-lbl { display: flex; align-items: center; justify-content: center; font-size: 9px; color: #555; font-family: monospace; }
+        #grid-area { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; }
+        #grid-icon-view { padding: 2px 10px 8px; }
+        .editor-grid { display: grid; gap: 2px; }
+        .col-hdr { display: flex; align-items: center; justify-content: center; font-size: 9px; color: rgba(156,255,107,.7); font-family: 'Share Tech Mono', monospace; padding: 2px 0; }
+        .row-lbl { display: flex; align-items: center; justify-content: center; font-size: 8px; color: rgba(156,255,107,.4); font-family: 'Share Tech Mono', monospace; }
+        body.theme-nintendo .col-hdr { color: rgba(255,91,102,.8); }
+        body.theme-nintendo .row-lbl { color: rgba(139,160,194,.5); }
         .grid-cell {
-            position: relative; background: #111; border: 1px solid #1a1a1a; cursor: pointer;
-            aspect-ratio: 1; overflow: hidden; transition: background 0.1s, border-color 0.1s;
+            position: relative; background: rgba(4,24,10,.55); border: 1px solid rgba(140,255,110,.16); cursor: pointer;
+            aspect-ratio: 1; overflow: hidden; transition: background 0.1s, border-color 0.1s, box-shadow 0.1s;
         }
-        .grid-cell:active { background: #222; }
-        .grid-cell.occupied { background: #12122a; border-color: #333; }
+        .grid-cell:active { box-shadow: inset 0 0 0 2px #F6FF4A, 0 0 14px rgba(246,255,74,.45); }
+        .grid-cell.occupied { background: rgba(10,16,34,.9); border-color: rgba(140,255,110,.3); }
+        body.theme-nintendo .grid-cell { background: #0f1622; border-color: #1f2a3c; }
+        body.theme-nintendo .grid-cell:active { box-shadow: inset 0 0 0 2px #ff3b49, 0 0 14px rgba(228,0,15,.5); }
+        body.theme-nintendo .grid-cell.occupied { background: #10182a; border-color: #2a3850; }
         .grid-cell .enemy-img {
             position: absolute; inset: 8%; width: 84%; height: 84%;
             object-fit: contain; image-rendering: pixelated; pointer-events: none;
@@ -75,15 +148,60 @@
             width: 72%; height: 72%; object-fit: contain; image-rendering: pixelated;
         }
         .grid-cell .code-label {
-            position: absolute; top: 1px; left: 2px; font-size: 7px; color: #555;
-            font-family: monospace; pointer-events: none; line-height: 1;
+            position: absolute; top: 1px; left: 3px; font-size: 7px; color: rgba(156,255,107,.55);
+            font-family: 'Share Tech Mono', monospace; pointer-events: none; line-height: 1;
         }
+        body.theme-nintendo .grid-cell .code-label { color: rgba(255,91,102,.6); }
         /* Grid hover modes (desktop) */
         @media (hover: hover) {
-            .editor-grid.mode-place .grid-cell:hover { background: #1a3a1a; border-color: #84cc16; }
-            .editor-grid.mode-delete .grid-cell:hover { background: #3a1a1a; border-color: #ef4444; }
+            .editor-grid.mode-place .grid-cell:hover { box-shadow: inset 0 0 0 2px #F6FF4A, 0 0 14px rgba(246,255,74,.45); }
+            .editor-grid.mode-delete .grid-cell:hover { box-shadow: inset 0 0 0 2px #ff3b49, 0 0 14px rgba(228,0,15,.5); }
+            body.theme-nintendo .editor-grid.mode-place .grid-cell:hover { box-shadow: inset 0 0 0 2px #ff3b49, 0 0 14px rgba(228,0,15,.5); }
         }
-        .grid-cell.drag-over { background: #1a3a1a !important; border-color: #84cc16 !important; }
+        .grid-cell.drag-over { box-shadow: inset 0 0 0 2px #F6FF4A, 0 0 14px rgba(246,255,74,.45); }
+        body.theme-nintendo .grid-cell.drag-over { box-shadow: inset 0 0 0 2px #ff3b49, 0 0 14px rgba(228,0,15,.5); }
+
+        /* ===== NES CABINET STRIPE (nintendo theme) ===== */
+        #nes-stripe {
+            display: none; flex-shrink: 0; margin: 0 16px; height: 10px;
+            background: linear-gradient(180deg, rgba(213,213,216,.55) 0 3px, transparent 3px 6px, rgba(213,213,216,.35) 6px 8px, transparent 8px);
+        }
+        body.theme-nintendo #nes-stripe { display: block; }
+
+        /* ===== FOOTER PAD HINTS ===== */
+        #pad-footer {
+            flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 16px;
+            font-size: 10px; font-weight: 700; letter-spacing: .16em; color: rgba(214,255,196,.8);
+        }
+        body.theme-nintendo #pad-footer { color: #d5d5d8; }
+        #pad-footer .pad-right { display: flex; align-items: center; gap: 14px; }
+        .pad-hint {
+            display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 0;
+            color: inherit; font: inherit; letter-spacing: inherit; cursor: pointer;
+        }
+        .pad-hint:active { transform: scale(0.95); }
+        .pad-orb { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; }
+        .pad-orb-b { background: radial-gradient(circle at 35% 30%, #fdf6b0 0%, #cfc23e 30%, #6a6410 65%, #201d02 100%); border: 1px solid rgba(246,255,74,.5); color: #161300; }
+        .pad-orb-a { background: radial-gradient(circle at 35% 30%, #d6ffd0 0%, #6fd06f 25%, #0e6a2b 60%, #04240f 95%); border: 1px solid rgba(140,255,110,.6); color: #04240f; }
+        .pad-orb-y { background: radial-gradient(circle at 35% 30%, #e8e8ff 0%, #8f8fd8 30%, #2c2c6e 65%, #0a0a24 100%); border: 1px solid rgba(160,160,255,.5); color: #0a0a24; }
+        body.theme-nintendo .pad-orb-b { background: radial-gradient(circle at 35% 30%, #fff 0%, #d5d5d8 25%, #88848b 60%, #2f2f2f 95%); border: 1px solid rgba(213,213,216,.75); color: #e4000f; }
+        body.theme-nintendo .pad-orb-a { background: radial-gradient(circle at 35% 30%, #ffd9db 0%, #ff6b76 20%, #e4000f 50%, #4a0308 85%); border: 1px solid rgba(255,140,148,.75); box-shadow: 0 0 14px rgba(228,0,15,.5); color: #fff; }
+        body.theme-nintendo .pad-orb-y { background: radial-gradient(circle at 35% 30%, #f2f4f8 0%, #b7bcc6 30%, #565a66 70%, #14161d 100%); border: 1px solid rgba(213,213,216,.5); color: #14161d; }
+        .pad-hint.active .pad-orb-b { box-shadow: 0 0 12px rgba(246,255,74,.8); }
+        .pad-hint.active .pad-orb-a { box-shadow: 0 0 12px rgba(140,255,110,.8); }
+        body.theme-nintendo .pad-hint.active .pad-orb-b { box-shadow: 0 0 12px rgba(213,213,216,.8); }
+        body.theme-nintendo .pad-hint.active .pad-orb-a { box-shadow: 0 0 14px rgba(228,0,15,.8); }
+
+        /* ===== SCANLINES + VIGNETTE ===== */
+        #fx-scanlines {
+            position: fixed; inset: 0; pointer-events: none; z-index: 998;
+            background: repeating-linear-gradient(180deg, rgba(0,255,120,.035) 0 1px, transparent 1px 3px); mix-blend-mode: screen;
+        }
+        body.theme-nintendo #fx-scanlines { background: repeating-linear-gradient(180deg, rgba(255,70,84,.03) 0 1px, transparent 1px 3px); }
+        #fx-vignette {
+            position: fixed; inset: 0; pointer-events: none; z-index: 999;
+            background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.8) 100%);
+        }
 
         /* ===== PICKER OVERLAY ===== */
         .picker-overlay {
@@ -181,10 +299,10 @@
 
         /* ===== DESKTOP TWEAKS ===== */
         @media (min-width: 768px) {
-            #toolbar { height: 56px; padding: 0 12px; gap: 8px; }
-            .tb-btn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 13px; }
-            .tb-btn img { width: 32px; height: 32px; }
-            .tb-pill { width: 32px; height: 32px; font-size: 13px; }
+            #toolbar { padding: 12px 16px 4px; gap: 12px; }
+            .badge { width: 52px; height: 52px; }
+            .badge img { width: 34px; height: 34px; }
+            .tb-pill { width: 30px; height: 30px; font-size: 12px; }
             .editor-grid { gap: 2px; }
             .grid-cell .code-label { font-size: 8px; }
             .picker-panel { max-width: 560px; border-radius: 16px; margin-bottom: 10vh; }
@@ -376,40 +494,45 @@
 </head>
 <body>
     <div id="app">
-        <!-- TOOLBAR -->
+        <!-- OSD TOPBAR -->
+        <div id="osd-topbar">
+            <div class="osd-left"><div id="status-dot"></div><span>CODE MONKEY // EDITOR</span></div>
+            <div class="osd-right"><span id="osd-clock">--:--:--</span><span class="osd-core">CORE STABLE</span></div>
+        </div>
+
+        <!-- CHEVRON STAGE BANNER -->
+        <div id="stage-banner">
+            <div id="stage-banner-title">STAGE 00</div>
+            <div id="stage-banner-waves">00 WAVES</div>
+        </div>
+
+        <!-- TOOLBAR: monogram badges -->
         <div id="toolbar">
-            <!-- Enemy picker button -->
-            <button id="enemy-picker-btn" class="tb-btn" style="background:#4d8bc4" onclick="openPicker('enemy')">
+            <!-- Enemy picker badge -->
+            <button id="enemy-picker-btn" class="badge" title="Select enemy" onclick="openPicker('enemy')">
                 <span id="enemy-btn-img"></span>
             </button>
-            <!-- Item picker button -->
-            <button id="powerup-picker-btn" class="tb-btn" style="background:#5db872" onclick="openPicker('powerup')">
+            <!-- Item picker badge -->
+            <button id="powerup-picker-btn" class="badge" title="Select item drop" onclick="openPicker('powerup')">
                 <span id="powerup-btn-img"></span>
             </button>
-            <!-- Delete -->
-            <button id="delete-mode-btn" class="tb-btn" style="background:#821c35" onclick="setDeleteMode()">
-                <span style="font-size:16px">🗑</span>
-            </button>
-
-            <div class="tb-sep"></div>
-
-            <!-- Stage pills -->
-            <div class="tb-pills" id="stage-pills"></div>
+            <!-- Delete badge -->
+            <button id="delete-mode-btn" class="badge" title="Delete mode" onclick="setDeleteMode()">DL</button>
 
             <div class="tb-spacer"></div>
 
             <!-- Boss Viewer -->
-            <a id="boss-viewer-link" href="boss-viewer.html" class="tb-btn" style="background:#4a1a1a;text-decoration:none">
-                <span style="font-size:14px">👹</span>
-            </a>
+            <a id="boss-viewer-link" href="boss-viewer.html" class="badge" title="Boss viewer">BV</a>
             <!-- Save -->
-            <button class="tb-btn" style="background:#4f9e61" onclick="quickSave()">
-                <span style="font-size:14px">💾</span>
-            </button>
+            <button class="badge" title="Save" onclick="quickSave()">SV</button>
             <!-- Menu -->
-            <button class="tb-btn" style="background:#333" onclick="openMenu()">
-                <span style="font-size:16px">☰</span>
-            </button>
+            <button class="badge menu-badge" title="Menu" onclick="openMenu()">≡</button>
+        </div>
+
+        <!-- STAGE ORB RAIL -->
+        <div id="stage-rail">
+            <span class="rail-label">STAGE</span>
+            <div class="tb-pills" id="stage-pills"></div>
         </div>
 
         <!-- GRID AREA -->
@@ -417,7 +540,23 @@
             <div id="grid-icon-view"></div>
         </div>
 
+        <!-- NES CABINET STRIPE (nintendo theme only) -->
+        <div id="nes-stripe"></div>
+
+        <!-- FOOTER PAD HINTS -->
+        <div id="pad-footer">
+            <button class="pad-hint" id="pad-hint-b" onclick="setDeleteMode()"><span class="pad-orb pad-orb-b">B</span><span>DELETE</span></button>
+            <div class="pad-right">
+                <button class="pad-hint" id="pad-hint-a" onclick="openPicker('enemy')"><span class="pad-orb pad-orb-a">A</span><span>PLACE</span></button>
+                <button class="pad-hint" onclick="quickSave()"><span class="pad-orb pad-orb-y">Y</span><span>SAVE</span></button>
+            </div>
+        </div>
+
     </div>
+
+    <!-- SCANLINES + VIGNETTE -->
+    <div id="fx-scanlines"></div>
+    <div id="fx-vignette"></div>
 
     <!-- ENEMY PICKER OVERLAY -->
     <div id="enemy-picker-overlay" class="picker-overlay hidden" onclick="if(event.target===this)closePicker()">
@@ -440,6 +579,10 @@
     <div id="menu-panel" class="menu-panel hidden">
         <div id="back-to-game-section" class="menu-section" style="display:none">
             <button class="menu-btn" style="background:#b91c1c;color:#fff;font-weight:700" onclick="closeMenu();if(window.parent&&window.parent!==window&&typeof window.parent.howtoModalClose==='function')window.parent.howtoModalClose()">✕ Back to Game</button>
+        </div>
+        <div class="menu-section">
+            <div class="menu-section-title">Display</div>
+            <button class="menu-btn" id="theme-toggle-btn" onclick="toggleTheme()">🎨 Theme: Xbox Green</button>
         </div>
         <div class="menu-section">
             <div class="menu-section-title">Waves</div>
@@ -1561,15 +1704,19 @@
                     img.style.cssText = 'width:28px;height:28px;image-rendering:pixelated;object-fit:contain;';
                     pBtnImg.appendChild(img);
                 } else {
-                    pBtnImg.innerHTML = `<span style="font-size:16px">🍄</span>`;
+                    pBtnImg.textContent = 'IT';
                 }
             } else {
-                pBtnImg.innerHTML = '<span style="font-size:16px">🍄</span>';
+                pBtnImg.textContent = 'IT';
             }
             pBtn.classList.toggle('active', selectedPowerup !== '0');
 
             // Delete button
             document.getElementById('delete-mode-btn').classList.toggle('active', currentTool === 'delete');
+
+            // Footer pad hints mirror the toolbar state
+            document.getElementById('pad-hint-b').classList.toggle('active', currentTool === 'delete');
+            document.getElementById('pad-hint-a').classList.toggle('active', currentTool === 'place' && !!selectedEnemyLetter);
 
             // Grid mode class
             const gv = document.getElementById('grid-icon-view');
@@ -1578,9 +1725,40 @@
                 (currentTool === 'place' && selectedEnemyLetter) ? 'mode-place' : 'mode-none');
         }
 
+        // ================== OSD CHROME ==================
+        function updateStageBanner() {
+            const id = String(currentStageKey).replace(/^stage/, '');
+            document.getElementById('stage-banner-title').textContent =
+                'STAGE ' + (id.length < 2 ? '0' + id : id);
+            document.getElementById('stage-banner-waves').textContent =
+                String(currentGrid.length).padStart(2, '0') + ' WAVES';
+        }
+
+        function updateOsdClock() {
+            const d = new Date();
+            document.getElementById('osd-clock').textContent =
+                [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+        }
+        updateOsdClock();
+        setInterval(updateOsdClock, 1000);
+
+        // Theme: xbox green (default) / nintendo red
+        function applyTheme(t) {
+            document.body.classList.toggle('theme-nintendo', t === 'nintendo');
+            const btn = document.getElementById('theme-toggle-btn');
+            if (btn) btn.textContent = '🎨 Theme: ' + (t === 'nintendo' ? 'Nintendo Red' : 'Xbox Green');
+        }
+        function toggleTheme() {
+            const t = document.body.classList.contains('theme-nintendo') ? 'xbox' : 'nintendo';
+            try { localStorage.setItem('__editorTheme__', t); } catch (e) {}
+            applyTheme(t);
+        }
+        try { applyTheme(localStorage.getItem('__editorTheme__') || 'xbox'); } catch (e) { applyTheme('xbox'); }
+
         // ================== GRID RENDERING ==================
         function renderGrid() {
             currentGrid = normalizeGrid(currentGrid);
+            updateStageBanner();
             const container = document.getElementById('grid-icon-view');
             container.innerHTML = '';
 
@@ -1589,7 +1767,7 @@
             grid.className = `editor-grid ${
                 currentTool === 'delete' ? 'mode-delete' :
                 (currentTool === 'place' && selectedEnemyLetter) ? 'mode-place' : 'mode-none'}`;
-            grid.style.gridTemplateColumns = `28px repeat(${COLS}, 1fr)`;
+            grid.style.gridTemplateColumns = `18px repeat(${COLS}, 1fr)`;
 
             // Header
             grid.appendChild(Object.assign(document.createElement('div'), { className: 'col-hdr' }));
