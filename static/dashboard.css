@@ -760,7 +760,21 @@ body.theme-nintendo .uninstall-btn { position: absolute; top: 10px; right: 10px;
 .nes-line { width: 92px; height: 6px; margin: 4px auto 0; background: #56595a; }
 
 @media (max-width: 720px) {
-  body.theme-nintendo .games-panel { grid-template-rows: auto 1fr; }
+  /* .disc-col is display:none in this theme, so the panel has a single visible
+     child (.games-right). With `auto 1fr` it auto-places into the `auto` row and
+     sticks to the top; a single `1fr` row lets it fill so the coverflow list
+     (align-items:center) centers vertically. Balanced padding keeps it centered. */
+  body.theme-nintendo .games-panel { grid-template-rows: 1fr; padding: 2vmin; }
   .nes-logo { margin-left: 20px; }
   .nes-box { right: 20px; }
+}
+
+/* Mobile landscape — a 132px cabinet bar eats too much of a short viewport, so
+   hide it and let the dashboard / games screen reclaim the full height. */
+@media (orientation: landscape) and (max-height: 480px) {
+  .nes-bar { display: none; }
+  body.theme-nintendo .dashboard,
+  body.theme-nintendo .games-screen { bottom: 0; }
+  body.theme-nintendo .footer { bottom: 4vmin; }
+  body.theme-nintendo .games-panel { height: min(92vh, 1500px); }
 }
