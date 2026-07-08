@@ -10,10 +10,12 @@ import { dirname, fromFileUrl, join } from "jsr:@std/path@^1.1.2";
 // wait for it, and return the artifact path(s) + a log tail.
 //
 // LOCAL-ONLY: it spawns a subprocess and writes to disk, so it is refused on the
-// read-only Deno Deploy origin. It runs under `deno task dev` (and any -A local
-// run). It does NOT run inside the packaged desktop binary, where the repo lives
-// in a read-only VFS that `node` can't execute against — see the tool-not-found
-// branch below, which tells the user to run the export from `deno task dev`.
+// read-only Deno Deploy origin. It runs under `deno task dev` and inside the
+// packaged desktop binary — there the repo lives in a read-only deno-compile VFS
+// that `node` can't execute against, so the handler first stages the embedded
+// tool + game onto real disk (stageEmbeddedRuntime) and runs there. Either way a
+// local Node + the platform toolchain (cordova/Android SDK, electron-builder)
+// must be installed on the machine.
 
 const PLATFORMS = new Set(["android", "ios", "linux", "all"]);
 
@@ -37,6 +39,57 @@ async function pathExists(p: string): Promise<boolean> {
   } catch (_e) {
     return false;
   }
+}
+
+// True when running from a `deno compile` binary (the desktop app), whose
+// modules live under a read-only `deno-compile-*` temp VFS rather than a real
+// checkout. import.meta.url carries that marker — it's exactly the path that
+// showed up in the old "build tool not found" error. Deno.stat can't tell VFS
+// from real disk (an embedded file "exists"), so this is how we distinguish.
+function isCompiledBinary(): boolean {
+  return fromFileUrl(import.meta.url).replaceAll("\\", "/").includes(
+    "/deno-compile-",
+  );
+}
+
+// Recursively copy a directory tree from `src` to `dst`. Used to materialise the
+// embedded tool + game out of the VFS onto the real filesystem, since `node` (a
+// separate process) can't read Deno's virtual paths.
+async function copyTree(src: string, dst: string): Promise<void> {
+  await Deno.mkdir(dst, { recursive: true });
+  for await (const entry of Deno.readDir(src)) {
+    const s = join(src, entry.name);
+    const d = join(dst, entry.name);
+    if (entry.isDirectory) await copyTree(s, d);
+    else if (entry.isFile) await Deno.writeFile(d, await Deno.readFile(s));
+  }
+}
+
+// Materialise the embedded tools/build-level + static/games/2028-ai (+ the
+// gamepad shim) into a reused real working dir and return its root, so the
+// packaged desktop app can spawn `node tools/build-level` against real files.
+// Re-copied each run so an app update propagates. The tool derives its game dir
+// as <root>/static/games/2028-ai, so the layout here must mirror the repo.
+async function stageEmbeddedRuntime(vfsRoot: string): Promise<string> {
+  const tmp = Deno.env.get("TEMP") ?? Deno.env.get("TMPDIR") ?? "/tmp";
+  const work = join(tmp, "cmg-build-level");
+  await copyTree(
+    join(vfsRoot, "tools", "build-level"),
+    join(work, "tools", "build-level"),
+  );
+  await copyTree(
+    join(vfsRoot, "static", "games", "2028-ai"),
+    join(work, "static", "games", "2028-ai"),
+  );
+  const gp = join(vfsRoot, "static", "gamepad-compatibility-plugin.js");
+  if (await pathExists(gp)) {
+    await Deno.mkdir(join(work, "static"), { recursive: true });
+    await Deno.writeFile(
+      join(work, "static", "gamepad-compatibility-plugin.js"),
+      await Deno.readFile(gp),
+    );
+  }
+  return work;
 }
 
 // After a successful build, find the produced artifact(s) for the given slug.
@@ -102,18 +155,34 @@ export const handler = define.handlers({
       );
     }
 
-    // routes/api/build-apk.ts → repo root is two dirs up from routes/api.
-    const cmgRoot = join(dirname(fromFileUrl(import.meta.url)), "..", "..");
-    const toolEntry = join(cmgRoot, "tools", "build-level", "index.js");
-    if (!(await pathExists(toolEntry))) {
-      // In the packaged desktop binary import.meta.url resolves inside the
-      // read-only deno-compile VFS, so the tool isn't on real disk and `node`
-      // can't run it. Point the user at the source-mode run instead.
+    // routes/api/build-apk.ts → repo root is two dirs up from routes/api. In a
+    // source checkout this is a real dir; in the packaged desktop binary it's
+    // the read-only deno-compile VFS.
+    const moduleRoot = join(dirname(fromFileUrl(import.meta.url)), "..", "..");
+
+    // Where `node tools/build-level` actually runs. A source checkout runs in
+    // place; the packaged binary first stages the embedded tool + game onto real
+    // disk (node can't use a VFS path as its cwd).
+    let runRoot = moduleRoot;
+    if (isCompiledBinary()) {
+      try {
+        runRoot = await stageEmbeddedRuntime(moduleRoot);
+      } catch (e) {
+        return Response.json({
+          ok: false,
+          error: "Could not stage the build tool out of the packaged app: " +
+            (e as Error).message +
+            ". Run the export from a source checkout (`deno task dev`) instead.",
+        }, { status: 500 });
+      }
+    }
+    if (
+      !(await pathExists(join(runRoot, "tools", "build-level", "index.js")))
+    ) {
       return Response.json({
         ok: false,
-        error:
-          "Build tool not found on disk. APK export must be run from a source " +
-          "checkout (`deno task dev`), not the packaged desktop app.",
+        error: "Build tool not found. Run the export from a source checkout " +
+          "(`deno task dev`).",
       }, { status: 500 });
     }
 
@@ -144,7 +213,7 @@ export const handler = define.handlers({
     try {
       const cmd = new Deno.Command("node", {
         args: ["tools/build-level", level, platform],
-        cwd: cmgRoot,
+        cwd: runRoot,
         env,
         stdout: "piped",
         stderr: "piped",
@@ -171,7 +240,7 @@ export const handler = define.handlers({
       }, { status: 500 });
     }
 
-    const artifacts = await findArtifacts(cmgRoot, slugFor(level), platform);
+    const artifacts = await findArtifacts(runRoot, slugFor(level), platform);
     return Response.json({
       ok: true,
       level,

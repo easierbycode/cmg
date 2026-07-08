@@ -3537,9 +3537,10 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
         // (fetch level from RTDB → stage cmg's in-repo 2028-ai game → download BGM
         // → cordova compile) runs server-side in this repo's own tools/build-level
         // pipeline; this just kicks it off via the launcher's /api/build-apk route
-        // and polls for the artifact. Only reachable when the editor is served by
-        // the local `deno task dev` host — the route refuses on the deployed
-        // (read-only) origin, and can't run inside the packaged desktop binary.
+        // and polls for the artifact. Works from the local `deno task dev` host
+        // and the packaged desktop app (which stages the embedded tool onto disk
+        // first); the route refuses only on the deployed (read-only) origin, and
+        // needs Node + the platform toolchain installed on the machine.
         async function exportGameToApk() {
             const statusEl = document.getElementById('export-apk-status');
             const setStatus = (msg, color) => {
