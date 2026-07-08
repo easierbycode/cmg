@@ -43,6 +43,9 @@
   function sanitizeLevelName(name) {
     return name ? name.replace(/[.#$/\[\]]/g, "_").trim() : null;
   }
+  function decodeFirebaseKey(key) {
+    return key.replace(/\u2024/g, ".");
+  }
   function parseStageId(value, maxStage) {
     const stageId = Number(value);
     if (!Number.isFinite(stageId)) {
@@ -85,6 +88,18 @@
         cursorReq.onerror = (e) => reject(e.target.error);
       })
     );
+  }
+  function getFirebaseDatabase(firebase2, config) {
+    if (typeof firebase2 === "undefined" || !firebase2 || !firebase2.database) {
+      throw new Error("Firebase not available");
+    }
+    if (!firebase2.apps || firebase2.apps.length === 0) {
+      if (!config) {
+        throw new Error("No Firebase config");
+      }
+      firebase2.initializeApp(config);
+    }
+    return firebase2.database();
   }
   function createLevelLoaderPlugin(Phaser2 = globalThis.Phaser) {
     if (!Phaser2 || !Phaser2.Plugins || !Phaser2.Plugins.ScenePlugin) {
@@ -147,18 +162,12 @@
           return Promise.resolve(offline);
         }
         const firebase2 = o.firebase || (typeof globalThis !== "undefined" ? globalThis.firebase : void 0);
-        if (typeof firebase2 === "undefined" || !firebase2.database) {
-          return Promise.reject(new Error("Firebase not available"));
-        }
-        let db;
         const config = o.firebaseConfig || (typeof globalThis !== "undefined" ? globalThis.firebaseConfig || globalThis.__FIREBASE_CONFIG__ : null);
-        if (firebase2.apps && firebase2.apps.length > 0) {
-          db = firebase2.database();
-        } else if (config) {
-          firebase2.initializeApp(config);
-          db = firebase2.database();
-        } else {
-          return Promise.reject(new Error("No Firebase config"));
+        let db;
+        try {
+          db = getFirebaseDatabase(firebase2, config);
+        } catch (err) {
+          return Promise.reject(err);
         }
         const levelsPath = o.levelsPath || DEFAULTS.levelsPath;
         return db.ref(levelsPath + "/" + levelName).once("value").then((snapshot) => {
@@ -209,7 +218,7 @@
                 }
               }
               for (const fname in levelData.atlasFrames) {
-                const decodedName = fname.replace(/\u2024/g, ".");
+                const decodedName = decodeFirebaseKey(fname);
                 const fd = levelData.atlasFrames[fname];
                 if (fd && fd.frame) {
                   const frameData = {
@@ -7928,11 +7937,6 @@
   var ASSET_BASE = "/games/2028-ai/";
   var LEVEL_DATA_URL = "https://cmg.easierbycode.deno.net/games/2028-ai/foo.json";
   var LEVEL_DATA_FALLBACK_URL = ASSET_BASE + "foo.json";
-  function parseStageId3(value) {
-    const stageId = Number(value);
-    if (!Number.isFinite(stageId)) return 0;
-    return Math.max(0, Math.min(4, Math.floor(stageId)));
-  }
   function primeGameStateForStage2(recipe, stageId) {
     if (recipe && recipe.playerData) {
       gameState.spDamage = recipe.playerData.spDamage;
@@ -7945,7 +7949,7 @@
     gameState.maxCombo = 0;
     gameState.score = 0;
     gameState.spgage = 0;
-    gameState.stageId = parseStageId3(stageId);
+    gameState.stageId = parseStageId(stageId, DEFAULTS.maxStage);
     gameState.continueCnt = 0;
     gameState.akebonoCnt = 0;
     gameState.shortFlg = false;

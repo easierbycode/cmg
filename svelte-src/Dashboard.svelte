@@ -377,7 +377,10 @@
         // so dragging the slider doesn't reboot the game on each intermediate step.
         out.push({ key: 'cheat-' + param, param, kind, label, min, max, step, unit, commit: true });
       } else {
-        out.push({ key: 'cheat-' + param, param, kind, label });
+        // Optional `on` is the param value that means "enabled" (e.g. the
+        // Akuma cheat's ?boss=goki); defaults to '1'. Mirrors embedded-osd.js.
+        const on = (typeof c.on === 'string' && c.on) ? c.on.slice(0, 32) : '1';
+        out.push({ key: 'cheat-' + param, param, kind, label, on });
       }
     }
     return out;
@@ -708,7 +711,7 @@
         { key: 'cheats-back', kind: 'button', label: '‹ Back' },
         ...osdCheats.map((c) =>
           c.kind === 'toggle'
-            ? { ...c, value: cheatParam(c.param) === '1' }
+            ? { ...c, value: cheatParam(c.param) === (c.on || '1') }
             : { ...c, value: Number(cheatParam(c.param)) || 0 }
         ),
       ]);
@@ -812,9 +815,10 @@
   }
   function setOsdValue(i, v) {
     const it = osdItems[i]; if (!it) return;
-    // Cheat rows carry a `param`: toggles add/remove ?param=1, the stage slider
-    // sets ?stage=N (0 kept — it is a valid first stage). Reloads the iframe.
-    if (it.param) { setCheat(it.param, it.kind === 'toggle' ? (v ? '1' : null) : v); return; }
+    // Cheat rows carry a `param`: toggles add/remove ?param=<on> (default '1',
+    // e.g. ?boss=goki), the stage slider sets ?stage=N (0 kept — it is a valid
+    // first stage). Reloads the iframe.
+    if (it.param) { setCheat(it.param, it.kind === 'toggle' ? (v ? (it.on || '1') : null) : v); return; }
     // Plugin rows carry a `plugin` id — flip it live in the running game.
     if (it.plugin) { setPlugin(it.plugin, !!v); return; }
     // Music rows carry a `music` id — open/close the sidebar overlay (the game
