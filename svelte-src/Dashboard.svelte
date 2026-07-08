@@ -680,7 +680,13 @@
   let tweaks = $state(loadTweaks());
   function setTweak(key, value) {
     tweaks = { ...tweaks, [key]: value };
-    try { localStorage.setItem(TWEAK_KEY, JSON.stringify(tweaks)); } catch (_) {}
+    try {
+      localStorage.setItem(TWEAK_KEY, JSON.stringify(tweaks));
+      // Mirror theme/scanlines to the standalone keys the level editor reads,
+      // so an editor opened later boots with the launcher's current look.
+      if (key === 'theme') localStorage.setItem('cmg-theme', value);
+      if (key === 'scanlines') localStorage.setItem('cmg-scanlines', value ? '1' : '0');
+    } catch (_) {}
   }
 
   // Flat, ordered list the OSD renders and gamepad/keyboard nav indexes into.
@@ -3373,6 +3379,14 @@
       // it shows a button whose cmg-action reply the game ignores — so accept it
       // from our own frame at any origin (like cmg-plugins). Payload is sanitized.
       osdActions = sanitizeActions(d.actions);
+      return;
+    }
+    if (d.type === 'cmg-theme' || d.type === 'cmg-scanlines') {
+      // The level editor's Display section syncs the launcher's look in real
+      // time. Benign, idempotent UI tweaks — same trust posture as the other
+      // cmg-* capability signals — and values are validated before applying.
+      if (d.type === 'cmg-theme' && (d.theme === 'xbox' || d.theme === 'nintendo')) setTweak('theme', d.theme);
+      if (d.type === 'cmg-scanlines') setTweak('scanlines', !!d.value);
       return;
     }
     if (d.type === 'cmg-level-editor') {
