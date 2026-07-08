@@ -1,6 +1,6 @@
 {
-  "version": "a0b2d89",
-  "generatedAt": "2026-07-07T21:49:02.574Z",
+  "version": "97cee34",
+  "generatedAt": "2026-07-08T02:08:12.204Z",
   "games": [
     {
       "id": "games/2028-ai",
@@ -43,8 +43,8 @@
     },
     {
       "id": "hellophaser/v3",
-      "name": "RonaGun",
-      "title": "RONAGUN",
+      "name": "RonaGun v0",
+      "title": "RONAGUN V0",
       "sub": "Phaser v3 demo",
       "icon": null,
       "size": "3.1 MB",
