@@ -74,6 +74,20 @@ const LEVEL_EDITOR_BROADCAST = `
 })();
 `;
 
+// Cheat-availability broadcast. Advertises the same URL-param cheats the
+// embedded OSD offers (window.__CMG_OSD__.cheats — single source of truth) to
+// the parent launcher over the cmg-cheats opt-in pattern, so its Guide OSD
+// surfaces a Cheats submenu (incl. the ?boss=goki Akuma cheat) when this game
+// runs inside cmg. Must run after OSD_CONFIG has defined __CMG_OSD__.
+const CHEATS_BROADCAST = `
+(function () {
+  if (window.parent === window) return; // standalone — no launcher to notify
+  var cheats = (window.__CMG_OSD__ && window.__CMG_OSD__.cheats) || [];
+  if (!cheats.length) return;
+  try { window.parent.postMessage({ type: "cmg-cheats", cheats: cheats }, "*"); } catch (_) {}
+})();
+`;
+
 // Config for the embedded Xbox-360-blade OSD (/osd/embedded-osd.js). Opened by
 // the secret two-corner touch, it exposes Game (cheats), Music (AZ Legend
 // player), and Look (CRT) blades. The cheats are URL-param toggles the game
@@ -282,6 +296,7 @@ export default define.page(function Game2028() {
 
       {/* Embedded blade OSD: secret two-corner touch opens Game/Music/Look. */}
       <script dangerouslySetInnerHTML={{ __html: OSD_CONFIG }} />
+      <script dangerouslySetInnerHTML={{ __html: CHEATS_BROADCAST }} />
       <script src="/osd/embedded-osd.js" defer></script>
     </>
   );
