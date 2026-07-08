@@ -6,11 +6,11 @@
 // (the same build a player uses), then reads the record straight back from RTDB
 // to prove the round-trip, and finally deletes the throwaway record.
 //
-// A second, opt-in check (set EXPORT_APK=1) runs the 2019-es7 build-level
-// pipeline in --stage-only mode against the saved record and asserts the staged
-// offline level-data.json carries the exact custom wave — i.e. the editor →
-// Firebase → APK-export data path is intact end to end. It's gated because it
-// needs the sibling 2019-es7 checkout and a network fetch.
+// A second, opt-in check (set EXPORT_APK=1) runs this repo's own
+// tools/build-level pipeline in --stage-only mode against the saved record and
+// asserts the staged offline foo.json carries the exact custom wave — i.e. the
+// editor → Firebase → APK-export data path is intact end to end. It's gated
+// because it needs a network fetch.
 //
 // Run with: deno task test:e2e   (needs network for the Firebase SDK + RTDB)
 
@@ -94,7 +94,8 @@ Deno.test("level editor saves a custom stage0 Game to Firebase and it round-trip
         try {
           g.currentStageKey = "stage0";
           g.currentGrid[0] = ["A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1"];
-          (document.getElementById("firebase-level-name") as HTMLInputElement).value = name;
+          (document.getElementById("firebase-level-name") as HTMLInputElement)
+            .value = name;
           await g.saveToFirebase();
           const snap = await g.firebase.database().ref("levels/" + name).once(
             "value",
@@ -132,20 +133,22 @@ Deno.test("level editor saves a custom stage0 Game to Firebase and it round-trip
   }
 });
 
-// Opt-in: prove the saved record survives the APK export pipeline (fetch → bake
-// → stage), without running the multi-minute cordova compile. Needs the sibling
-// 2019-es7 checkout; skips with a clear message when it (or the flag) is absent.
+// Opt-in: prove the saved record survives the APK export pipeline (fetch →
+// stage), without running the multi-minute cordova compile. Uses this repo's
+// own tools/build-level (which bakes cmg's in-repo 2028-ai game) — no external
+// 2019-es7 checkout. Skips when the flag is absent.
 Deno.test({
   name:
     "custom stage0 export stages the exact wave into the offline app (EXPORT_APK=1)",
   ignore: Deno.env.get("EXPORT_APK") !== "1",
   async fn() {
-    const es7 = Deno.env.get("CMG_ES7_REPO") ??
-      new URL("../../../2019-es7", import.meta.url).pathname;
-    const tool = `${es7}/tools/build-level`;
+    // NB: the module-level `cmgRoot` is actually the static/ doc root; the tool
+    // and its build output live at the true repo root.
+    const repoRoot = new URL("../../", import.meta.url).pathname;
+    const tool = `${repoRoot}tools/build-level`;
     assert(
       (await Deno.stat(tool).catch(() => null))?.isDirectory,
-      `2019-es7 build tool not found at ${tool} — set CMG_ES7_REPO`,
+      `build tool not found at ${tool}`,
     );
 
     // Author a record via the editor first (reuse the same page flow, minimal).
@@ -172,14 +175,15 @@ Deno.test({
         g.alert = function () {};
         g.currentStageKey = "stage0";
         g.currentGrid[0] = ["A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1"];
-        (document.getElementById("firebase-level-name") as HTMLInputElement).value = name;
+        (document.getElementById("firebase-level-name") as HTMLInputElement)
+          .value = name;
         await g.saveToFirebase();
       }, { args: [levelName] });
 
       // Stage the app from that record.
       const build = await new Deno.Command("node", {
         args: ["tools/build-level", levelName, "android", "--stage-only"],
-        cwd: es7,
+        cwd: repoRoot,
         stdout: "piped",
         stderr: "piped",
       }).output();
@@ -191,7 +195,9 @@ Deno.test({
         0,
         30,
       );
-      const dataPath = `${es7}/build/${slug}/www/assets/level-data.json`;
+      // The tool writes the full level record as www/foo.json (the runtime
+      // level-loader plugin merges its atlas in the browser).
+      const dataPath = `${repoRoot}build/${slug}/www/foo.json`;
       const staged = JSON.parse(await Deno.readTextFile(dataPath));
       assertEquals(staged.name, levelName);
       assertEquals(staged.stageKey, "stage0");
@@ -203,7 +209,7 @@ Deno.test({
         await (globalThis as any).firebase.database().ref("levels/" + name)
           .remove();
       }, { args: [levelName] });
-      await Deno.remove(`${es7}/build/${slug}`, { recursive: true }).catch(
+      await Deno.remove(`${repoRoot}build/${slug}`, { recursive: true }).catch(
         () => {},
       );
     } finally {

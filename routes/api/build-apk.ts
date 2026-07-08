@@ -3,37 +3,31 @@ import { dirname, fromFileUrl, join } from "jsr:@std/path@^1.1.2";
 
 // POST /api/build-apk — export a custom Firebase "Game" to an installable app.
 //
-// The heavy lifting lives in the sibling 2019-es7 repo's `tools/build-level`
-// pipeline (pull /levels/<name> from the evil-invaders RTDB → bake the merged
-// atlas → download custom BGM → cordova/electron compile). The cmg level editor
-// (static/editor/index.html) POSTs here; we spawn that tool, wait for it, and
-// return the artifact path(s) + a log tail.
+// The build pipeline now lives IN this repo at tools/build-level and compiles
+// cmg's own 2028-ai game (static/games/2028-ai) — there is no external 2019-es7
+// checkout and no CMG_ES7_REPO env var any more. The level editor
+// (static/editor/index.html) POSTs here; we spawn `node tools/build-level`,
+// wait for it, and return the artifact path(s) + a log tail.
 //
-// This is a LOCAL-ONLY capability: it spawns a subprocess and writes to disk, so
-// it is refused on the read-only Deno Deploy origin (and Deploy can't spawn
-// processes anyway). The desktop launcher and `deno task dev` both run with -A,
-// where it works.
+// LOCAL-ONLY: it spawns a subprocess and writes to disk, so it is refused on the
+// read-only Deno Deploy origin. It runs under `deno task dev` (and any -A local
+// run). It does NOT run inside the packaged desktop binary, where the repo lives
+// in a read-only VFS that `node` can't execute against — see the tool-not-found
+// branch below, which tells the user to run the export from `deno task dev`.
 
 const PLATFORMS = new Set(["android", "ios", "linux", "all"]);
 
-// Mirror 2019-es7's sanitizeLevelName: Firebase keys can't contain . # $ / [ ]
-// and we additionally keep the arg to a benign charset. Args are passed to
-// Deno.Command as an array (no shell), so this is belt-and-suspenders, not the
-// only thing between us and injection.
+// Mirror the tool's slugify: keep the arg to a benign charset. Args are passed
+// to Deno.Command as an array (no shell), so this is belt-and-suspenders.
 function sanitizeLevelName(raw: string): string {
   return String(raw).replace(/[.#$/\[\]]/g, "_").replace(/[^\w \-]/g, "").trim()
     .slice(0, 64);
 }
 
-// Resolve the 2019-es7 checkout that holds tools/build-level. Prefer an explicit
-// env override, else the conventional sibling of this repo.
-function es7RepoPath(): string {
-  const override = Deno.env.get("CMG_ES7_REPO");
-  if (override) return override;
-  // routes/api/build-apk.ts → repo root is two dirs up from routes/api.
-  const here = dirname(fromFileUrl(import.meta.url)); // .../routes/api
-  const cmgRoot = join(here, "..", "..");
-  return join(cmgRoot, "..", "2019-es7");
+// Mirror tools/build-level/lib/slug.js slugify EXACTLY (incl. the "level"
+// fallback) so findArtifacts looks in the same build/<slug>/dist the tool wrote.
+function slugFor(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 30) || "level";
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -45,22 +39,14 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-// After a successful build, find the produced artifact(s) for the given level
-// slug. build-level writes to build/<slug>/dist/. The tool derives the slug as
-// the lowercase alphanumeric form of the level name (max 30 chars).
-function slugFor(name: string): string {
-  // Mirror 2019-es7 lib/slug.js slugify EXACTLY, including its "level" fallback
-  // for a name that reduces to empty — otherwise findArtifacts would look in
-  // build//dist and miss the artifact the tool wrote to build/level/dist.
-  return name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 30) || "level";
-}
-
+// After a successful build, find the produced artifact(s) for the given slug.
+// The tool writes to build/<slug>/dist/.
 async function findArtifacts(
-  repo: string,
+  cmgRoot: string,
   slug: string,
   platform: string,
 ): Promise<string[]> {
-  const distDir = join(repo, "build", slug, "dist");
+  const distDir = join(cmgRoot, "build", slug, "dist");
   if (!(await pathExists(distDir))) return [];
   const wantExt = platform === "linux"
     ? ".appimage"
@@ -82,8 +68,6 @@ async function findArtifacts(
 
 export const handler = define.handlers({
   async POST(ctx) {
-    // Refuse on the deployed origin — subprocess + filesystem writes are a
-    // local/desktop-only affordance.
     if (Deno.env.get("DENO_DEPLOYMENT_ID")) {
       return Response.json(
         {
@@ -118,13 +102,18 @@ export const handler = define.handlers({
       );
     }
 
-    const repo = es7RepoPath();
-    const toolDir = join(repo, "tools", "build-level");
-    if (!(await pathExists(toolDir))) {
+    // routes/api/build-apk.ts → repo root is two dirs up from routes/api.
+    const cmgRoot = join(dirname(fromFileUrl(import.meta.url)), "..", "..");
+    const toolEntry = join(cmgRoot, "tools", "build-level", "index.js");
+    if (!(await pathExists(toolEntry))) {
+      // In the packaged desktop binary import.meta.url resolves inside the
+      // read-only deno-compile VFS, so the tool isn't on real disk and `node`
+      // can't run it. Point the user at the source-mode run instead.
       return Response.json({
         ok: false,
         error:
-          `2019-es7 build tool not found at ${toolDir}. Set CMG_ES7_REPO to the 2019-es7 checkout.`,
+          "Build tool not found on disk. APK export must be run from a source " +
+          "checkout (`deno task dev`), not the packaged desktop app.",
       }, { status: 500 });
     }
 
@@ -134,11 +123,19 @@ export const handler = define.handlers({
     const env = Deno.env.toObject();
     if (platform === "android" || platform === "all") {
       if (!env.ANDROID_SDK_ROOT && !env.ANDROID_HOME) {
-        const home = env.HOME || "";
-        const guess = home ? join(home, "Library", "Android", "sdk") : "";
-        if (guess && await pathExists(guess)) {
-          env.ANDROID_SDK_ROOT = guess;
-          env.ANDROID_HOME = guess;
+        const home = env.HOME || env.USERPROFILE || "";
+        const guesses = home
+          ? [
+            join(home, "Library", "Android", "sdk"),
+            join(home, "AppData", "Local", "Android", "Sdk"),
+          ]
+          : [];
+        for (const guess of guesses) {
+          if (await pathExists(guess)) {
+            env.ANDROID_SDK_ROOT = guess;
+            env.ANDROID_HOME = guess;
+            break;
+          }
         }
       }
     }
@@ -147,7 +144,7 @@ export const handler = define.handlers({
     try {
       const cmd = new Deno.Command("node", {
         args: ["tools/build-level", level, platform],
-        cwd: repo,
+        cwd: cmgRoot,
         env,
         stdout: "piped",
         stderr: "piped",
@@ -165,7 +162,6 @@ export const handler = define.handlers({
       }, { status: 500 });
     }
 
-    // Keep the response light: only the tail of the combined log.
     const log = (stdout + "\n" + stderr).slice(-6000);
     if (code !== 0) {
       return Response.json({
@@ -175,7 +171,7 @@ export const handler = define.handlers({
       }, { status: 500 });
     }
 
-    const artifacts = await findArtifacts(repo, slugFor(level), platform);
+    const artifacts = await findArtifacts(cmgRoot, slugFor(level), platform);
     return Response.json({
       ok: true,
       level,

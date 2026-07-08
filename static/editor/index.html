@@ -3534,11 +3534,12 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
         }
 
         // Export the saved Firebase "Game" to an installable APK. The heavy build
-        // (fetch level from RTDB → bake atlas → download BGM → cordova compile) runs
-        // server-side in the 2019-es7 tools/build-level pipeline; this just kicks it
-        // off via the launcher's /api/build-apk route and polls for the artifact.
-        // Only reachable when the editor is served by the local dev/desktop host —
-        // the route refuses to run on the deployed (read-only) origin.
+        // (fetch level from RTDB → stage cmg's in-repo 2028-ai game → download BGM
+        // → cordova compile) runs server-side in this repo's own tools/build-level
+        // pipeline; this just kicks it off via the launcher's /api/build-apk route
+        // and polls for the artifact. Only reachable when the editor is served by
+        // the local `deno task dev` host — the route refuses on the deployed
+        // (read-only) origin, and can't run inside the packaged desktop binary.
         async function exportGameToApk() {
             const statusEl = document.getElementById('export-apk-status');
             const setStatus = (msg, color) => {
