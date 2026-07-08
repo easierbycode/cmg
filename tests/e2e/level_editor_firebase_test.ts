@@ -17,9 +17,21 @@
 import { launch } from "@astral/astral";
 import { serveDir } from "@std/http/file-server";
 import { assert, assertEquals } from "@std/assert";
+import { fileURLToPath } from "node:url";
+
+// Ambient views of the editor page's global lexical bindings (top-level `let`
+// in static/editor/index.html). They exist only inside page.evaluate callbacks
+// — the stringified callbacks resolve them lexically in the browser — but the
+// declarations keep this file type-checkable.
+// deno-lint-ignore no-explicit-any
+declare let gameData: any;
+// deno-lint-ignore no-explicit-any
+declare let atlasData: any;
+declare let currentGrid: string[][];
+declare let currentStageKey: string;
 
 const CMG_PORT = 8804;
-const cmgRoot = new URL("../../static", import.meta.url).pathname;
+const cmgRoot = fileURLToPath(new URL("../../static", import.meta.url));
 // Distinctive stage0 marker wave — a full row of enemyA carrying the Big drop.
 const MARKER_WAVE = ["A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1"];
 
@@ -70,16 +82,23 @@ Deno.test("level editor saves a custom stage0 Game to Firebase and it round-trip
     );
 
     // The editor auto-loads the base game (game.json + atlas) on boot.
+    // NB: the editor declares its state (gameData, atlasData, currentGrid, …)
+    // with top-level `let` in a classic script — global LEXICAL bindings that
+    // never appear as globalThis properties. Evaluated scripts share that
+    // lexical scope, so read/write them as bare identifiers, never via
+    // `globalThis.x` (reads come back undefined, writes create a shadowed
+    // property the editor code never sees).
     await waitFor(async () => {
       return await page.evaluate(() => {
-        // deno-lint-ignore no-explicit-any
-        const g = globalThis as any;
-        return typeof g.gameData !== "undefined" && !!g.gameData &&
-            !!g.atlasData && g.atlasData.frames &&
-            Object.keys(g.atlasData.frames).length > 0 &&
-            typeof g.firebase !== "undefined"
-          ? true
-          : false;
+        try {
+          // deno-lint-ignore no-explicit-any
+          const g = globalThis as any;
+          return !!(gameData && atlasData && atlasData.frames &&
+            Object.keys(atlasData.frames).length > 0 &&
+            typeof g.firebase !== "undefined");
+        } catch (_e) {
+          return false; // bindings don't exist until the editor script runs
+        }
       });
     }, "editor to auto-load base game + Firebase SDK");
 
@@ -92,8 +111,8 @@ Deno.test("level editor saves a custom stage0 Game to Firebase and it round-trip
         const origAlert = g.alert;
         g.alert = function () {};
         try {
-          g.currentStageKey = "stage0";
-          g.currentGrid[0] = ["A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1"];
+          currentStageKey = "stage0";
+          currentGrid[0] = ["A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1"];
           (document.getElementById("firebase-level-name") as HTMLInputElement)
             .value = name;
           await g.saveToFirebase();
@@ -144,7 +163,7 @@ Deno.test({
   async fn() {
     // NB: the module-level `cmgRoot` is actually the static/ doc root; the tool
     // and its build output live at the true repo root.
-    const repoRoot = new URL("../../", import.meta.url).pathname;
+    const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
     const tool = `${repoRoot}tools/build-level`;
     assert(
       (await Deno.stat(tool).catch(() => null))?.isDirectory,
@@ -162,10 +181,15 @@ Deno.test({
       await waitFor(
         () =>
           page.evaluate(() => {
-            // deno-lint-ignore no-explicit-any
-            const g = globalThis as any;
-            return !!(g.gameData && g.atlasData &&
-              Object.keys(g.atlasData.frames || {}).length && g.firebase);
+            // Bare identifiers on purpose — see the lexical-binding note above.
+            try {
+              // deno-lint-ignore no-explicit-any
+              const g = globalThis as any;
+              return !!(gameData && atlasData &&
+                Object.keys(atlasData.frames || {}).length && g.firebase);
+            } catch (_e) {
+              return false;
+            }
           }),
         "editor ready",
       );
@@ -173,8 +197,8 @@ Deno.test({
         // deno-lint-ignore no-explicit-any
         const g = globalThis as any;
         g.alert = function () {};
-        g.currentStageKey = "stage0";
-        g.currentGrid[0] = ["A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1"];
+        currentStageKey = "stage0";
+        currentGrid[0] = ["A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1"];
         (document.getElementById("firebase-level-name") as HTMLInputElement)
           .value = name;
         await g.saveToFirebase();

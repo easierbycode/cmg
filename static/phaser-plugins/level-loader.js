@@ -39,8 +39,15 @@
 // plugin class extends `Phaser.Plugins.ScenePlugin`, it is produced lazily by a
 // factory rather than at module-evaluation time, so importing this module never
 // depends on Phaser already being present.
+//
+// Besides the plugin, this module exports the Phaser-free helpers the level
+// EDITOR (static/editor/index.html) shares with the game: level-name/Firebase
+// key sanitizing, stage-id clamping, the custom-audio IndexedDB opener, the
+// Firebase database bootstrap, and DEFAULTS (the editor-play localStorage keys
+// and custom-audio DB names live there). Keeping them here means the editor
+// writes exactly what the plugin reads.
 
-const DEFAULTS = {
+export const DEFAULTS = {
   defaultLevel: "foo",
   baseRecipeKey: "recipe",
   levelsPath: "levels",
@@ -83,11 +90,21 @@ function readParam(name) {
   }
 }
 
-function sanitizeLevelName(name) {
+export function sanitizeLevelName(name) {
   return name ? name.replace(/[.#$/\[\]]/g, "_").trim() : null;
 }
 
-function parseStageId(value, maxStage) {
+// Firebase RTDB keys can't contain "." — encode it as the one-dot-leader
+// character (U+2024) on write, and decode it back on read.
+export function encodeFirebaseKey(key) {
+  return key.replace(/\./g, "\u2024");
+}
+
+export function decodeFirebaseKey(key) {
+  return key.replace(/\u2024/g, ".");
+}
+
+export function parseStageId(value, maxStage) {
   const stageId = Number(value);
   if (!Number.isFinite(stageId)) {
     return 0;
@@ -95,7 +112,7 @@ function parseStageId(value, maxStage) {
   return Math.max(0, Math.min(maxStage, Math.floor(stageId)));
 }
 
-function openCustomAudioDB(dbName, store) {
+export function openCustomAudioDB(dbName, store) {
   if (typeof indexedDB === "undefined") {
     return Promise.reject(new Error("IndexedDB not available"));
   }
@@ -131,6 +148,21 @@ function getAllCustomAudioEntries(dbName, store) {
       cursorReq.onerror = (e) => reject(e.target.error);
     })
   );
+}
+
+// Resolve a Realtime Database handle from the compat firebase SDK, initializing
+// the default app from `config` when none exists yet.
+export function getFirebaseDatabase(firebase, config) {
+  if (typeof firebase === "undefined" || !firebase || !firebase.database) {
+    throw new Error("Firebase not available");
+  }
+  if (!firebase.apps || firebase.apps.length === 0) {
+    if (!config) {
+      throw new Error("No Firebase config");
+    }
+    firebase.initializeApp(config);
+  }
+  return firebase.database();
 }
 
 export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
@@ -207,20 +239,13 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
       }
 
       const firebase = o.firebase || (typeof globalThis !== "undefined" ? globalThis.firebase : undefined);
-      if (typeof firebase === "undefined" || !firebase.database) {
-        return Promise.reject(new Error("Firebase not available"));
-      }
-
-      let db;
       const config = o.firebaseConfig ||
         (typeof globalThis !== "undefined" ? (globalThis.firebaseConfig || globalThis.__FIREBASE_CONFIG__) : null);
-      if (firebase.apps && firebase.apps.length > 0) {
-        db = firebase.database();
-      } else if (config) {
-        firebase.initializeApp(config);
-        db = firebase.database();
-      } else {
-        return Promise.reject(new Error("No Firebase config"));
+      let db;
+      try {
+        db = getFirebaseDatabase(firebase, config);
+      } catch (err) {
+        return Promise.reject(err);
       }
 
       const levelsPath = o.levelsPath || DEFAULTS.levelsPath;
@@ -278,11 +303,9 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
                 };
               }
             }
-            // Level frames are offset down by the local atlas height. Frame
-            // names may be stored with a one-dot-leader (U+2024) standing in
-            // for ".", since "." is illegal in Firebase keys.
+            // Level frames are offset down by the local atlas height.
             for (const fname in levelData.atlasFrames) {
-              const decodedName = fname.replace(/\u2024/g, ".");
+              const decodedName = decodeFirebaseKey(fname);
               const fd = levelData.atlasFrames[fname];
               if (fd && fd.frame) {
                 const frameData = {

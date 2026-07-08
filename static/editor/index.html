@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>2028.ai Level Editor</title>
+    <!-- Fetched in parallel with the parser-blocking Firebase scripts below so
+         the module bridge (bottom of <body>) can execute the moment parsing
+         ends, before the page is realistically interactive. -->
+    <link rel="modulepreload" href="/phaser-plugins/level-loader.js">
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
@@ -926,6 +930,38 @@
         </div>
     </div>
 
+    <!-- Shared level-loader helpers. The same /phaser-plugins/level-loader.js
+         module the game bundles also exports the Firebase level/key helpers,
+         stage-id clamping, the custom-audio IndexedDB opener and DEFAULTS
+         (the editor-play localStorage keys, audio DB names, levels path) —
+         importing them keeps what this editor writes in lockstep with what
+         the game's level-loader plugin reads. Importing the module never
+         needs Phaser (the plugin class is built lazily). Module scripts run
+         after the classic script parses, so nothing at its top level may
+         touch these globals — only user-triggered functions do; the
+         modulepreload in <head> makes the gap before they exist effectively
+         zero, and initFirebase degrades gracefully if the import failed. -->
+    <script type="module">
+        import {
+            DEFAULTS,
+            decodeFirebaseKey,
+            encodeFirebaseKey,
+            getFirebaseDatabase,
+            openCustomAudioDB,
+            parseStageId,
+            sanitizeLevelName,
+        } from '/phaser-plugins/level-loader.js';
+        Object.assign(window, {
+            LEVEL_LOADER_DEFAULTS: DEFAULTS,
+            decodeFirebaseKey,
+            encodeFirebaseKey,
+            getFirebaseDatabase,
+            openCustomAudioDB,
+            parseStageId,
+            sanitizeLevelName,
+        });
+    </script>
+
     <script>
         // ================== CONFIG ==================
         // cmg port: the editor is served from /editor/ while the game's assets
@@ -970,9 +1006,6 @@
         let currentAtlasKey = "game_asset";
         const ATLAS_PNG = "game_asset.png";
         const ATLAS_JSON = "game_asset.json";
-        const EDITOR_PLAY_RECIPE_KEY = "__editorPhaserRecipe__";
-        const EDITOR_PLAY_STAGE_KEY = "__editorPhaserStageId__";
-
         function getFrameNameForCode(code) {
             if (code === "00") return null;
             const letter = code[0];
@@ -1137,9 +1170,7 @@
 
         function getCurrentStageId() {
             const m = String(currentStageKey).match(/^stage(\d+)$/);
-            if (!m) return 0;
-            const id = Number(m[1]);
-            return Number.isFinite(id) ? Math.max(0, Math.min(4, Math.floor(id))) : 0;
+            return parseStageId(m ? m[1] : 0, LEVEL_LOADER_DEFAULTS.maxStage);
         }
 
         function getEnemyLetter(k) { return k.replace(/enemy/i, '').toUpperCase().slice(0, 1); }
@@ -2275,7 +2306,7 @@
                     if (firebaseDb) {
                         const dataKey = tab === 'player' ? 'playerData' : (tab === 'bosses' ? 'bossData' : 'enemyData');
                         const dataVal = tab === 'player' ? (playerData || {}) : (tab === 'bosses' ? (bossData || {}) : (enemyData || {}));
-                        const ref = firebaseDb.ref(`${FIREBASE_LEVELS_PATH}/${fbName}/${dataKey}`);
+                        const ref = firebaseDb.ref(`${LEVEL_LOADER_DEFAULTS.levelsPath}/${fbName}/${dataKey}`);
                         const op = tab === 'player' ? ref.set(dataVal) : ref.update(dataVal);
                         op.then(() => alert(label + ' saved to cloud!'))
                           .catch(e => alert(label + ' saved locally but cloud save failed: ' + e.message));
@@ -2849,8 +2880,8 @@
             if (!syncEnemyEditorForm(true)) return;
             const sid = getCurrentStageId();
             try {
-                localStorage.setItem(EDITOR_PLAY_RECIPE_KEY, JSON.stringify(buildRuntimeRecipe()));
-                localStorage.setItem(EDITOR_PLAY_STAGE_KEY, String(sid));
+                localStorage.setItem(LEVEL_LOADER_DEFAULTS.editorRecipeKey, JSON.stringify(buildRuntimeRecipe()));
+                localStorage.setItem(LEVEL_LOADER_DEFAULTS.editorStageKey, String(sid));
             } catch (e) { alert('Error: ' + e.message); return; }
             window.open(`${GAME_PLAY_URL}?editorPlay=1&stage=${sid}`, '_blank');
         }
@@ -3414,23 +3445,22 @@
             messagingSenderId: "149257705855",
             appId: "1:149257705855:web:3f048481dfc66cef61224a",
         };
-        const FIREBASE_LEVELS_PATH = "levels";
-        let firebaseApp = null, firebaseDb = null, firebaseStorage = null;
+        let firebaseDb = null, firebaseStorage = null;
 
         function initFirebase() {
             if (firebaseDb) return;
             if (typeof firebase === 'undefined') return;
-            firebaseApp = (!firebase.apps || !firebase.apps.length) ? firebase.initializeApp(FIREBASE_CONFIG) : firebase.apps[0];
-            firebaseDb = firebase.database();
+            // Module bridge not executed yet (or its import failed): leave
+            // firebaseDb null so callers hit their "Firebase not available"
+            // path instead of a ReferenceError.
+            if (typeof getFirebaseDatabase === 'undefined') return;
+            firebaseDb = getFirebaseDatabase(firebase, FIREBASE_CONFIG);
             try { firebaseStorage = firebase.storage ? firebase.storage() : null; }
             catch (e) { console.warn('Firebase Storage unavailable:', e); firebaseStorage = null; }
         }
 
-        function sanitizeLevelName(n) { return n.replace(/[.#$/\[\]]/g, '_').trim(); }
-
-        // Firebase keys can't contain ".", "#", "$", "/", "[", "]"
-        function fbKeyEncode(k) { return k.replace(/\./g, '\u2024'); }
-        function fbKeyDecode(k) { return k.replace(/\u2024/g, '.'); }
+        // sanitizeLevelName / encodeFirebaseKey / decodeFirebaseKey come from the
+        // level-loader module (see the module-bridge script above).
 
         // Collect dataURL thumbnails for all frames referenced by enemies + powerups
         function buildFrameThumbnailsForSave() {
@@ -3440,7 +3470,7 @@
                 const d = enemyData[k];
                 if (d && d.texture) {
                     for (const tex of d.texture) {
-                        if (frameThumbs[tex]) thumbs[fbKeyEncode(tex)] = frameThumbs[tex].toDataURL('image/png');
+                        if (frameThumbs[tex]) thumbs[encodeFirebaseKey(tex)] = frameThumbs[tex].toDataURL('image/png');
                     }
                 }
             }
@@ -3451,19 +3481,19 @@
                     for (const [ak, animFrames] of Object.entries(b.anim)) {
                         if (ak.startsWith('_') || !Array.isArray(animFrames)) continue;
                         for (const tex of animFrames) {
-                            if (tex && frameThumbs[tex]) thumbs[fbKeyEncode(tex)] = frameThumbs[tex].toDataURL('image/png');
+                            if (tex && frameThumbs[tex]) thumbs[encodeFirebaseKey(tex)] = frameThumbs[tex].toDataURL('image/png');
                         }
                     }
                 }
                 if (b && b.bulletData && b.bulletData.texture) {
                     for (const tex of b.bulletData.texture) {
-                        if (tex && frameThumbs[tex]) thumbs[fbKeyEncode(tex)] = frameThumbs[tex].toDataURL('image/png');
+                        if (tex && frameThumbs[tex]) thumbs[encodeFirebaseKey(tex)] = frameThumbs[tex].toDataURL('image/png');
                     }
                 }
             }
             // Powerup frames
             for (const pt of POWERUP_TYPES) {
-                if (pt.frame && frameThumbs[pt.frame]) thumbs[fbKeyEncode(pt.frame)] = frameThumbs[pt.frame].toDataURL('image/png');
+                if (pt.frame && frameThumbs[pt.frame]) thumbs[encodeFirebaseKey(pt.frame)] = frameThumbs[pt.frame].toDataURL('image/png');
             }
             return Object.keys(thumbs).length ? thumbs : null;
         }
@@ -3473,7 +3503,7 @@
             if (!thumbs || typeof thumbs !== 'object') return;
             // Decode Firebase-safe keys back to original frame names
             const decoded = {};
-            for (const [k, v] of Object.entries(thumbs)) decoded[fbKeyDecode(k)] = v;
+            for (const [k, v] of Object.entries(thumbs)) decoded[decodeFirebaseKey(k)] = v;
             const entries = Object.entries(decoded).filter(([key]) => !frameThumbs[key]);
             if (!entries.length) return;
             let remaining = entries.length;
@@ -3619,7 +3649,7 @@
                             });
                             payload.atlasImageDataURL = saveCanvas.toDataURL('image/png');
                             const encodedFrames = {};
-                            for (const [k, v] of Object.entries(saveFrames)) encodedFrames[fbKeyEncode(k)] = v;
+                            for (const [k, v] of Object.entries(saveFrames)) encodedFrames[encodeFirebaseKey(k)] = v;
                             payload.atlasFrames = encodedFrames;
                         } else {
                             // Clear any previously saved atlas so a stale snapshot
@@ -3629,7 +3659,7 @@
                         }
                     } catch (e) { console.warn('Could not save atlas to Firebase:', e); }
                 }
-                await firebaseDb.ref(`${FIREBASE_LEVELS_PATH}/${name}`).update(payload);
+                await firebaseDb.ref(`${LEVEL_LOADER_DEFAULTS.levelsPath}/${name}`).update(payload);
                 document.getElementById('firebase-level-name').value = name;
                 alert(`Game "${name}" saved!\nIncludes: title, story, sprites, levels, enemies & bosses`);
             } catch (e) { alert('Save failed: ' + e.message); }
@@ -3640,7 +3670,7 @@
             if (!firebaseDb) { alert('Firebase not available'); return false; }
             name = sanitizeLevelName(name);
             try {
-                const snap = await firebaseDb.ref(`${FIREBASE_LEVELS_PATH}/${name}`).once('value');
+                const snap = await firebaseDb.ref(`${LEVEL_LOADER_DEFAULTS.levelsPath}/${name}`).once('value');
                 const d = snap.val();
                 if (!d) { alert(`"${name}" not found`); return false; }
                 // Reset per-level atlas customization state so overrides from a
@@ -3678,7 +3708,7 @@
                         // to treating the Firebase atlas as the baseline so the level
                         // is still editable.
                         const decodedFrames = {};
-                        for (const [k, v] of Object.entries(d.atlasFrames)) decodedFrames[fbKeyDecode(k)] = v;
+                        for (const [k, v] of Object.entries(d.atlasFrames)) decodedFrames[decodeFirebaseKey(k)] = v;
                         atlasData = { frames: decodedFrames };
                         atlasImage = new Image();
                         atlasImage.src = d.atlasImageDataURL;
@@ -3690,7 +3720,7 @@
                         const fbImg = new Image();
                         fbImg.onload = () => {
                             for (const [encKey, frameData] of Object.entries(d.atlasFrames)) {
-                                const key = fbKeyDecode(encKey);
+                                const key = decodeFirebaseKey(encKey);
                                 const f = frameData && frameData.frame;
                                 if (!f) continue;
                                 const fc = document.createElement('canvas');
@@ -3724,7 +3754,7 @@
                 document.getElementById('status').textContent = `STATUS: GAME: ${String(name).toUpperCase()} (CLOUD)`;
 // Restore sprite thumbnails from Firebase data
                 if (d.frameThumbnails) restoreFrameThumbnails(d.frameThumbnails);
-                renderGrid(); renderPreview(); updateToolUI(); renderEnemyList();
+                renderGrid(); updateToolUI(); renderEnemyList();
                 return true;
             } catch (e) { alert('Load failed: ' + e.message); return false; }
         }
@@ -3737,7 +3767,7 @@
             document.getElementById('firebase-browser').classList.remove('hidden');
             closeMenu();
             try {
-                const snap = await firebaseDb.ref(FIREBASE_LEVELS_PATH).once('value');
+                const snap = await firebaseDb.ref(LEVEL_LOADER_DEFAULTS.levelsPath).once('value');
                 const data = snap.val();
                 if (!data) { list.innerHTML = '<div class="fb-level-loading">No saved games found</div>'; return; }
                 const levels = Object.entries(data).sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0));
@@ -4006,29 +4036,17 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
             return 'voice';
         }
 
-        const AUDIO_DB_NAME = 'editorCustomAudio';
-        const AUDIO_DB_VERSION = 1;
-        const AUDIO_STORE_NAME = 'customAudio';
-
+        // The custom-audio IndexedDB (names + schema) is owned by the
+        // level-loader module — the game reads this same store at play time.
         function openAudioDB() {
-            return new Promise(function(resolve, reject) {
-                var req = indexedDB.open(AUDIO_DB_NAME, AUDIO_DB_VERSION);
-                req.onupgradeneeded = function(e) {
-                    var db = e.target.result;
-                    if (!db.objectStoreNames.contains(AUDIO_STORE_NAME)) {
-                        db.createObjectStore(AUDIO_STORE_NAME);
-                    }
-                };
-                req.onsuccess = function(e) { resolve(e.target.result); };
-                req.onerror = function(e) { reject(e.target.error); };
-            });
+            return openCustomAudioDB(LEVEL_LOADER_DEFAULTS.audio.dbName, LEVEL_LOADER_DEFAULTS.audio.store);
         }
 
         function saveCustomAudio(key, blob) {
             return openAudioDB().then(function(db) {
                 return new Promise(function(resolve, reject) {
-                    var tx = db.transaction(AUDIO_STORE_NAME, 'readwrite');
-                    tx.objectStore(AUDIO_STORE_NAME).put(blob, key);
+                    var tx = db.transaction(LEVEL_LOADER_DEFAULTS.audio.store, 'readwrite');
+                    tx.objectStore(LEVEL_LOADER_DEFAULTS.audio.store).put(blob, key);
                     tx.oncomplete = function() { resolve(); };
                     tx.onerror = function(e) { reject(e.target.error); };
                 });
@@ -4038,8 +4056,8 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
         function getCustomAudio(key) {
             return openAudioDB().then(function(db) {
                 return new Promise(function(resolve, reject) {
-                    var tx = db.transaction(AUDIO_STORE_NAME, 'readonly');
-                    var req = tx.objectStore(AUDIO_STORE_NAME).get(key);
+                    var tx = db.transaction(LEVEL_LOADER_DEFAULTS.audio.store, 'readonly');
+                    var req = tx.objectStore(LEVEL_LOADER_DEFAULTS.audio.store).get(key);
                     req.onsuccess = function() { resolve(req.result || null); };
                     req.onerror = function(e) { reject(e.target.error); };
                 });
@@ -4049,8 +4067,8 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
         function getAllCustomAudioKeys() {
             return openAudioDB().then(function(db) {
                 return new Promise(function(resolve, reject) {
-                    var tx = db.transaction(AUDIO_STORE_NAME, 'readonly');
-                    var req = tx.objectStore(AUDIO_STORE_NAME).getAllKeys();
+                    var tx = db.transaction(LEVEL_LOADER_DEFAULTS.audio.store, 'readonly');
+                    var req = tx.objectStore(LEVEL_LOADER_DEFAULTS.audio.store).getAllKeys();
                     req.onsuccess = function() { resolve(req.result || []); };
                     req.onerror = function(e) { reject(e.target.error); };
                 });
@@ -4060,8 +4078,8 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
         function deleteCustomAudio(key) {
             return openAudioDB().then(function(db) {
                 return new Promise(function(resolve, reject) {
-                    var tx = db.transaction(AUDIO_STORE_NAME, 'readwrite');
-                    tx.objectStore(AUDIO_STORE_NAME).delete(key);
+                    var tx = db.transaction(LEVEL_LOADER_DEFAULTS.audio.store, 'readwrite');
+                    tx.objectStore(LEVEL_LOADER_DEFAULTS.audio.store).delete(key);
                     tx.oncomplete = function() { resolve(); };
                     tx.onerror = function(e) { reject(e.target.error); };
                 });
@@ -4071,8 +4089,8 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
         function clearAllCustomAudio() {
             return openAudioDB().then(function(db) {
                 return new Promise(function(resolve, reject) {
-                    var tx = db.transaction(AUDIO_STORE_NAME, 'readwrite');
-                    tx.objectStore(AUDIO_STORE_NAME).clear();
+                    var tx = db.transaction(LEVEL_LOADER_DEFAULTS.audio.store, 'readwrite');
+                    tx.objectStore(LEVEL_LOADER_DEFAULTS.audio.store).clear();
                     tx.oncomplete = function() { resolve(); };
                     tx.onerror = function(e) { reject(e.target.error); };
                 });
