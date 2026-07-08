@@ -479,6 +479,34 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   font-size: clamp(11px, 1.1vmin, 13px); max-width: 40ch;
 }
 
+/* Add Game screen — text-entry rows. Reuses .game-row; the input sits under the
+   field label inside .game-bar and inherits the theme's green-on-black CRT look. */
+.add-input {
+  margin-top: 4px;
+  width: 100%;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: clamp(12px, 1.3vmin, 15px);
+  color: #eaffe0;
+  background: rgba(0, 0, 0, .35);
+  border: 1px solid rgba(120, 255, 90, .35);
+  border-radius: 6px;
+  padding: 7px 10px;
+  outline: none;
+  caret-color: var(--green, #9dff6a);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.add-input::placeholder { color: rgba(200, 255, 180, .35); }
+.add-input:focus {
+  border-color: rgba(160, 255, 120, .9);
+  box-shadow: 0 0 14px rgba(120, 255, 90, .35), inset 0 0 8px rgba(120, 255, 90, .12);
+}
+.game-row.add-field { cursor: text; }
+.game-row.add-field .game-bar { width: 100%; }
+/* On the focused row the highlight already inverts text to dark; keep the input
+   itself readable (dark text on light field) so typed characters stay visible. */
+.game-row.add-field.sel .add-input { color: #0c1a08; background: rgba(255, 255, 255, .82); border-color: rgba(20, 40, 0, .5); }
+.game-row.add-field.sel .add-input::placeholder { color: rgba(20, 40, 0, .45); }
+
 /* BYOC / BYOB pinned upload rows. Reuses .game-row; a dashed icon ring + upload
    glyph mark it as "load your own" rather than a launchable title. */
 .byoc-row .game-icon .glass {
