@@ -19,6 +19,10 @@ vendor/
 # Compiled Mac binary
 dist/
 
+# APK/AppImage export staging + native project scratch (tools/build-level
+# writes build/<slug>/{www,cordova,electron,dist} here per exported level).
+/build/
+
 # PSX ROM library — local-only. Fresh deploys keep these out so the dashboard
 # falls back to BYOD (Bring Your Own Disc). Drop files here for a self-
 # contained Mac binary via `deno task build:mac`.
