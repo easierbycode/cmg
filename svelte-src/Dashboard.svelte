@@ -21,6 +21,7 @@
   const DEMOS_ID = '__demos__';
   const CMGNET_ID = '__cmgnet__';
   const ARCADE_ID = '__arcade__';
+  const ADDGAME_ID = '__addgame__';
   // Baked-in fallback snapshot of the Demos list (Games → Demos). At runtime
   // loadManifest() replaces it with the manifest's `demos` (OTA), so adding a
   // demo to data/demos.json + pushing reaches every launcher with no rebuild.
@@ -39,18 +40,14 @@
   // data/games.json — that is what deploys to every launcher; this inline copy
   // only renders when both manifest fetches fail (fully offline).
   const SEED_GAMES = [
-    { id: '2019-turbo',                                            name: '2019 Turbo',          title: '2019 TURBO',          sub: 'Pixi.js · Turbo', icon: null,                                   size: '— MB',    date: '06.13.26' },
-    { id: '2019-es7',                                              name: '2028',                title: '2028',                sub: 'ES7 // Phaser 3', icon: '/icons/2028-icon.png',                size: '12.4 MB', date: '07.28.22' },
     { id: 'games/2028-ai',                                         name: '2028.Ai',             title: '2028.AI',             sub: 'Phaser 4 // offline', icon: '/icons/2028-icon.png',            size: '21 MB',   date: '05.28.26', url: '/games/2028-ai' },
     { id: 'games/evil-invaders/index.html?turbo=1&audio=1',        name: 'Evil Invaders',       title: 'EVIL INVADERS',       sub: 'Classic',         icon: '/icons/evil-invaders-icon.png',       size: '9.6 MB',  date: '04.04.23', url: '/games/evil-invaders/index.html?turbo=1&audio=1' },
-    { id: 'monkey-kombat',                                         name: 'Monkey Kombat',       title: 'MONKEY KOMBAT',       sub: '🐵ᕗ ─=≡ΣO))',     icon: null,                                   size: '6.4 MB',  date: '05.19.26' },
     { id: 'evil-invaders-phaser4/?scene=MutoidScene&loop=2',       name: 'Mutoid',              title: 'MUTOID',              sub: 'Phaser 4 // loop:2', icon: '/icons/evil-invaders-icon.png',     size: '11.8 MB', date: '06.21.25' },
-    { id: 'pacman-halloween-2025',                                 name: 'PAC-MAN Halloween',   title: 'PAC-MAN: HALLOWEEN',  sub: 'Seasonal',        icon: null,                                   size: '14.2 MB', date: '10.31.25' },
     { id: 'evil-invaders',                                         name: 'Peachy Skies',        title: 'PEACHY SKIES',        sub: 'Turbo + Audio',   icon: '/icons/headphone-invader-icon.png',   size: '8.2 MB',  date: '10.13.24' },
     { id: 'hellophaser/v3',                                        name: 'RonaGun',             title: 'RONAGUN',             sub: 'Phaser v3 demo',  icon: null,                                   size: '3.1 MB',  date: '08.08.22' },
     { id: 'shmup-party-phaser3',                                   name: 'Sh’M↑ Party',         title: 'SH\'M↑ PARTY',        sub: 'Multiplayer',     icon: '/icons/shmup-party-icon.png',          size: '7.9 MB',  date: '02.14.24' },
-    { id: 'squad-game',                                            name: 'Squad Game',          title: 'SQUAD GAME',          sub: '👨🏽‍💻 👾💾🖳 👩🏽‍💻',  icon: '/icons/squad-game.png',                size: '5.7 MB',  date: '11.02.23' },
     { id: DEMOS_ID,                                                name: 'Demos',               title: 'DEMOS',               sub: 'DEMO // submenu', icon: null,                                   size: '— MB',    date: 'DEMO',    submenu: true },
+    { id: ADDGAME_ID,                                              name: 'Add Game',            title: 'ADD GAME',            sub: 'ZIP · URL · GITHUB', icon: null,                                size: '— MB',    date: 'ADD',     submenu: true },
     { id: CMGNET_ID,                                               name: 'CMG Network',         title: 'CMG NETWORK',         sub: 'NET // e-shop',   icon: null,                                   size: '— MB',    date: 'NET',     submenu: true },
     { id: ARCADE_ID,                                               name: 'Arcade',              title: 'ARCADE',              sub: 'MAME // submenu', icon: null,                                   size: '— MB',    date: 'MAME',    submenu: true },
     { id: NES_ID,                                                  name: 'Nintendo',            title: 'NINTENDO',            sub: 'NES // submenu',  icon: null,                                   size: '— MB',    date: 'NES',     submenu: true },
@@ -74,7 +71,7 @@
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
 
-  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'saturn' | 'demos' | 'cmgnet' | 'settings' | 'oeimport' | 'ctrlsync'
+  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'saturn' | 'demos' | 'cmgnet' | 'addgame' | 'settings' | 'oeimport' | 'ctrlsync'
   let menuSel = $state(1);           // start on Games
   let gameSel = $state(0);
   let clockStr = $state('--:--:--');
@@ -131,6 +128,26 @@
   let cmgnetGames = $state([]);
   let cmgnetSel = $state(0);
   let cmgnetRowEls = $state([]);
+  // ─── Locally-added games (Add Game → zip file / zip URL / GitHub repo) ──────
+  // Fetched from /api/games/local (same-origin, local launcher only); extracted
+  // under GAMES_DIR and served by routes/games/[...path].ts. They merge into the
+  // Games list tagged __local, with a Delete affordance (and Update for
+  // github/url-sourced ones). Ported from codemonkey-games-launcher.
+  let localGamesRaw = $state([]);
+  // Add Game screen form state.
+  let addMethod = $state('github'); // 'github' | 'url' | 'zip'
+  let addRepo = $state('');
+  let addBranch = $state('');
+  let addUrl = $state('');
+  let addName = $state('');
+  let addSubdir = $state('root'); // 'root' | 'dist' | 'docs'
+  let addBusy = $state(false);
+  let addError = $state('');
+  let addStatus = $state('');
+  let addSel = $state(0);
+  let addRowEls = $state([]);
+  let addFileInput = $state(null);
+  let lastDeleteTs = 0;
   // ─── Settings → Theme / OpenEmu import / Controller sync ──────────────────
   // Dashboard skins. 'xbox' is the shipped green look; 'nintendo' is the NES
   // cabinet palette ported from codemonkey-games-launcher (body.theme-nintendo
@@ -206,10 +223,59 @@
       .filter((g) => cmgnetStatus[g.id]?.cached && !manifestGames.some((m) => m.id === g.id))
       .map((g) => ({ ...g, __cmgnet: true }))
   );
+  // Locally-added games (zip/url/github) mapped into the dashboard game shape.
+  // Deduped against OTA games and graduated network installs so the keyed
+  // {#each GAMES (g.id)} never sees a duplicate id (which would throw). __local
+  // marks them for same-origin launch + the Delete/Update affordances.
+  let localGames = $derived(
+    localGamesRaw
+      .filter((g) => g && g.id &&
+        !manifestGames.some((m) => m.id === g.id) &&
+        !installedCmgnet.some((m) => m.id === g.id))
+      .map((g) => {
+        const src = g.sourceInfo?.source;
+        return {
+          id: g.id,
+          name: titleCaseName(g.name),
+          title: titleCaseName(g.name).toUpperCase(),
+          sub: 'LOCAL' + (src ? ' // ' + src.toUpperCase() : ''),
+          icon: g.hasThumbnail ? g.urlPath + 'thumbnail.png' : null,
+          size: '— MB',
+          date: 'LOCAL',
+          // Explicit index.html: a bare /games/<id>/ 404s under Fresh routing,
+          // and /games/<id> would resolve the game's relative assets against
+          // /games/. The trailing-slash launchPath keeps relative assets rooted.
+          url: g.launchPath + 'index.html',
+          __local: true,
+          localSource: src,
+        };
+      })
+  );
   // The rendered Games list: OTA games, then graduated network installs, then
-  // the fixed console/e-shop submenus (kept last). Reassigning manifestGames or
-  // installing/uninstalling a network game re-derives this.
-  let GAMES = $derived([...manifestGames, ...installedCmgnet, ...SUBMENUS]);
+  // locally-added games, then the fixed console/e-shop submenus (kept last).
+  // Reassigning manifestGames or installing/uninstalling re-derives this.
+  let GAMES = $derived([...manifestGames, ...installedCmgnet, ...localGames, ...SUBMENUS]);
+
+  // Add Game screen rows (method picker + contextual inputs + action). A flat
+  // selectable list nav/actA/render all index into, like oeRows. Every row is
+  // selectable (no header rows to skip).
+  let addRows = $derived.by(() => {
+    const rows = [
+      { kind: 'method', key: 'm-github', method: 'github', label: 'FROM GITHUB REPO', sub: 'owner/name or github.com URL' },
+      { kind: 'method', key: 'm-url', method: 'url', label: 'FROM ZIP URL', sub: 'direct link to a .zip' },
+      { kind: 'method', key: 'm-zip', method: 'zip', label: 'FROM ZIP FILE', sub: 'pick a .zip from disk' },
+    ];
+    if (addMethod === 'github') {
+      rows.push({ kind: 'input', key: 'i-repo', field: 'repo', label: 'REPO', placeholder: 'easierbycode/2019-turbo' });
+      rows.push({ kind: 'input', key: 'i-branch', field: 'branch', label: 'BRANCH', placeholder: 'main' });
+    } else if (addMethod === 'url') {
+      rows.push({ kind: 'input', key: 'i-url', field: 'url', label: 'ZIP URL', placeholder: 'https://example.com/game.zip' });
+    }
+    rows.push({ kind: 'input', key: 'i-name', field: 'name', label: 'NAME', placeholder: 'optional — defaults from source' });
+    rows.push({ kind: 'subdir', key: 'r-subdir', label: 'SUBDIR' });
+    rows.push({ kind: 'action', key: 'r-action' });
+    return rows;
+  });
   // CMG Network hides anything already installed (it now lives in Games);
   // uninstalling drops it back into this list.
   let cmgnetVisible = $derived(cmgnetGames.filter((g) => !cmgnetStatus[g.id]?.cached));
@@ -897,6 +963,16 @@
   });
 
   $effect(() => {
+    if (screen !== 'addgame') return;
+    const el = addRowEls[addSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+  // Keep the Add Game cursor in range when switching method shrinks the row list.
+  $effect(() => {
+    if (addSel > addRows.length - 1) addSel = Math.max(addRows.length - 1, 0);
+  });
+
+  $effect(() => {
     if (screen !== 'settings') return;
     const el = settingsRowEls[settingsSel];
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -981,6 +1057,9 @@
       ? '00 / 00'
       : String(cmgnetSel + 1).padStart(2, '0') + ' / ' + String(cmgnetVisible.length).padStart(2, '0')
   );
+  let addCounterText = $derived(
+    String(addSel + 1).padStart(2, '0') + ' / ' + String(addRows.length).padStart(2, '0')
+  );
 
   // WebAudio blips
   let ac = null;
@@ -1017,6 +1096,16 @@
     return s || '··';
   }
 
+  // Turn a slug-derived name ("monkey kombat") into a display name
+  // ("Monkey Kombat"). listGames already replaces -/_ with spaces.
+  function titleCaseName(name) {
+    return String(name || '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ') || 'Game';
+  }
+
   function pickMenu(idx) {
     const m = MAIN_MENU[idx];
     sfx.enter();
@@ -1045,7 +1134,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet') screen = 'games';
+    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
     else if (screen === 'oeimport' || screen === 'ctrlsync') screen = 'settings';
     else screen = 'dashboard';
   }
@@ -1285,10 +1374,29 @@
       screen = 'cmgnet';
       return;
     }
+    if (id === ADDGAME_ID) {
+      sfx.enter();
+      resetAddForm();
+      addSel = 0;
+      screen = 'addgame';
+      return;
+    }
     // A graduated CMG Network install lives in this list too — run it from cache
     // via launchCmgnet (which handles its own sfx / stream / cache logic).
     const netItem = GAMES.find((g) => g.id === id && g.__cmgnet);
     if (netItem) { launchCmgnet(netItem); return; }
+    // A locally-added game is served same-origin from GAMES_DIR — launch its
+    // explicit index.html directly (NOT resolved against the deploy origin).
+    const localItem = GAMES.find((g) => g.id === id && g.__local);
+    if (localItem) {
+      sfx.enter();
+      chromeDismissed = false;
+      initTwinStick(id, localItem);
+      osdLevelEditor = null;
+      gameSrc = localItem.url;
+      setTimeout(() => { gameOn = true; }, 30);
+      return;
+    }
     sfx.enter();
     chromeDismissed = false;
     // In-repo games carry an explicit `url` (Fresh route); everything else is
@@ -1487,19 +1595,39 @@
       const zip = await JSZip.loadAsync(new Blob(chunks));
       const cache = await caches.open(CMG_CACHE);
       const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+      // Collapse the GitHub codeload zipball wrapper. A branch zipball wraps
+      // every file in "<repo>-<branch>/"; stripping it lets a catalog entry use
+      // entry:"index.html" independent of the branch/sha. Only the EXACT codeload
+      // wrapper is stripped — a committed zip that keeps its own top folder (e.g.
+      // sf2's ryu/, referenced by subdir/entry) must be left intact.
+      let strip = '';
+      if (names.length) {
+        const first = names[0];
+        const slash = first.indexOf('/');
+        if (slash !== -1) {
+          const top = first.slice(0, slash + 1);
+          if (names.every((n) => n.startsWith(top))) {
+            const r = cmgnetRepo(game);
+            const wrapper = r ? r.repo + '-' + String(game.branch || 'main').replace(/\//g, '-') + '/' : null;
+            if (wrapper && top === wrapper) strip = top;
+          }
+        }
+      }
       let i = 0;
       for (const name of names) {
+        const rel = strip && name.startsWith(strip) ? name.slice(strip.length) : name;
+        if (!rel) { i++; continue; }
         let body = await zip.files[name].async('uint8array');
         // Godot self-registers a cross-origin-isolation SW when this flag is on;
         // it conflicts with cmg-sw and a cached iframe can't be cross-origin
         // isolated anyway (the top launcher isn't), so turn it off — the cached
         // game runs single-threaded.
-        if (/\.html$/i.test(name)) {
+        if (/\.html$/i.test(rel)) {
           const text = new TextDecoder().decode(body)
             .replace(/"ensureCrossOriginIsolationHeaders"\s*:\s*true/g, '"ensureCrossOriginIsolationHeaders":false');
           body = new TextEncoder().encode(text);
         }
-        await cache.put('/cmg-net/' + id + '/' + name, new Response(body, { headers: { 'Content-Type': cmgMime(name) } }));
+        await cache.put('/cmg-net/' + id + '/' + rel, new Response(body, { headers: { 'Content-Type': cmgMime(rel) } }));
         i++;
         cmgnetStatus[id] = { downloading: true, pct: 80 + Math.round((i / names.length) * 20), cached: false, error: '' };
       }
@@ -1561,6 +1689,11 @@
     sfx.enter();
     chromeDismissed = false;
     initTwinStick(game.id, game);
+    // Catalog-declared level editor (e.g. 2019 Turbo → 2028-ai editor). Games
+    // that broadcast cmg-level-editor on boot still override this.
+    osdLevelEditor = (game && game.levelEditor)
+      ? sanitizeLevelEditor(game.levelEditor, game.id)
+      : null;
     if (cmgnetStatus[game.id]?.cached) {
       // Already downloaded — served from Cache Storage by cmg-sw.js.
       playCmgnet(game);
@@ -1736,6 +1869,203 @@
   function registerCmgSw() {
     if (!('serviceWorker' in navigator)) return;
     try { navigator.serviceWorker.register('/cmg-sw.js'); } catch (_e) {}
+  }
+
+  // ─── Add Game / local game library (zip file · zip URL · GitHub repo) ───────
+  // Ported from codemonkey-games-launcher. Games are added via the local-only
+  // /api/games/* endpoints (extracted under GAMES_DIR, served same-origin) and
+  // merged into the Games list as __local. Same-origin fetch, so unlike the OTA
+  // manifest this is NOT shadowed by the deploy — a game added here shows up now.
+  async function loadLocalGames() {
+    try {
+      const r = await fetch('/api/games/local', { cache: 'no-store' });
+      if (!r.ok) return;
+      const data = await r.json();
+      const list = Array.isArray(data?.games) ? data.games : [];
+      localGamesRaw = list;
+    } catch (_e) {
+      // local API absent (hosted web app) — no local games.
+    }
+  }
+
+  const ADD_METHODS = [
+    { id: 'github', label: 'FROM GITHUB REPO', sub: 'owner/name or github.com URL' },
+    { id: 'url',    label: 'FROM ZIP URL',     sub: 'direct link to a .zip' },
+    { id: 'zip',    label: 'FROM ZIP FILE',    sub: 'pick a .zip from disk' },
+  ];
+  const ADD_SUBDIRS = ['root', 'dist', 'docs'];
+
+  function resetAddForm() {
+    addError = '';
+    addStatus = '';
+  }
+
+  function cycleAddSubdir() {
+    const i = ADD_SUBDIRS.indexOf(addSubdir);
+    addSubdir = ADD_SUBDIRS[(i + 1) % ADD_SUBDIRS.length];
+    sfx.nav();
+  }
+
+  // After a successful add, refresh the local list, jump to Games, and land the
+  // cursor on the freshly-added title (found by id in the re-derived list).
+  async function afterAdd(id) {
+    await loadLocalGames();
+    resetAddForm();
+    addRepo = ''; addUrl = ''; addName = '';
+    // If a slow add resolves after the user navigated away (or launched a game),
+    // don't yank them back to Games — only jump when they're still on the Add
+    // Game screen waiting for it.
+    if (screen !== 'addgame') { sfx.enter(); return; }
+    screen = 'games';
+    // GAMES is re-derived synchronously off localGamesRaw; find the new row.
+    queueMicrotask(() => {
+      const idx = GAMES.findIndex((g) => g.id === id);
+      if (idx >= 0) gameSel = idx;
+    });
+    sfx.enter();
+  }
+
+  async function submitAddGithub() {
+    const repo = addRepo.trim();
+    if (!repo) { addError = 'Enter a repo (owner/name or a github.com URL).'; return; }
+    addBusy = true; addError = ''; addStatus = 'Downloading from GitHub…';
+    try {
+      const r = await fetch('/api/games/add-github', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          repo,
+          branch: addBranch.trim() || undefined,
+          name: addName.trim() || undefined,
+          subdir: addSubdir,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok) { addStatus = ''; await afterAdd(data.id); }
+      else { addError = data.error || ('HTTP ' + r.status); addStatus = ''; sfx.back(); }
+    } catch (e) {
+      addError = String((e && e.message) || e); addStatus = ''; sfx.back();
+    } finally { addBusy = false; }
+  }
+
+  async function submitAddUrl() {
+    const url = addUrl.trim();
+    if (!url) { addError = 'Enter a .zip URL.'; return; }
+    addBusy = true; addError = ''; addStatus = 'Downloading zip…';
+    try {
+      const r = await fetch('/api/games/add-url', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          name: addName.trim() || undefined,
+          subdir: addSubdir,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok) { addStatus = ''; await afterAdd(data.id); }
+      else { addError = data.error || ('HTTP ' + r.status); addStatus = ''; sfx.back(); }
+    } catch (e) {
+      addError = String((e && e.message) || e); addStatus = ''; sfx.back();
+    } finally { addBusy = false; }
+  }
+
+  async function handleAddZipFile(file) {
+    if (!file) return;
+    addBusy = true; addError = ''; addStatus = 'Uploading ' + file.name + '…';
+    try {
+      const fd = new FormData();
+      fd.set('file', file);
+      fd.set('name', addName.trim() || file.name.replace(/\.zip$/i, ''));
+      fd.set('subdir', addSubdir);
+      const r = await fetch('/api/games/add-zip', { method: 'POST', body: fd });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok) { addStatus = ''; await afterAdd(data.id); }
+      else { addError = data.error || ('HTTP ' + r.status); addStatus = ''; sfx.back(); }
+    } catch (e) {
+      addError = String((e && e.message) || e); addStatus = ''; sfx.back();
+    } finally { addBusy = false; }
+  }
+
+  function onAddZipChange(e) {
+    const input = e.currentTarget;
+    const file = input.files && input.files[0];
+    handleAddZipFile(file);
+    setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
+  }
+
+  function openAddZipPicker() {
+    try { addFileInput?.click(); } catch (_) {}
+  }
+
+  // Submit the current method (A on the primary action row).
+  function submitAdd() {
+    if (addBusy) return;
+    if (addMethod === 'github') submitAddGithub();
+    else if (addMethod === 'url') submitAddUrl();
+    else openAddZipPicker();
+  }
+
+  // A / Enter on an Add Game row. Method rows switch method; input rows focus
+  // the field (so a keyboard user can type); the subdir row cycles; the action
+  // row submits.
+  function addActivate(i) {
+    const row = addRows[i];
+    if (!row) return;
+    addSel = i;
+    if (row.kind === 'method') {
+      if (addMethod !== row.method) { addMethod = row.method; resetAddForm(); }
+      sfx.enter();
+    } else if (row.kind === 'input') {
+      const el = addRowEls[i]?.querySelector('input');
+      try { el?.focus(); } catch (_) {}
+      sfx.nav();
+    } else if (row.kind === 'subdir') {
+      cycleAddSubdir();
+    } else if (row.kind === 'action') {
+      submitAdd();
+    }
+  }
+
+  // Delete a locally-added game (mirrors cmgnetUninstall: throttled, verifies by
+  // re-listing, works off the selected Games-list row).
+  async function deleteLocalGame(game) {
+    if (!game || !game.__local) return;
+    const now = Date.now();
+    if (now - lastDeleteTs < 400) return;
+    lastDeleteTs = now;
+    // Keep the cursor on the same visual position when a row above it leaves.
+    const idx = GAMES.findIndex((g) => g.id === game.id);
+    try {
+      const r = await fetch('/api/games/' + encodeURIComponent(game.id), {
+        method: 'DELETE',
+        headers: { 'sec-fetch-site': 'same-origin' },
+      });
+      if (!r.ok) { sfx.back(); return; }
+    } catch (_e) { sfx.back(); return; }
+    await loadLocalGames();
+    if (idx !== -1 && idx <= gameSel) gameSel = Math.max(gameSel - 1, 0);
+    sfx.back();
+  }
+
+  // Re-pull a github/url-sourced local game from its recorded source.
+  async function updateLocalGame(game) {
+    if (!game || !game.__local) return;
+    if (game.localSource !== 'github' && game.localSource !== 'url') return;
+    sfx.enter();
+    try {
+      const r = await fetch('/api/games/' + encodeURIComponent(game.id), {
+        method: 'POST',
+        headers: { 'sec-fetch-site': 'same-origin' },
+      });
+      if (!r.ok) { sfx.back(); return; }
+      await loadLocalGames();
+      // If it's on screen, reload the frame from the refreshed files.
+      if (typeof gameSrc === 'string' && gameSrc.startsWith('/games/' + game.id + '/')) {
+        const iframe = document.getElementById('gameframe');
+        try { if (iframe) iframe.src = game.url; } catch (_e) {}
+      }
+    } catch (_e) { sfx.back(); }
   }
 
   async function loadManifest() {
@@ -2408,6 +2738,7 @@
     else if (screen === 'nes') nesSel = Math.max(nesSel - 1, 0);
     else if (screen === 'demos') demosSel = Math.max(demosSel - 1, 0);
     else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetSel - 1, 0);
+    else if (screen === 'addgame') addSel = Math.max(addSel - 1, 0);
     else if (screen === 'settings') settingsSel = Math.max(settingsSel - 1, 0);
     else if (screen === 'oeimport') oeMove(-1);
     else if (screen === 'ctrlsync') ctrlSel = Math.max(ctrlSel - 1, 0);
@@ -2423,6 +2754,7 @@
     else if (screen === 'nes') nesSel = Math.min(nesSel + 1, nesGames.length);
     else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
     else if (screen === 'cmgnet') cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetVisible.length - 1, 0));
+    else if (screen === 'addgame') addSel = Math.min(addSel + 1, addRows.length - 1);
     else if (screen === 'settings') settingsSel = Math.min(settingsSel + 1, SETTINGS_ITEMS.length - 1);
     else if (screen === 'oeimport') oeMove(1);
     else if (screen === 'ctrlsync') ctrlSel = Math.min(ctrlSel + 1, 1);
@@ -2438,6 +2770,7 @@
     else if (screen === 'nes') nesSel = 0;
     else if (screen === 'demos') demosSel = 0;
     else if (screen === 'cmgnet') cmgnetSel = 0;
+    else if (screen === 'addgame') addSel = 0;
     else if (screen === 'settings') settingsSel = 0;
     else if (screen === 'oeimport') oeSel = oeFirstSelectable();
     else if (screen === 'ctrlsync') ctrlSel = 0;
@@ -2453,6 +2786,7 @@
     else if (screen === 'nes') nesSel = nesGames.length;
     else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
     else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetVisible.length - 1, 0);
+    else if (screen === 'addgame') addSel = Math.max(addRows.length - 1, 0);
     else if (screen === 'settings') settingsSel = SETTINGS_ITEMS.length - 1;
     else if (screen === 'oeimport') oeSel = Math.max(oeRows.length - 1, 0);
     else if (screen === 'ctrlsync') ctrlSel = 1;
@@ -2481,6 +2815,7 @@
     }
     else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
     else if (screen === 'cmgnet') launchCmgnet(cmgnetVisible[cmgnetSel]);
+    else if (screen === 'addgame') addActivate(addSel);
     else if (screen === 'settings') activateSettings(settingsSel);
     else if (screen === 'oeimport') oeToggle(oeSel);
     else if (screen === 'ctrlsync') ctrlActivate(ctrlSel);
@@ -2491,7 +2826,7 @@
     // only gamepad close path off-game, since the Guide (which owns the in-game
     // toggle) isn't reachable without a game. Closes the topmost overlay first.
     else if (musicOpen) closeMusic();
-    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
+    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
   }
   // CMG Network only: pull the latest build from GitHub for the selected game,
   // when one is installed and an update was detected.
@@ -2501,6 +2836,7 @@
     if (gameOn || screen !== 'games') return;
     const g = currentGame;
     if (g && g.__cmgnet && cmgnetStatus[g.id]?.updateAvailable) cmgnetUpdate(g);
+    else if (g && g.__local && (g.localSource === 'github' || g.localSource === 'url')) updateLocalGame(g);
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -2723,9 +3059,13 @@
     const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
     if (justPressed(0) || justPressed(9)) actA();   // A or Start
     if (justPressed(1) || justPressed(8)) actB();   // B or Back/Select
-    // X — uninstall a graduated network game from the Games list.
-    if (justPressed(2) && screen === 'games' && currentGame?.__cmgnet) cmgnetUninstall(currentGame);
-    if (justPressed(3)) actUpdate();                // Y — update a graduated game (when one is available)
+    // X — remove the selected game from the Games list: uninstall a graduated
+    // network game, or delete a locally-added game.
+    if (justPressed(2) && screen === 'games' && !gameOn) {
+      if (currentGame?.__cmgnet) cmgnetUninstall(currentGame);
+      else if (currentGame?.__local) deleteLocalGame(currentGame);
+    }
+    if (justPressed(3)) actUpdate();                // Y — update a graduated/local game (when applicable)
     // Shoulder/trigger navigation — fallback when D-pad isn't recognized
     // (e.g. Firefox + non-standard SNES adapters). Safe for SNES pads too:
     // the compat plugin guarantees normalized 6/7 are either real L2/R2
@@ -2748,7 +3088,7 @@
   function onKey(e) {
     // Nintendo theme lays the catalog lists out as a horizontal coverflow row,
     // so left/right arrows navigate them too (up/down keeps working).
-    if (!gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    if (!gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard' && screen !== 'addgame' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       onKey({
         key: e.key === 'ArrowLeft' ? 'ArrowUp' : 'ArrowDown',
         preventDefault: () => e.preventDefault(),
@@ -2793,7 +3133,8 @@
       else if (e.key === 'ArrowUp') { gameSel = Math.max(gameSel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchGame(GAMES[gameSel].id);
       else if (e.key === 'Delete' && currentGame?.__cmgnet) cmgnetUninstall(currentGame);
-      else if ((e.key === 'u' || e.key === 'U') && currentGame?.__cmgnet) actUpdate();
+      else if (e.key === 'Delete' && currentGame?.__local) deleteLocalGame(currentGame);
+      else if ((e.key === 'u' || e.key === 'U') && (currentGame?.__cmgnet || currentGame?.__local)) actUpdate();
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'arcade') {
       if (e.key === 'ArrowDown') { arcadeSel = Math.min(arcadeSel + 1, arcadeGames.length); sfx.nav(); }
@@ -2841,6 +3182,22 @@
       if (e.key === 'ArrowDown') { cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetVisible.length - 1, 0)); sfx.nav(); }
       else if (e.key === 'ArrowUp') { cmgnetSel = Math.max(cmgnetSel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') launchCmgnet(cmgnetVisible[cmgnetSel]);
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'addgame') {
+      // A focused text field must keep normal typing (arrows move the caret,
+      // characters insert) — only Enter (submit) and Escape (blur back to nav)
+      // are intercepted while typing.
+      const el = e.target;
+      const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+      if (typing) {
+        if (e.key === 'Enter') { el.blur(); submitAdd(); e.preventDefault(); }
+        else if (e.key === 'Escape') { el.blur(); e.preventDefault(); }
+        return;
+      }
+      if (e.key === 'ArrowDown') { addSel = Math.min(addSel + 1, addRows.length - 1); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { addSel = Math.max(addSel - 1, 0); sfx.nav(); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { if (addRows[addSel]?.kind === 'subdir') cycleAddSubdir(); }
+      else if (e.key === 'Enter' || e.key === ' ') addActivate(addSel);
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'settings') {
       if (e.key === 'ArrowDown') { settingsSel = Math.min(settingsSel + 1, SETTINGS_ITEMS.length - 1); sfx.nav(); }
@@ -3117,6 +3474,7 @@
     loadNesList();
     registerCmgSw();
     loadCmgnetList();
+    loadLocalGames();
   });
 
   function refreshPadConnected() {
@@ -3314,7 +3672,7 @@
         <div class="meta">
           <div><span class="k">name</span><b>{currentGame?.name ?? '—'}</b></div>
           <div><span class="k">size</span><b>{currentGame?.size ?? '—'}</b></div>
-          <div><span class="k">type</span><b>{currentGame?.submenu ? 'SUBMENU' : currentGame?.__cmgnet ? 'NET / INSTALLED' : 'GAME / IFRAME'}</b></div>
+          <div><span class="k">type</span><b>{currentGame?.submenu ? 'SUBMENU' : currentGame?.__cmgnet ? 'NET / INSTALLED' : currentGame?.__local ? 'LOCAL / INSTALLED' : 'GAME / IFRAME'}</b></div>
           <div><span class="k">date</span><b>{currentGame?.date ?? '—'}</b></div>
         </div>
       </div>
@@ -3357,6 +3715,14 @@
                   title="Uninstall {g.name}"
                   aria-label="Uninstall {g.name}"
                   onclick={(e) => { e.stopPropagation(); cmgnetUninstall(g); }}
+                >✕</button>
+              {:else if g.__local}
+                <button
+                  class="uninstall-btn"
+                  type="button"
+                  title="Delete {g.name}"
+                  aria-label="Delete {g.name}"
+                  onclick={(e) => { e.stopPropagation(); deleteLocalGame(g); }}
                 >✕</button>
               {/if}
             </div>
@@ -3847,6 +4213,118 @@
     </div>
   </div>
 
+  <!-- Add Game — add a title from a GitHub repo, a zip URL, or a local zip
+       file. Backed by the local-only /api/games/* endpoints; added games merge
+       into the Games list (tagged __local) with Delete / Update affordances.
+       Ported from codemonkey-games-launcher's add-game flow. -->
+  <div class="games-screen {screen === 'addgame' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>sys // add</span>
+        <span>local library</span>
+        <span>{clockShort}</span>
+      </div>
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">source</span><b>{addMethod === 'github' ? 'GITHUB REPO' : addMethod === 'url' ? 'ZIP URL' : 'ZIP FILE'}</b></div>
+          <div><span class="k">subdir</span><b>{addSubdir.toUpperCase()}</b></div>
+          <div><span class="k">link</span><b>{addBusy ? 'WORKING…' : addError ? 'ERROR' : 'READY'}</b></div>
+          <div><span class="k">note</span><b>LOCAL LAUNCHER ONLY</b></div>
+        </div>
+      </div>
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">ADD GAME</div>
+          <div class="counter">{addCounterText}</div>
+        </div>
+        <div class="games-list">
+          <input
+            type="file"
+            bind:this={addFileInput}
+            accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream"
+            onchange={onAddZipChange}
+            class="byod-input"
+          />
+          {#each addRows as row, i (row.key)}
+            {#if row.kind === 'method'}
+              <div
+                bind:this={addRowEls[i]}
+                class="game-row {i === addSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== addSel) { addSel = i; sfx.nav(); } }}
+                onclick={() => addActivate(i)}
+              >
+                <div class="game-icon"><div class="glass"><span class="ph">{addMethod === row.method ? '◉' : '○'}</span></div></div>
+                <div class="game-bar">
+                  <span class="name">{row.label}</span>
+                  <span class="sub">{row.sub}</span>
+                </div>
+              </div>
+            {:else if row.kind === 'input'}
+              <div
+                bind:this={addRowEls[i]}
+                class="game-row add-field {i === addSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== addSel) { addSel = i; sfx.nav(); } }}
+                onclick={() => addActivate(i)}
+              >
+                <div class="game-icon"><div class="glass"><span class="ph">✎</span></div></div>
+                <div class="game-bar">
+                  <span class="name">{row.label}</span>
+                  {#if row.field === 'repo'}
+                    <input class="add-input" type="text" spellcheck="false" autocapitalize="off" autocomplete="off"
+                      placeholder={row.placeholder} bind:value={addRepo}
+                      onfocus={() => { addSel = i; }} onclick={(e) => e.stopPropagation()} />
+                  {:else if row.field === 'branch'}
+                    <input class="add-input" type="text" spellcheck="false" autocapitalize="off" autocomplete="off"
+                      placeholder={row.placeholder} bind:value={addBranch}
+                      onfocus={() => { addSel = i; }} onclick={(e) => e.stopPropagation()} />
+                  {:else if row.field === 'url'}
+                    <input class="add-input" type="text" spellcheck="false" autocapitalize="off" autocomplete="off"
+                      placeholder={row.placeholder} bind:value={addUrl}
+                      onfocus={() => { addSel = i; }} onclick={(e) => e.stopPropagation()} />
+                  {:else}
+                    <input class="add-input" type="text" spellcheck="false" autocapitalize="off" autocomplete="off"
+                      placeholder={row.placeholder} bind:value={addName}
+                      onfocus={() => { addSel = i; }} onclick={(e) => e.stopPropagation()} />
+                  {/if}
+                </div>
+              </div>
+            {:else if row.kind === 'subdir'}
+              <div
+                bind:this={addRowEls[i]}
+                class="game-row {i === addSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== addSel) { addSel = i; sfx.nav(); } }}
+                onclick={() => addActivate(i)}
+              >
+                <div class="game-icon"><div class="glass"><span class="ph">▤</span></div></div>
+                <div class="game-bar">
+                  <span class="name">SUBDIR · {addSubdir.toUpperCase()}</span>
+                  <span class="sub">{ADD_SUBDIRS.map((s) => (s === addSubdir ? '[' + s + ']' : s)).join('  ·  ')}</span>
+                </div>
+              </div>
+            {:else}
+              <div
+                bind:this={addRowEls[i]}
+                class="game-row byoc-row {i === addSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== addSel) { addSel = i; sfx.nav(); } }}
+                onclick={() => addActivate(i)}
+              >
+                <div class="game-icon"><div class="glass"><span class="ph">{addBusy ? '…' : addMethod === 'zip' ? '⬆' : '⤓'}</span></div></div>
+                <div class="game-bar">
+                  <span class="name">{addBusy ? 'WORKING…' : addMethod === 'zip' ? 'CHOOSE .ZIP FILE' : 'INSTALL'}</span>
+                  <span class="sub">{addStatus || (addMethod === 'github' ? 'download + extract from GitHub' : addMethod === 'url' ? 'download + extract the zip' : 'pick a .zip from disk')}</span>
+                </div>
+              </div>
+            {/if}
+          {/each}
+          {#if addError}
+            <div class="byod-err">{addError}</div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings — entered from the main menu; hosts the OpenEmu import picker
        and the Controller Sync (mock) screen. -->
   <div class="games-screen {screen === 'settings' ? 'shown' : ''}">
@@ -4045,7 +4523,7 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
+  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -4063,9 +4541,21 @@
       </span>
     </div>
   {/if}
+  {#if screen === 'games' && currentGame?.__local}
+    <div class="footer mid acts">
+      {#if currentGame.localSource === 'github' || currentGame.localSource === 'url'}
+        <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)}>
+          <span class="btn-hint y">Y</span><span>Update</span>
+        </span>
+      {/if}
+      <span class="act" role="button" tabindex="0" onpointerup={tapHandler(() => deleteLocalGame(currentGame))}>
+        <span class="btn-hint x">X</span><span>Delete</span>
+      </span>
+    </div>
+  {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
   </div>
 </div>
 
