@@ -2,6 +2,79 @@
   "version": 1,
   "games": [
     {
+      "id": "2019-turbo",
+      "name": "2019 Turbo",
+      "title": "2019 TURBO",
+      "sub": "Pixi.js · Turbo",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/2019-turbo",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/2019-turbo/",
+      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/2019-turbo&branch=main",
+      "size": "18 MB",
+      "date": "06.13.26",
+      "levelEditor": { "game": "2028-ai" }
+    },
+    {
+      "id": "2019-es7",
+      "name": "2028",
+      "title": "2028",
+      "sub": "ES7 // Phaser 3",
+      "icon": "/icons/2028-icon.png",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/2019-es7",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/2019-es7/",
+      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/2019-es7&branch=main",
+      "size": "27 MB",
+      "date": "07.28.22"
+    },
+    {
+      "id": "monkey-kombat",
+      "name": "Monkey Kombat",
+      "title": "MONKEY KOMBAT",
+      "sub": "🐵ᕗ ─=≡ΣO))",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/monkey-kombat",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/monkey-kombat/",
+      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/monkey-kombat&branch=main",
+      "size": "2 MB",
+      "date": "05.19.26"
+    },
+    {
+      "id": "pacman-halloween-2025",
+      "name": "PAC-MAN Halloween",
+      "title": "PAC-MAN: HALLOWEEN",
+      "sub": "Seasonal",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/pacman-halloween-2025",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/pacman-halloween-2025/",
+      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/pacman-halloween-2025&branch=main",
+      "size": "26 MB",
+      "date": "10.31.25"
+    },
+    {
+      "id": "squad-game",
+      "name": "Squad Game",
+      "title": "SQUAD GAME",
+      "sub": "👨🏽‍💻 👾💾🖳 👩🏽‍💻",
+      "icon": "/icons/squad-game.png",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/squad-game",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/squad-game/",
+      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/squad-game&branch=main",
+      "size": "18 MB",
+      "date": "11.02.23"
+    },
+    {
       "id": "sf2",
       "name": "Street Fighter 2.0",
       "title": "STREET FIGHTER 2.0",
@@ -32,6 +105,21 @@
       "twinStick": {
         "default": true
       }
+    },
+    {
+      "id": "ronagun",
+      "name": "RonaGun",
+      "title": "RONAGUN",
+      "sub": "Svelte // Phaser",
+      "icon": "/icons/ronagun-icon.png",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/evil-invaders-svite",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/evil-invaders-svite/",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/ronagun.zip",
+      "size": "1 MB",
+      "date": "07.07.26"
     },
     {
       "id": "abobo",
