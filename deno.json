@@ -10,9 +10,9 @@
     "build:linux": "deno task build && deno task arcade:bundle && deno task compile:linux && deno run -A scripts/build-appimage.ts",
     "compile:mac": "deno run -A scripts/compile-launcher.ts mac",
     "compile:linux": "deno run -A scripts/compile-launcher.ts linux",
-    "desktop:build": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh --backend cef desktop-main.ts",
-    "desktop:mac": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh --target aarch64-apple-darwin desktop-main.ts",
-    "desktop:linux": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh --target x86_64-unknown-linux-gnu desktop-main.ts",
+    "desktop:build": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh --include tools --backend cef desktop-main.ts",
+    "desktop:mac": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh --include tools --target aarch64-apple-darwin desktop-main.ts",
+    "desktop:linux": "deno task build && deno desktop -A --node-modules-dir=none --no-lock --include static --include _fresh --include tools --target x86_64-unknown-linux-gnu desktop-main.ts",
     "dashboard:build": "deno run -A scripts/build-dashboard.ts",
     "2028-ai:bgm": "deno run -A scripts/2028-ai/download-custom-bgm.ts",
     "games:manifest": "deno run -A scripts/build-games-manifest.ts",
@@ -46,7 +46,8 @@
   "exclude": [
     "**/_fresh/*",
     "static/dashboard.bundle.js",
-    "svelte-src/**"
+    "svelte-src/**",
+    "tools/build-level/**"
   ],
   "imports": {
     "@/": "./",
