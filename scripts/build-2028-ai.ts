@@ -7,9 +7,12 @@
 //
 // Run from the cmg repo root:  deno run -A scripts/build-2028-ai.ts
 import * as esbuild from "esbuild";
+import { fileURLToPath } from "node:url";
 
-const entry = new URL("./2028-ai/boot-entry.js", import.meta.url).pathname;
-const outfile = new URL("../static/games/2028-ai/game.bundle.js", import.meta.url).pathname;
+const entry = fileURLToPath(new URL("./2028-ai/boot-entry.js", import.meta.url));
+const outfile = fileURLToPath(
+  new URL("../static/games/2028-ai/game.bundle.js", import.meta.url),
+);
 
 const result = await esbuild.build({
   entryPoints: [entry],

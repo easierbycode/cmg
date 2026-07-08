@@ -13,7 +13,11 @@
 // the bundle that ships in static/ is self-contained, this source only needs
 // that repo present at build time.
 
-import { levelLoaderScenePluginConfig } from "../../static/phaser-plugins/level-loader.js";
+import {
+    DEFAULTS as LEVEL_LOADER_DEFAULTS,
+    levelLoaderScenePluginConfig,
+    parseStageId,
+} from "../../static/phaser-plugins/level-loader.js";
 
 import { GAME_DIMENSIONS } from "../../../2019-es7/src/constants.js";
 import { gameState, syncRuntimeFlagsFromLocation } from "../../../2019-es7/src/gameState.js";
@@ -32,12 +36,6 @@ const ASSET_BASE = "/games/2028-ai/";
 const LEVEL_DATA_URL = "https://cmg.easierbycode.deno.net/games/2028-ai/foo.json";
 const LEVEL_DATA_FALLBACK_URL = ASSET_BASE + "foo.json";
 
-function parseStageId(value) {
-    const stageId = Number(value);
-    if (!Number.isFinite(stageId)) return 0;
-    return Math.max(0, Math.min(4, Math.floor(stageId)));
-}
-
 // Mirror of the (module-private) primeGameStateForStage in BootScene.js — the
 // game-specific state wiring the plugin intentionally leaves to the caller.
 function primeGameStateForStage(recipe, stageId) {
@@ -52,7 +50,7 @@ function primeGameStateForStage(recipe, stageId) {
     gameState.maxCombo = 0;
     gameState.score = 0;
     gameState.spgage = 0;
-    gameState.stageId = parseStageId(stageId);
+    gameState.stageId = parseStageId(stageId, LEVEL_LOADER_DEFAULTS.maxStage);
     gameState.continueCnt = 0;
     gameState.akebonoCnt = 0;
     gameState.shortFlg = false;
