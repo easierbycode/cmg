@@ -107,6 +107,21 @@
       }
     },
     {
+      "id": "ronagun",
+      "name": "RonaGun",
+      "title": "RONAGUN",
+      "sub": "Svelte // Phaser",
+      "icon": "/icons/ronagun-icon.png",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/evil-invaders-svite",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/evil-invaders-svite/",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/ronagun.zip",
+      "size": "1 MB",
+      "date": "07.07.26"
+    },
+    {
       "id": "abobo",
       "name": "Abobo's Revenge",
       "title": "ABOBO'S REVENGE",
