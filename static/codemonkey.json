@@ -2,6 +2,21 @@
   "version": 1,
   "games": [
     {
+      "id": "2019-es7",
+      "name": "2028",
+      "title": "2028",
+      "sub": "ES7 // Phaser 3",
+      "icon": "/icons/2028-icon.png",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/2019-es7",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/2019-es7/",
+      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/2019-es7&branch=main",
+      "size": "27 MB",
+      "date": "07.28.22"
+    },
+    {
       "id": "2019-turbo",
       "name": "2019 Turbo",
       "title": "2019 TURBO",
@@ -17,19 +32,28 @@
       "levelEditor": { "game": "2028-ai" }
     },
     {
-      "id": "2019-es7",
-      "name": "2028",
-      "title": "2028",
-      "sub": "ES7 // Phaser 3",
-      "icon": "/icons/2028-icon.png",
+      "id": "abobo",
+      "name": "Abobo's Revenge",
+      "title": "ABOBO'S REVENGE",
+      "sub": "Ruffle // Flash",
       "source": "github",
-      "repo": "https://github.com/easierbycode/2019-es7",
+      "repo": "https://github.com/easierbycode/abobo",
       "branch": "main",
       "entry": "index.html",
-      "streamUrl": "https://easierbycode.com/2019-es7/",
-      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/2019-es7&branch=main",
-      "size": "27 MB",
-      "date": "07.28.22"
+      "streamUrl": "https://easierbycode.com/abobo/",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/abobo.zip",
+      "size": "18 MB",
+      "date": "11.16.25"
+    },
+    {
+      "id": "azlegend-golden",
+      "name": "AZLegendGolden",
+      "title": "AZLEGENDGOLDEN",
+      "sub": "♪ Music // sidebar",
+      "kind": "music",
+      "streamUrl": "https://azlegend.easierbycode.deno.net/",
+      "size": "— MB",
+      "date": "06.30.26"
     },
     {
       "id": "monkey-kombat",
@@ -60,34 +84,19 @@
       "date": "10.31.25"
     },
     {
-      "id": "squad-game",
-      "name": "Squad Game",
-      "title": "SQUAD GAME",
-      "sub": "👨🏽‍💻 👾💾🖳 👩🏽‍💻",
-      "icon": "/icons/squad-game.png",
+      "id": "ronagun",
+      "name": "RonaGun",
+      "title": "RONAGUN",
+      "sub": "Svelte // Phaser",
+      "icon": "/icons/ronagun-icon.png",
       "source": "github",
-      "repo": "https://github.com/easierbycode/squad-game",
+      "repo": "https://github.com/easierbycode/evil-invaders-svite",
       "branch": "main",
       "entry": "index.html",
-      "streamUrl": "https://easierbycode.com/squad-game/",
-      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/squad-game&branch=main",
-      "size": "18 MB",
-      "date": "11.02.23"
-    },
-    {
-      "id": "sf2",
-      "name": "Street Fighter 2.0",
-      "title": "STREET FIGHTER 2.0",
-      "sub": "Godot // Ryu",
-      "source": "github",
-      "repo": "https://github.com/easierbycode/sf2",
-      "branch": "main",
-      "subdir": "ryu",
-      "entry": "ryu/index.html",
-      "streamUrl": "https://easierbycode.com/sf2/",
-      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/sf2/main/ryu.zip",
-      "size": "10 MB",
-      "date": "09.10.25"
+      "streamUrl": "https://easierbycode.com/evil-invaders-svite/",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/ronagun.zip",
+      "size": "1 MB",
+      "date": "07.07.26"
     },
     {
       "id": "shmup-party-phaser4",
@@ -107,43 +116,48 @@
       }
     },
     {
-      "id": "ronagun",
-      "name": "RonaGun",
-      "title": "RONAGUN",
-      "sub": "Svelte // Phaser",
-      "icon": "/icons/ronagun-icon.png",
+      "id": "spritex",
+      "name": "SpriteX",
+      "title": "SPRITEX",
+      "sub": "Sprite Workbench",
       "source": "github",
-      "repo": "https://github.com/easierbycode/evil-invaders-svite",
+      "repo": "https://github.com/easierbycode/spriteX",
       "branch": "main",
       "entry": "index.html",
-      "streamUrl": "https://easierbycode.com/evil-invaders-svite/",
-      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/ronagun.zip",
-      "size": "1 MB",
-      "date": "07.07.26"
+      "streamUrl": "https://easierbycode.com/spriteX/",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/spritex.zip",
+      "size": "0.5 MB",
+      "date": "07.08.26"
     },
     {
-      "id": "abobo",
-      "name": "Abobo's Revenge",
-      "title": "ABOBO'S REVENGE",
-      "sub": "Ruffle // Flash",
+      "id": "sf2",
+      "name": "Street Fighter 2.0",
+      "title": "STREET FIGHTER 2.0",
+      "sub": "Godot // Ryu",
       "source": "github",
-      "repo": "https://github.com/easierbycode/abobo",
+      "repo": "https://github.com/easierbycode/sf2",
+      "branch": "main",
+      "subdir": "ryu",
+      "entry": "ryu/index.html",
+      "streamUrl": "https://easierbycode.com/sf2/",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/sf2/main/ryu.zip",
+      "size": "10 MB",
+      "date": "09.10.25"
+    },
+    {
+      "id": "squad-game",
+      "name": "Squad Game",
+      "title": "SQUAD GAME",
+      "sub": "👨🏽‍💻 👾💾🖳 👩🏽‍💻",
+      "icon": "/icons/squad-game.png",
+      "source": "github",
+      "repo": "https://github.com/easierbycode/squad-game",
       "branch": "main",
       "entry": "index.html",
-      "streamUrl": "https://easierbycode.com/abobo/",
-      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/abobo.zip",
+      "streamUrl": "https://easierbycode.com/squad-game/",
+      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/squad-game&branch=main",
       "size": "18 MB",
-      "date": "11.16.25"
-    },
-    {
-      "id": "azlegend-golden",
-      "name": "AZLegendGolden",
-      "title": "AZLEGENDGOLDEN",
-      "sub": "♪ Music // sidebar",
-      "kind": "music",
-      "streamUrl": "https://azlegend.easierbycode.deno.net/",
-      "size": "— MB",
-      "date": "06.30.26"
+      "date": "11.02.23"
     }
   ]
 }
