@@ -47,7 +47,8 @@
     "**/_fresh/*",
     "static/dashboard.bundle.js",
     "svelte-src/**",
-    "tools/build-level/**"
+    "tools/build-level/**",
+    "tools/sprite-picker-extension/**"
   ],
   "imports": {
     "@/": "./",

@@ -1720,6 +1720,127 @@
     }
   }
 
+  // ─── CMG Sprite Picker → SpriteX preload ──────────────────────────────────
+  // The sprite-picker browser extension (tools/sprite-picker-extension) posts
+  // sprites picked on a sprite-sheet site to this page through its bridge
+  // content script:
+  //   { source: 'cmg-sprite-picker', type: 'spritex-preload', sprites: [...] }
+  // The launcher answers by booting the SpriteX catalog app in the game frame
+  // and re-posting { type: 'spritex-preload', sprites } into it until the app
+  // acks with { type: 'spritex-preload-ack' } (spriteX also advertises
+  // { type: 'spritex-ready' } on boot, which short-circuits the retry wait).
+  // Delivery uses targetOrigin '*' because SpriteX may be the same-origin
+  // cached copy (/cmg-net/spritex/…) or the cross-origin streamUrl build — the
+  // payload is just the user's own picked sprite images, nothing sensitive.
+  let spritexPreload = null; // sanitized sprites awaiting delivery
+  let spritexDeliverTimer = null;
+  let spritexDeliverUntil = 0;
+
+  const SPRITE_PICKER_MAX = 64;
+  const SPRITE_PICKER_MAX_BYTES = 24 * 1024 * 1024;
+
+  function sanitizePickerSprites(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    let bytes = 0;
+    for (const s of raw.slice(0, SPRITE_PICKER_MAX)) {
+      const dataURL = typeof s?.dataURL === 'string' ? s.dataURL : '';
+      if (!/^data:image\/(png|webp|gif|jpe?g);base64,/.test(dataURL)) continue;
+      bytes += dataURL.length;
+      if (bytes > SPRITE_PICKER_MAX_BYTES) break;
+      const name = String(s?.name || '').replace(/[^\w-]/g, '').slice(0, 48) ||
+        ('sprite_' + out.length);
+      out.push({ name, dataURL, w: Number(s?.w) || 0, h: Number(s?.h) || 0 });
+    }
+    return out;
+  }
+
+  function spritexFrameWindow() {
+    const iframe = document.getElementById('gameframe') ||
+      document.querySelector('.game-iframe iframe');
+    return (iframe && iframe.contentWindow) || null;
+  }
+
+  function stopSpritexDelivery() {
+    if (spritexDeliverTimer) { clearInterval(spritexDeliverTimer); spritexDeliverTimer = null; }
+  }
+
+  function deliverSpritexPreload() {
+    if (!spritexPreload) { stopSpritexDelivery(); return; }
+    const w = spritexFrameWindow();
+    if (w) {
+      try { w.postMessage({ type: 'spritex-preload', sprites: spritexPreload }, '*'); } catch (_) {}
+    }
+    if (Date.now() > spritexDeliverUntil) { spritexPreload = null; stopSpritexDelivery(); }
+  }
+
+  function startSpritexDelivery() {
+    stopSpritexDelivery();
+    // Generous window: a first launch may stream or download the app first.
+    spritexDeliverUntil = Date.now() + 45000;
+    spritexDeliverTimer = setInterval(deliverSpritexPreload, 500);
+  }
+
+  function launchSpriteX() {
+    const item = cmgnetGames.find((g) => g && g.id === 'spritex');
+    if (!item) return false;
+    // A pending preload needs the receiver that ships with the launcher's own
+    // spritex build, so when the app isn't cached yet, download-then-play
+    // (the hosted streamUrl build may predate the receiver). Falls back to
+    // streaming only if the download fails.
+    if (cmgnetStatus[item.id]?.cached) {
+      launchCmgnet(item);
+    } else {
+      sfx.enter();
+      chromeDismissed = false;
+      initTwinStick(item.id, item);
+      osdLevelEditor = null;
+      cmgnetDownload(item).then(() => {
+        if (cmgnetStatus[item.id]?.cached) playCmgnet(item);
+        else if (item.streamUrl) {
+          gameSrc = item.streamUrl;
+          setTimeout(() => { gameOn = true; }, 30);
+        }
+      });
+    }
+    return true;
+  }
+
+  function spritexIsRunning() {
+    return typeof gameSrc === 'string' && gameSrc !== '' &&
+      (gameSrc.startsWith('/cmg-net/spritex/') || /easierbycode\.com\/spriteX/i.test(gameSrc));
+  }
+
+  function onSpritePickerMessage(e) {
+    // The bridge content script posts on the launcher's own window; require
+    // that exact identity (plus same origin) so a game iframe can't spoof it.
+    if (e.source !== window || e.origin !== window.location.origin) return;
+    const d = e?.data || {};
+    if (d.source !== 'cmg-sprite-picker' || d.type !== 'spritex-preload') return;
+    const sprites = sanitizePickerSprites(d.sprites);
+    if (!sprites.length) return;
+    spritexPreload = sprites;
+    if (spritexIsRunning()) { startSpritexDelivery(); return; }
+    if (cmgnetGames.length) {
+      if (launchSpriteX()) startSpritexDelivery();
+      return;
+    }
+    // Catalog not in yet (message can beat loadCmgnetList on a fresh tab).
+    loadCmgnetList().then(() => {
+      if (spritexPreload && launchSpriteX()) startSpritexDelivery();
+    });
+  }
+
+  function onSpritexAppMessage(e) {
+    // Ready/ack signals from the SpriteX app in the game frame. Identity-check
+    // against our own iframe like the other cmg-* signals (holds cross-origin).
+    const iframe = document.querySelector('.game-iframe iframe');
+    if (!iframe || e.source !== iframe.contentWindow) return;
+    const d = e?.data || {};
+    if (d.type === 'spritex-ready' && spritexPreload) { deliverSpritexPreload(); return; }
+    if (d.type === 'spritex-preload-ack') { spritexPreload = null; stopSpritexDelivery(); }
+  }
+
   // Throttle uninstalls: the currentGame-based entry points (gamepad X, keyboard
   // Delete — which auto-repeats when held — and the footer chip) act on whatever
   // row is selected, and an uninstall re-derives the Games list under the cursor.
@@ -3479,6 +3600,8 @@
     window.addEventListener('keydown', onKey);
     window.addEventListener('message', onWindowMessage);
     window.addEventListener('message', onSoftmodMessage);
+    window.addEventListener('message', onSpritePickerMessage);
+    window.addEventListener('message', onSpritexAppMessage);
     window.addEventListener('gamepadconnected', onPadConnect);
     window.addEventListener('gamepaddisconnected', onPadDisconnect);
     refreshPadConnected();
@@ -3582,6 +3705,9 @@
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('message', onWindowMessage);
     window.removeEventListener('message', onSoftmodMessage);
+    window.removeEventListener('message', onSpritePickerMessage);
+    window.removeEventListener('message', onSpritexAppMessage);
+    stopSpritexDelivery();
     window.removeEventListener('gamepadconnected', onPadConnect);
     window.removeEventListener('gamepaddisconnected', onPadDisconnect);
     document.body.classList.remove('playing');

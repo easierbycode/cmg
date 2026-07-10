@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    /* CMG launcher OSD look (svelte-src/Osd.svelte) for the popup. */
+    @font-face {
+      font-family: "CMG Orbitron";
+      src: url("../fonts/Orbitron-Variable.woff2") format("woff2");
+      font-weight: 400 900;
+      font-style: normal;
+      font-display: swap;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 340px;
+      min-height: 220px;
+      color: #dfffc4;
+      font-family: "CMG Orbitron", "Orbitron", sans-serif;
+      font-size: 13px;
+      background:
+        radial-gradient(ellipse 80% 60% at 38% 40%, rgba(20, 90, 40, .45), transparent 70%),
+        linear-gradient(180deg, rgba(12, 40, 20, .98), rgba(6, 22, 11, 1));
+    }
+    .hd {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid rgba(140, 255, 110, .18);
+    }
+    .title {
+      font-weight: 800; letter-spacing: .28em; font-size: 14px;
+      color: #eaffd2; text-shadow: 0 0 14px rgba(120, 255, 90, .5);
+    }
+    .body { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; }
+    .sect {
+      font-family: "Share Tech Mono", ui-monospace, Consolas, monospace;
+      font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+      color: rgba(180, 255, 140, .5); padding: 8px 4px 0;
+    }
+    .sect:first-child { padding-top: 2px; }
+    .status {
+      font-family: "Share Tech Mono", ui-monospace, Consolas, monospace;
+      font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+      padding: 8px 12px; border-radius: 8px;
+      border: 1px solid rgba(140, 255, 110, .18);
+      background: linear-gradient(180deg, rgba(70, 180, 90, .08), rgba(20, 60, 30, .4));
+      color: rgba(220, 255, 180, .7);
+    }
+    .status.connected { border-color: rgba(180, 255, 140, .8); color: #bdf48c; box-shadow: 0 0 14px rgba(120, 255, 90, .25); }
+    .status.disconnected { color: #ff9b9b; }
+    .help {
+      font-family: "Share Tech Mono", ui-monospace, Consolas, monospace;
+      font-size: 11px; letter-spacing: .04em; line-height: 1.7;
+      color: rgba(220, 255, 180, .7);
+      border: 1px solid rgba(140, 255, 110, .18); border-radius: 8px;
+      background: linear-gradient(180deg, rgba(70, 180, 90, .08), rgba(20, 60, 30, .4));
+      padding: 8px 12px 8px 26px;
+    }
+    .help b { color: #eaffd2; font-weight: 400; }
+    .btn {
+      display: block; width: 100%; min-height: 36px; padding: 8px 12px;
+      font-family: "CMG Orbitron", "Orbitron", sans-serif;
+      font-weight: 600; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+      color: #dfffc4; cursor: pointer;
+      border: 1px solid rgba(140, 255, 110, .18); border-radius: 8px;
+      background: linear-gradient(180deg, rgba(70, 180, 90, .08), rgba(20, 60, 30, .4));
+      transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, color .15s ease;
+    }
+    .btn:hover {
+      color: #0e0e02; border-color: #fff36a;
+      background: linear-gradient(180deg, #fffea1 0%, #F6FF4A 30%, #d8e640 70%, #a4b00b 100%);
+      box-shadow: 0 0 22px rgba(255, 240, 90, .45);
+    }
+    .foot {
+      display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+      border-top: 1px solid rgba(140, 255, 110, .18);
+      font-family: "Share Tech Mono", ui-monospace, Consolas, monospace;
+      font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+      color: rgba(220, 255, 180, .55);
+    }
+    .foot b { color: #eaffd2; font-weight: 400; }
+    .foot-hint { margin-left: auto; opacity: .7; }
+  </style>
+</head>
+<body>
+  <div class="hd">
+    <span class="title">SPRITE PICKER</span>
+  </div>
+
+  <div class="body">
+    <div class="sect">CMG Launcher</div>
+    <div id="cmgStatus" class="status disconnected">CHECKING…</div>
+
+    <div class="sect">How to use</div>
+    <ol class="help">
+      <li>Open the CMG dashboard in another tab</li>
+      <li>Browse to a sprite-sheet page</li>
+      <li>Tap <b>⊕</b> (bottom-right), click the sheet</li>
+      <li>Click detected sprites to select</li>
+      <li><b>SEND TO SPRITEX</b> → View tab opens</li>
+    </ol>
+
+    <div class="sect">Quick actions</div>
+    <button id="injectBtn" class="btn">Inject picker on this tab</button>
+    <button id="refreshBtn" class="btn">Recheck launcher</button>
+  </div>
+
+  <div class="foot">
+    <span><b>CMG</b> SPRITE PICKER</span>
+    <span class="foot-hint">V1.0</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

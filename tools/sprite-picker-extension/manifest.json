@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "CMG Sprite Picker",
+  "version": "1.0",
+  "description": "Detect and pick sprites from sprite-sheet images, then beam them into CMG SpriteX's View tab.",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://spriters-resource.com/*",
+    "*://www.spriters-resource.com/*",
+    "*://images.spriters-resource.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://cmg.easierbycode.deno.net/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://spriters-resource.com/*",
+        "*://www.spriters-resource.com/*"
+      ],
+      "js": ["lib/sprite-detect.js", "content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://cmg.easierbycode.deno.net/*"
+      ],
+      "js": ["bridge/cmg-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/*.woff2"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
