@@ -76,7 +76,8 @@
       "streamUrl": "https://easierbycode.com/mario-sp/",
       "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/mario-sp&branch=main",
       "size": "0.4 MB",
-      "date": "07.09.26"
+      "date": "07.09.26",
+      "touchControls": { "default": true }
     },
     {
       "id": "monkey-kombat",
