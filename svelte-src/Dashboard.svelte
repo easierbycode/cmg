@@ -504,6 +504,7 @@
     // linger in the OSD while the editor is the active frame.
     osdLevelEditor = null;
     twinStickAvail = false; twinStickOn = false;
+    touchCtlAvail = false; touchCtlOn = false;
     // Deliberately root-relative (NOT resolved against manifestOrigin like games):
     // the editor must stay on the launcher's own origin so its /api/build-apk
     // call and Firebase writes run against the local dev/desktop host, not the
@@ -579,6 +580,61 @@
     }
     if (!twinTouchOn) resetTwinTouch();
     applyTwinStick();
+  }
+
+  // ── Touch Controls ────────────────────────────────────────────────────────
+  // On-screen touch pad rendered by the game itself (e.g. mario-sp's
+  // TurboGrafx-16 overlay). Availability mirrors twin-stick: a `touchControls`
+  // flag on the catalog/manifest entry (true, or { default: true } — the
+  // codemonkey.json shape), or a boot-time postMessage
+  // { type: 'cmg-touchcontrols', default?: bool }. The launcher only brokers
+  // the option — the choice persists per game in localStorage and is pushed
+  // into the frame as { type: 'cmg-touchcontrols-set', value }; the game
+  // renders/hides its own overlay. The launcher theme rides along as
+  // { type: 'cmg-theme', theme } so the pad can match the skin (Nintendo red
+  // → Nintendo-gray buttons).
+  let touchCtlAvail = $state(false);
+  let touchCtlOn = $state(false);
+  let touchCtlGameId = null;
+  let touchCtlUserSet = false;
+
+  function touchCtlKey(id) { return 'cmg-touchcontrols:' + id; }
+
+  function initTouchControls(id, item) {
+    touchCtlGameId = id || null;
+    touchCtlUserSet = false;
+    const flag = item ? item.touchControls : undefined;
+    touchCtlAvail = flag === true || (!!flag && typeof flag === 'object');
+    let on = flag === true || !!(flag && flag.default);
+    try {
+      const saved = id ? localStorage.getItem(touchCtlKey(id)) : null;
+      if (saved !== null) on = saved === '1';
+    } catch (_) { /* ignore */ }
+    touchCtlOn = touchCtlAvail && on;
+  }
+
+  function setTouchControls(v) {
+    touchCtlOn = !!v;
+    touchCtlUserSet = true;
+    if (touchCtlGameId) {
+      try { localStorage.setItem(touchCtlKey(touchCtlGameId), touchCtlOn ? '1' : '0'); } catch (_) { /* ignore */ }
+    }
+    applyTouchControls();
+  }
+
+  function applyTouchControls() {
+    const iframe = document.getElementById('gameframe') ||
+      document.querySelector('.game-iframe iframe');
+    try { iframe?.contentWindow?.postMessage({ type: 'cmg-touchcontrols-set', value: touchCtlOn }, '*'); } catch (_) { /* ignore */ }
+  }
+
+  // Push the launcher skin into the running game so its own chrome (touch
+  // pad colors, etc.) can match — cross-origin games can't read cmg-theme
+  // from localStorage, so it travels by postMessage.
+  function applyGameTheme() {
+    const iframe = document.getElementById('gameframe') ||
+      document.querySelector('.game-iframe iframe');
+    try { iframe?.contentWindow?.postMessage({ type: 'cmg-theme', theme: tweaks.theme }, '*'); } catch (_) { /* ignore */ }
   }
 
   let twinTouch = $state({
@@ -687,7 +743,7 @@
       localStorage.setItem(TWEAK_KEY, JSON.stringify(tweaks));
       // Mirror theme/scanlines to the standalone keys the level editor reads,
       // so an editor opened later boots with the launcher's current look.
-      if (key === 'theme') localStorage.setItem('cmg-theme', value);
+      if (key === 'theme') { localStorage.setItem('cmg-theme', value); applyGameTheme(); }
       if (key === 'scanlines') localStorage.setItem('cmg-scanlines', value ? '1' : '0');
     } catch (_) {}
   }
@@ -736,6 +792,11 @@
       if (osdOpenedByTouch) {
         game.push({ key: 'twinstick-touch', kind: 'toggle', label: 'Touch Twin-Stick', value: twinTouchOn });
       }
+    }
+    // Touch Controls appears only for games that opt in (catalog
+    // `touchControls` flag or a cmg-touchcontrols broadcast).
+    if (touchCtlAvail) {
+      game.push({ key: 'touchcontrols', kind: 'toggle', label: 'Touch Controls', value: touchCtlOn });
     }
     // The Cheats submenu appears only when the running game has advertised a
     // cheat set over postMessage (osdCheats) — opt-in, per game.
@@ -831,6 +892,7 @@
     else if (it.key === 'emucontrols') controlsShown = !!v;
     else if (it.key === 'twinstick') setTwinStick(!!v);
     else if (it.key === 'twinstick-touch') setTwinTouch(!!v);
+    else if (it.key === 'touchcontrols') setTouchControls(!!v);
   }
   function adjustOsd(i, dir) {
     const it = osdItems[i]; if (!it) return;
@@ -1402,6 +1464,7 @@
       sfx.enter();
       chromeDismissed = false;
       initTwinStick(id, localItem);
+      initTouchControls(id, localItem);
       osdLevelEditor = null;
       gameSrc = localItem.url;
       setTimeout(() => { gameOn = true; }, 30);
@@ -1416,6 +1479,7 @@
     // falls back to its embedded same-origin copy.
     const item = GAMES.find((g) => g.id === id);
     initTwinStick(id, item);
+    initTouchControls(id, item);
     // Level-editor availability from the catalog entry (games that broadcast
     // cmg-level-editor on boot override this in onWindowMessage).
     osdLevelEditor = (item && item.levelEditor)
@@ -1699,6 +1763,7 @@
     sfx.enter();
     chromeDismissed = false;
     initTwinStick(game.id, game);
+    initTouchControls(game.id, game);
     // Catalog-declared level editor (e.g. 2019 Turbo → 2028-ai editor). Games
     // that broadcast cmg-level-editor on boot still override this.
     osdLevelEditor = (game && game.levelEditor)
@@ -2586,6 +2651,10 @@
     twinStickOn = false;
     twinGameId = null;
     twinStickUserSet = false;
+    touchCtlAvail = false;
+    touchCtlOn = false;
+    touchCtlGameId = null;
+    touchCtlUserSet = false;
     try { delete window.__arcadeByobFile; } catch (_) {}
     try { sessionStorage.removeItem('arcade-byob'); } catch (_) {}
     try { delete window.__psxByodFile; } catch (_) {}
@@ -3375,6 +3444,26 @@
         twinStickOn = on;
       }
       applyTwinStick();
+      return;
+    }
+    if (d.type === 'cmg-touchcontrols') {
+      // The running game advertises an on-screen touch pad (optionally with a
+      // default). Same trust posture as cmg-twinstick — benign, worst case a
+      // toggle appears whose cmg-touchcontrols-set reply the game ignores. A
+      // saved per-game choice or an in-session user toggle wins over the
+      // advertised default.
+      touchCtlAvail = true;
+      if (!touchCtlUserSet) {
+        let on = d.default !== false;
+        try {
+          const saved = touchCtlGameId ? localStorage.getItem(touchCtlKey(touchCtlGameId)) : null;
+          if (saved !== null) on = saved === '1';
+        } catch (_) { /* ignore */ }
+        touchCtlOn = on;
+      }
+      applyTouchControls();
+      // reply with the skin too, so the game's pad can match it
+      applyGameTheme();
       return;
     }
     if (d.type === 'cmg-actions') {
@@ -4589,7 +4678,7 @@
       src={gameSrc}
       title="game"
       allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
-      onload={(e) => { injectOsdKeyForwarder(e); injectEditorCornerGesture(e); applyTwinStick(); }}
+      onload={(e) => { injectOsdKeyForwarder(e); injectEditorCornerGesture(e); applyTwinStick(); applyTouchControls(); applyGameTheme(); }}
     ></iframe>
   </div>
 {/if}
