@@ -56,6 +56,15 @@
       "date": "06.30.26"
     },
     {
+      "id": "dino-jump",
+      "name": "Dino Jump",
+      "title": "DINO JUMP",
+      "sub": "🌵 Infinite Runner 🦖",
+      "streamUrl": "https://dino.easierbycode.deno.net",
+      "size": "0.1 MB",
+      "date": "07.08.26"
+    },
+    {
       "id": "mario-land",
       "name": "Mario Land",
       "title": "MARIO LAND",
