@@ -56,6 +56,30 @@
       "date": "06.30.26"
     },
     {
+      "id": "dino-jump",
+      "name": "Dino Jump",
+      "title": "DINO JUMP",
+      "sub": "🌵 Infinite Runner 🦖",
+      "streamUrl": "https://dino.easierbycode.deno.net",
+      "size": "0.1 MB",
+      "date": "07.08.26"
+    },
+    {
+      "id": "mario-land",
+      "name": "Mario Land",
+      "title": "MARIO LAND",
+      "sub": "🧱👸🏼 5velte Ph4ser 🍄🧱",
+      "source": "github",
+      "repo": "https://easierbycode.com/mario-sp",
+      "branch": "main",
+      "entry": "index.html",
+      "streamUrl": "https://easierbycode.com/mario-sp/",
+      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/mario-sp&branch=main",
+      "size": "0.4 MB",
+      "date": "07.09.26",
+      "touchControls": { "default": true }
+    },
+    {
       "id": "monkey-kombat",
       "name": "Monkey Kombat",
       "title": "MONKEY KOMBAT",
