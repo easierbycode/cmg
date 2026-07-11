@@ -210,6 +210,117 @@
     return out;
   }
 
+  // ==== Custom mapping profiles (saved by the Button Mapping Wizard) ====
+  //
+  // A profile records, per standard-gamepad slot, which raw control this pad
+  // actually reports (button index, digital axis+direction, or hat-switch
+  // direction). Pads with a profile are re-expressed as standard-layout
+  // (Xbox-360-style) pads for every consumer of navigator.getGamepads() —
+  // launcher, GamepadManager, and same-origin game frames alike.
+  //
+  // Shape (stored under localStorage "cmgPadProfiles", keyed by pad.id):
+  //   {
+  //     buttons: { "<standardSlot>": { kind: "button", index }
+  //                                 | { kind: "axis", index, sign, baseline }
+  //                                 | { kind: "hat", index, dir } },
+  //     axes:    { "<standardAxis 0-3>": { index, invert } },
+  //   }
+  const PROFILE_STORAGE_KEY = "cmgPadProfiles";
+  let profileCache = null;
+
+  function loadProfiles() {
+    if (profileCache) return profileCache;
+    try {
+      profileCache =
+        JSON.parse(root.localStorage.getItem(PROFILE_STORAGE_KEY) || "{}") ||
+        {};
+    } catch (_) {
+      profileCache = {};
+    }
+    return profileCache;
+  }
+
+  function invalidateProfiles() {
+    profileCache = null;
+  }
+
+  try {
+    // storage fires in every other same-origin document (game iframes); the
+    // custom event covers the document that saved the profile itself.
+    root.addEventListener("storage", (e) => {
+      if (!e || !e.key || e.key === PROFILE_STORAGE_KEY) invalidateProfiles();
+    });
+    root.addEventListener("cmg-pad-profiles-updated", invalidateProfiles);
+  } catch (_) { /* non-window context */ }
+
+  function profileFor(pad) {
+    if (!pad || !pad.id) return null;
+    const profile = loadProfiles()[pad.id];
+    return profile && profile.buttons ? profile : null;
+  }
+
+  function bindingPressed(pad, binding) {
+    if (!binding) return false;
+    if (binding.kind === "button") {
+      const b = (pad.buttons || [])[binding.index];
+      return !!(b && b.pressed);
+    }
+    const v = (pad.axes || [])[binding.index];
+    if (typeof v !== "number") return false;
+    if (binding.kind === "hat") return !!decodeHat(v)[binding.dir];
+    if (binding.kind === "axis") {
+      const base = typeof binding.baseline === "number" ? binding.baseline : 0;
+      return binding.sign >= 0 ? v - base > 0.5 : base - v > 0.5;
+    }
+    return false;
+  }
+
+  function profileButtons(pad, profile) {
+    const out = new Array(17);
+    for (let i = 0; i < out.length; i++) {
+      out[i] = button(bindingPressed(pad, profile.buttons[i]));
+    }
+    return out;
+  }
+
+  function profileAxes(pad, profile) {
+    const src = pad.axes || [];
+    const map = profile.axes || {};
+    const read = (slot) => {
+      const m = map[slot];
+      if (!m || typeof src[m.index] !== "number") return 0;
+      return m.invert ? -src[m.index] : src[m.index];
+    };
+    return [read(0), read(1), read(2), read(3)];
+  }
+
+  const profileWrapCache = typeof WeakMap === "function" ? new WeakMap() : null;
+
+  function wrapProfiledPad(pad, profile, opts) {
+    if (profileWrapCache) {
+      const cached = profileWrapCache.get(pad);
+      // Profile object identity is stable until invalidateProfiles(), so a
+      // re-saved profile naturally busts this cache.
+      if (cached && cached.profile === profile) return cached.wrapped;
+    }
+
+    const wrapped = new Proxy(pad, {
+      get(target, prop) {
+        if (prop === "__cmgGamepadCompatWrapped") return true;
+        if (prop === "buttons") return profileButtons(target, profile);
+        if (prop === "axes") return profileAxes(target, profile);
+        if (prop === "mapping") return "standard";
+        if (prop === "index" && opts.forceIndexZero) return 0;
+
+        const value = target[prop];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    if (profileWrapCache) profileWrapCache.set(pad, { profile, wrapped });
+    return wrapped;
+  }
+
   function cacheKey(opts) {
     return [
       opts.forceIndexZero ? "i0" : "idx",
@@ -218,7 +329,14 @@
   }
 
   function wrapPad(pad, opts) {
-    if (!pad || !isSnesPad(pad)) return pad;
+    if (!pad) return pad;
+
+    // A wizard-authored profile wins over the built-in SNES heuristics: the
+    // user explicitly told us where every control lives on this pad.
+    const profile = profileFor(pad);
+    if (profile) return wrapProfiledPad(pad, profile, opts);
+
+    if (!isSnesPad(pad)) return pad;
 
     const key = cacheKey(opts);
     if (wrapCache) {
@@ -370,11 +488,15 @@
   }
 
   const api = {
-    version: "1.1.0",
+    version: "1.2.0",
     install,
     isSnesPad,
     decodeHat,
     selectPreferredPad,
+    // Mapping-profile helpers (used by the Button Mapping Wizard).
+    profiles: loadProfiles,
+    invalidateProfiles,
+    bindingPressed,
     options() {
       return merge({}, options);
     },

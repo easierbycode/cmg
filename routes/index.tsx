@@ -42,6 +42,7 @@ export default define.page(function Home() {
       <script type="module" src="/dashboard.bundle.js"></script>
       <script type="module" src="/gamepad-support.js"></script>
       <script type="module" src="/controller-configurator.js"></script>
+      <script type="module" src="/controller-mapping-wizard.js"></script>
     </>
   );
 });

@@ -124,6 +124,10 @@ import { GamepadManager } from './gamepad-support.js';
                 <div class="current-mapping" id="current-mapping-display">
                   <p>Click a button to configure it</p>
                 </div>
+                <div class="form-group">
+                  <button type="button" id="open-wizard-btn">Run Button Wizard</button>
+                  <p class="testing-hint">Walks you through pressing every control and translates this pad into a standard Xbox-style layout everywhere.</p>
+                </div>
               </div>
 
               <div class="layout-section" id="layout-section">
@@ -231,6 +235,13 @@ import { GamepadManager } from './gamepad-support.js';
       });
     });
     
+    // Button Mapping Wizard (controller-mapping-wizard.js)
+    const wizardBtn = configurator.querySelector('#open-wizard-btn');
+    wizardBtn?.addEventListener('click', () => {
+      if (this.openMappingWizard) this.openMappingWizard();
+      else alert('Mapping wizard failed to load.');
+    });
+
     // Key detection
     const detectKeyBtn = configurator.querySelector('#detect-key-btn');
     const keyInput = configurator.querySelector('#keyboard-key-input');

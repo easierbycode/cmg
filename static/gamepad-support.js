@@ -698,7 +698,10 @@ class GamepadManager {
   // not input routing. This prevents other controllers from
   // interacting with the launcher while testing a single controller.
   shouldSwallowFor(controllerIndex) {
-    return !!(this.isTestingActive && this.isTestingActive());
+    // wizardActive: the Button Mapping Wizard is capturing raw presses — no
+    // pad input may reach the launcher or game (B would close the
+    // configurator underneath, etc.).
+    return !!(this.isTestingActive && this.isTestingActive()) || !!this.wizardActive;
   }
 
   // ===== Per-game key routing preference =====
