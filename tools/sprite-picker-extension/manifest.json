@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CMG Sprite Picker",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Detect and pick sprites from sprite-sheet images, then beam them into CMG SpriteX's View tab.",
   "permissions": [
     "activeTab",

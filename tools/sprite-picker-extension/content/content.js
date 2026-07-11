@@ -9,6 +9,12 @@
 (function () {
   "use strict";
 
+  // Guard against double-injection: the popup's "Inject picker on this tab"
+  // action re-executes this script on pages where the manifest already ran
+  // it, which stacked duplicate listeners/panels and broke the UI.
+  if (window.__cmgspLoaded) return;
+  window.__cmgspLoaded = true;
+
   let pickMode = false;
   let overlayContainer = null;
   let overlayCanvas = null;
@@ -22,6 +28,54 @@
   let targetImg = null;
   let processing = false;
 
+  // ==================== Messaging ====================
+
+  /**
+   * sendMessage that cannot wedge the picker: MV3 service workers can be
+   * killed mid-request (the promise then never settles) and an extension
+   * reload invalidates this content script's runtime. Both used to leave
+   * `processing` stuck true, so pick mode looked active but clicks did
+   * nothing. Timeout + explicit error text instead.
+   */
+  function sendMessageSafe(msg, timeoutMs = 20000) {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        reject(new Error("EXTENSION NOT RESPONDING — TRY RELOADING THE PAGE"));
+      }, timeoutMs);
+      let p;
+      try {
+        p = chrome.runtime.sendMessage(msg);
+      } catch (err) {
+        clearTimeout(timer);
+        done = true;
+        reject(new Error("EXTENSION WAS RELOADED — REFRESH THIS PAGE"));
+        return;
+      }
+      p.then(
+        (resp) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(resp);
+        },
+        (err) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          const m = String(err?.message || err);
+          reject(
+            /context invalidated/i.test(m)
+              ? new Error("EXTENSION WAS RELOADED — REFRESH THIS PAGE")
+              : err
+          );
+        }
+      );
+    });
+  }
+
   // ==================== Toggle Button ====================
 
   function createToggleButton() {
@@ -31,6 +85,9 @@
     toggleBtn.title = "CMG Sprite Picker: Click to enter pick mode";
     toggleBtn.addEventListener("click", () => {
       pickMode = !pickMode;
+      // Entering pick mode is a recovery point: never let a hung/failed prior
+      // detection keep the click handler gated off.
+      if (pickMode) processing = false;
       toggleBtn.classList.toggle("active", pickMode);
       toggleBtn.title = pickMode
         ? "CMG Sprite Picker: Click an image to detect sprites"
@@ -81,6 +138,7 @@
   document.addEventListener(
     "click",
     (ev) => {
+      if (toggleBtn && !toggleBtn.isConnected) document.body.appendChild(toggleBtn);
       if (!pickMode || processing) return;
       const img = ev.target.closest("img");
       if (!img || img.naturalWidth <= 64 || img.naturalHeight <= 64) return;
@@ -116,7 +174,7 @@
 
     try {
       // Use the service worker to fetch the image (bypasses CORS)
-      const resp = await chrome.runtime.sendMessage({
+      const resp = await sendMessageSafe({
         type: "FETCH_IMAGE",
         url: img.src || img.currentSrc,
       });
@@ -138,7 +196,7 @@
     setPanelStatus("loading", "FETCHING IMAGE…");
 
     try {
-      const resp = await chrome.runtime.sendMessage({
+      const resp = await sendMessageSafe({
         type: "FETCH_IMAGE",
         url: url,
       });
@@ -268,6 +326,10 @@
       else selected.add(idx);
       drawOverlay();
       updatePanel();
+    } else if (pickMode && targetImg && !processing) {
+      // The overlay covers the image, so in pick mode a click that misses
+      // every sprite would otherwise be swallowed — re-detect instead.
+      detectOnImage(targetImg);
     }
   }
 
@@ -289,6 +351,12 @@
   // ==================== Selection Panel ====================
 
   function showPanel() {
+    // The page may have replaced/re-rendered <body> (lazy loads, pjax) and
+    // silently detached our panel; a stale non-null panelEl then blocked the
+    // UI from ever showing again. Recreate if it's no longer in the DOM.
+    if (panelEl && !panelEl.isConnected) {
+      panelEl = null;
+    }
     if (panelEl) return;
     panelEl = document.createElement("div");
     panelEl.className = "cmgsp-panel";
@@ -442,10 +510,10 @@
     }));
 
     try {
-      const resp = await chrome.runtime.sendMessage({
+      const resp = await sendMessageSafe({
         type: "SEND_SPRITES",
         sprites,
-      });
+      }, 30000);
 
       if (resp.error) throw new Error(resp.error);
       setPanelStatus(
