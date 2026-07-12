@@ -299,6 +299,14 @@
   // into the (guaranteed same-origin) frame instead — see
   // injectEditorCornerGesture.
   let editorFrameActive = $derived(typeof gameSrc === 'string' && /^\/editor(\/|\?|$)/.test(gameSrc));
+  // Same-origin games get the launcher's Gamepad API patch (Twin-Stick /
+  // touch virtual pad); cross-origin games run their own touch analogs off
+  // cmg-twinstick-touch-set instead, so the launcher's zones must stand down.
+  let gameFramePatchable = $derived.by(() => {
+    if (typeof gameSrc !== 'string' || !gameSrc) return false;
+    try { return new URL(gameSrc, window.location.href).origin === window.location.origin; }
+    catch (_) { return false; }
+  });
   // First touch in-game dismisses transient chrome (kept for the tg16 message
   // path). The upper-right close button is gone — Exit Game in the OSD replaces it.
   let chromeDismissed = $state(false);
@@ -718,6 +726,17 @@
           };
         }
       } catch (_) { /* frame navigated mid-flight — the postMessage below still lands */ }
+    } else {
+      // Cross-origin frames can't be patched, so the launcher's own touch
+      // zones/virtual pad never reach them. Tell the game to run its own
+      // Touch Twin-Stick analogs (shmup-party's touch-controls.ts). Sent to
+      // cross-origin frames ONLY — a same-origin game also listening would
+      // double up input and visuals with the launcher's zones. Send the
+      // EFFECTIVE state (same gate as the same-origin overlay), not the raw
+      // saved toggle: turning Twin-Stick Mode off must also stop the game's
+      // touch analogs even though twinTouchOn stays saved for later.
+      const touchEffective = twinStickAvail && twinStickOn && twinTouchOn;
+      try { w.postMessage({ type: 'cmg-twinstick-touch-set', value: touchEffective }, '*'); } catch (_) { /* ignore */ }
     }
     // Cross-origin games apply the toggle themselves off this message.
     try { w.postMessage({ type: 'cmg-twinstick-set', value: twinStickOn }, '*'); } catch (_) { /* ignore */ }
@@ -4832,7 +4851,7 @@
 {/if}
 
 
-{#if gameOn && twinStickAvail && twinStickOn && twinTouchOn && !osdOpen}
+{#if gameOn && twinStickAvail && twinStickOn && twinTouchOn && gameFramePatchable && !osdOpen}
   <div class="twin-touch-zone left" aria-hidden="true"
        onpointerdown={(e) => twinTouchStart(e, 'left')}
        onpointermove={(e) => twinTouchMove(e, 'left')}
