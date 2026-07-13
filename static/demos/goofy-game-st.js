@@ -71,8 +71,7 @@ const STATE_WALKING = 'walking';
 const STATE_JUMPING = 'jumping';
 const STATE_LAUNCHING = 'launching';
 
-const BLOCK_COIN_HIT_MIN = 6;
-const BLOCK_COIN_HIT_MAX = 7;
+const BLOCK_COIN_HIT_MIN = 6; // block launch threshold base — must match the server's `6 + (idx % 2)`
 const LAUNCH_SUCK_MS = 260;
 const LAUNCH_SHAKE_MS = 300;
 const LAUNCH_FLIGHT_MS = 1400;
@@ -443,6 +442,10 @@ class GoofySpacetimeScene extends Phaser.Scene {
     this.online = false;
     this.myIdKey = '';
     this.serverPlayers = new Map(); // identity → last player row (incl. our own)
+    // Brick rows for a phase we haven't started yet — the initial subscription
+    // can deliver `brick` rows before the `world` row on a late join. Keyed by
+    // phase; drained by startPhase once that phase's collidables exist.
+    this.pendingBricks = new Map();
 
     this.phaseTexts = buildPhaseTexts();
     this.phaseIndex = 0;
@@ -565,7 +568,15 @@ class GoofySpacetimeScene extends Phaser.Scene {
 
   // A brick/block row: reflect the shared consumed/hit state locally.
   applyBrickRow(rec) {
-    if ((rec.phase | 0) !== this.phaseIndex) return;
+    const phase = rec.phase | 0;
+    if (phase !== this.phaseIndex) {
+      // We haven't started this phase locally yet (late join, world row not in
+      // yet). Buffer it so the hit state isn't lost, then replay in startPhase.
+      let list = this.pendingBricks.get(phase);
+      if (!list) { list = []; this.pendingBricks.set(phase, list); }
+      list.push(rec);
+      return;
+    }
     const c = this.collidables[rec.idx | 0];
     if (!c) return;
     if (c.type === 'brick') {
@@ -631,7 +642,12 @@ class GoofySpacetimeScene extends Phaser.Scene {
       state: STATE_WALKING,
       jumpElapsed: 0,
       jumpRadius: 0,
+      // `coins` is the collected-coin score (coins picked up off the globe);
+      // `bank` is the separate pool of block-pop rewards that funds the burst
+      // ejected on a launch. Keeping them apart means the online score (the
+      // server-authoritative collected count) never drifts from what peers see.
       coins: 0,
+      bank: 0,
     };
   }
 
@@ -768,6 +784,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
 
   startPhase(index) {
     this.clearPhaseObjects();
+    this.phaseIndex = index;
 
     const text = this.phaseTexts[index];
     if (!text) { this.advancing = false; return; }
@@ -782,6 +799,14 @@ class GoofySpacetimeScene extends Phaser.Scene {
 
     this.activeCount = this.collidables.length;
     this.advancing = false;
+
+    // Replay any brick hits that arrived before this phase started, so a late
+    // joiner sees already-consumed bricks/blocks in their consumed state.
+    const buffered = this.pendingBricks.get(index);
+    if (buffered) {
+      this.pendingBricks.delete(index);
+      for (const rec of buffered) this.applyBrickRow(rec);
+    }
   }
 
   clearPhaseObjects() {
@@ -823,6 +848,11 @@ class GoofySpacetimeScene extends Phaser.Scene {
     c.idx = this.collidables.length;
     c.hitThisJump = false;
     c.blockCounted = false;
+    // A block's launch threshold must match the server's deterministic value
+    // (hit_brick: `6 + (idx % 2)`) so every client — and the authoritative
+    // module — agree on the hit that fires the striker. idx is only known now,
+    // so set it here rather than at creation.
+    if (c.type === 'block') c.coinHitLimit = BLOCK_COIN_HIT_MIN + (c.idx % 2);
     this.collidables.push(c);
   }
 
@@ -840,7 +870,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
         container,
         consumed: false,
         hits: 0,
-        coinHitLimit: Phaser.Math.Between(BLOCK_COIN_HIT_MIN, BLOCK_COIN_HIT_MAX),
+        coinHitLimit: 0, // set deterministically from idx in pushCollidable
       });
       this.lastSlots.push({ worldX: containerX, worldY: containerY });
       return;
@@ -1061,8 +1091,10 @@ class GoofySpacetimeScene extends Phaser.Scene {
     if (c.hits > c.coinHitLimit) {
       this.launchGoofyFromBlock(c, g);
     } else {
-      // Banked coins fund the burst that gets ejected on the launch hit.
-      g.coins += COINS_PER_POP;
+      // Bank coins to fund the burst ejected on the eventual launch hit. This
+      // is a separate pool from the collected-coin score, so it doesn't touch
+      // the server-authoritative count peers display.
+      g.bank += COINS_PER_POP;
       this.popBlock(c);
     }
   }
@@ -1296,12 +1328,12 @@ class GoofySpacetimeScene extends Phaser.Scene {
   // ---- coins --------------------------------------------------------------
 
   // Eject a random number of the launched player's banked coins out the bottom
-  // of the box and onto the globe to orbit.
+  // of the box and onto the globe to orbit, where anyone can collect them.
   ejectCoinsFromBlock(c, g) {
-    const have = g.coins;
+    const have = g.bank;
     if (have <= 0) return;
     const count = Phaser.Math.Between(1, Math.min(have, MAX_EJECT_COINS));
-    g.coins -= count;
+    g.bank -= count;
 
     const cx = this.globe.x;
     const cy = this.globe.y;
