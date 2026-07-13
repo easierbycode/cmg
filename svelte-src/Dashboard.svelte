@@ -2874,6 +2874,10 @@
     comboLatched: false,
     dirSeenAt: 0,
     lastPollAt: 0,
+    // Index of the controller currently driving the menu. Any controller the
+    // user picks up takes over (see pickActivePad); this remembers the last one
+    // so an idle pad keeps control until another is actually used.
+    lastActiveIndex: null,
   };
   const PAD_DEADZONE = 0.55;
   const SNES_PAD_RE = /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i;
@@ -2901,6 +2905,47 @@
       }
     }
     return best;
+  }
+
+  // Is this pad providing live input right now? Buttons + sticks (axes 0-3) +
+  // hat only — trigger axes rest at an extreme on some pads, so counting all
+  // axes would flag an idle controller as "active" and fight for control.
+  function padHasActivity(pad) {
+    if (!pad) return false;
+    for (let i = 0; i < pad.buttons.length; i++) {
+      if (pad.buttons[i]?.pressed) return true;
+    }
+    for (const i of [0, 1, 2, 3]) {
+      const v = pad.axes[i];
+      if (typeof v === 'number' && Math.abs(v) > PAD_DEADZONE && Math.abs(v) <= 1.05) return true;
+    }
+    const hat = decodePadHat(pad.axes[9]);
+    return hat.up || hat.down || hat.left || hat.right;
+  }
+
+  // Which controller drives the menu. Unlike pickPrimaryPad (single highest-
+  // priority pad), this lets ANY connected controller take over the moment it's
+  // used, so a second/guest pad works without being unplugged-and-swapped:
+  //   1. a pad with live input this frame wins (the one still holding control
+  //      keeps it if it's also active, to avoid thrashing between two);
+  //   2. otherwise the last pad that was used keeps control while idle;
+  //   3. otherwise fall back to the priority pick.
+  function pickActivePad(pads) {
+    let active = null;
+    for (const p of pads) {
+      if (!p?.connected || !padHasActivity(p)) continue;
+      if (p.index === padState.lastActiveIndex) return p;
+      if (!active) active = p;
+    }
+    if (active) { padState.lastActiveIndex = active.index; return active; }
+    if (padState.lastActiveIndex != null) {
+      for (const p of pads) {
+        if (p?.connected && p.index === padState.lastActiveIndex) return p;
+      }
+    }
+    const primary = pickPrimaryPad(pads);
+    padState.lastActiveIndex = primary ? primary.index : null;
+    return primary;
   }
 
   function decodePadHat(v) {
@@ -3065,7 +3110,7 @@
     padRaf = requestAnimationFrame(pollPad);
     padDebugTick();
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
-    let pad = pickPrimaryPad(pads);
+    let pad = pickActivePad(pads);
     if (gameOn) {
       // While a game is up we yield input to gamepad-support.js (it dispatches
       // keys into #gameframe). Here we only watch for the OSD open-chord, and

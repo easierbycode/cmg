@@ -1,0 +1,27 @@
+[package]
+name = "cmg-goofy-game"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# SpacetimeDB module for the Goofy Game (Space-time DB) demo. Publish it with:
+#
+#   cd demos/goofy-game-st/server
+#   spacetime publish cmg-goofy-game            # local instance, or
+#   spacetime publish --server maincloud cmg-goofy-game   # SpacetimeDB Maincloud
+#
+# The web client (static/demos/goofy-game-st.js) talks to it directly over the
+# JSON WebSocket subprotocol, so no `spacetime generate` step is required for
+# the browser demo — but you can still generate typed bindings for other
+# clients if you want them.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+spacetimedb = "1"
+log = "0.4"
+
+[profile.release]
+opt-level = "z"
+lto = true
