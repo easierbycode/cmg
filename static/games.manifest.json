@@ -83,6 +83,15 @@
       "url": "/demos/goofy-game"
     },
     {
+      "id": "goofy-game-st",
+      "name": "Goofy Game (SpacetimeDB)",
+      "title": "GOOFY GAME · SPACETIMEDB",
+      "sub": "multiplayer · SpacetimeDB",
+      "size": "— MB",
+      "date": "demo",
+      "url": "/demos/goofy-game-st"
+    },
+    {
       "id": "headphones-recommended",
       "name": "Headphones Recommended",
       "title": "HEADPHONES RECOMMENDED",
