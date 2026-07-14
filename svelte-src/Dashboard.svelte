@@ -2014,11 +2014,35 @@
   // cmgnetCheckUpdate compares that to GitHub's current sha and flags
   // updateAvailable; cmgnetUpdate wipes the cached files and re-downloads.
   function cmgnetRepo(game) {
-    // Accept a full URL (https://github.com/owner/repo[.git]) or owner/repo.
+    // Resolve the game's GitHub owner/repo from its `repo` field. Accepts a full
+    // URL (https://github.com/owner/repo[.git]), an scp remote (git@github.com:
+    // owner/repo), a host-qualified path (github.com/owner/repo), or a bare
+    // owner/repo. A value hosted anywhere other than github.com is NOT a GitHub
+    // repo — return null so the update check no-ops instead of querying
+    // api.github.com with a bogus owner (e.g. a deploy URL like
+    // https://easierbycode.com/mario-sp, whose host would become the "owner").
     const raw = (game?.repo || '').trim().replace(/\.git$/, '');
     if (!raw) return null;
-    const m = raw.match(/(?:github\.com[/:])?([^/\s]+)\/([^/\s]+)\/?$/);
-    return m ? { owner: m[1], repo: m[2] } : null;
+    const scp = raw.match(/^git@([^:]+):(.+)$/);
+    if (scp) {
+      if (scp[1] !== 'github.com') return null;
+      const p = scp[2].split('/').filter(Boolean);
+      return p.length >= 2 ? { owner: p[0], repo: p[1] } : null;
+    }
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        const u = new URL(raw);
+        if (u.hostname !== 'github.com' && u.hostname !== 'www.github.com') return null;
+        const p = u.pathname.split('/').filter(Boolean);
+        return p.length >= 2 ? { owner: p[0], repo: p[1] } : null;
+      } catch (_e) { return null; }
+    }
+    const p = raw.split('/').filter(Boolean);
+    if (p[0] === 'github.com') return p.length >= 3 ? { owner: p[1], repo: p[2] } : null;
+    // Bare form: reject a host-looking first segment (GitHub owners never contain
+    // a dot), so a scheme-less deploy URL doesn't slip through as owner/repo.
+    if (p.length >= 2 && !p[0].includes('.')) return { owner: p[0], repo: p[1] };
+    return null;
   }
   const cmgnetShaKey = (id) => '/cmg-net/' + id + '/.cmg-sha';
   async function cmgnetReadSha(id) {
