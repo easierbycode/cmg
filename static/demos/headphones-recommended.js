@@ -34,13 +34,108 @@ const gameOptions = {
   goldColors: [0xffbb33, 0xd4af37, 0xfcdb06, 0xeeaa00, 0xeecc66],
 };
 
+// ── currentMusicPlayer sync ─────────────────────────────────────────────────
+// AZLegendGolden (the "AZ Legend" music player) registers itself over the
+// shared `music-player:` postMessage protocol and, while a track plays, streams
+// the analyser bands that drive its on-screen light rig. We mirror that feed
+// here so the falling stars glow the same colour the AZLegendGolden lights are
+// showing, pulsing in lock-step with the music.
+//
+// The feed reaches us either way the player is embedded: as a sibling inside
+// the CMG launcher (the launcher forwards `music-player:frequency` down into
+// this game frame) or embedded directly by an in-game OSD (the player posts to
+// its parent — this window). We just listen for the message from whichever
+// window is the current music player.
+const MUSIC_PREFIX = "music-player:";
+const IDLE_STAR_COLOR = 0xd4af37; // gold — the look when no player is feeding us
+// AZLegendGolden's light rig cycles four colour families (7 animation frames
+// each) as its `mid` band rises: yellow → blue → green → purple. Mirror those
+// families, and the same drawLights() frame math, so our stars land on the
+// colour its lights are currently on. See audio-visualizer.js drawLights().
+const LIGHT_FRAME_COUNT = 28; // 4 families × 7 frames
+const LIGHT_FAMILY_COLORS = [0xffcf33, 0x55aaff, 0x55ff88, 0xbb66ff];
+const FRAMES_PER_FAMILY = LIGHT_FRAME_COUNT / LIGHT_FAMILY_COLORS.length;
+
+const musicSync = {
+  currentMusicPlayer: null, // window of the registered AZLegendGolden player
+  bass: 0,
+  mid: 0,
+  high: 0,
+  energy: 0,
+  light: 0, // the mid band — the value AZLegendGolden feeds into its light rig
+  lastMessage: -Infinity,
+};
+
+function nowMs() {
+  return (typeof performance !== "undefined" && performance.now)
+    ? performance.now()
+    : Date.now();
+}
+
+function clamp01(value) {
+  const v = +value;
+  if (!(v > 0)) return 0;
+  return v < 1 ? v : 1;
+}
+
+// True while the current music player is actively feeding us frequency data.
+// Falls stale ~0.6s after the last message (playback paused / player closed).
+function musicActive() {
+  return nowMs() - musicSync.lastMessage < 600;
+}
+
+// The colour AZLegendGolden's light rig is on for the current `light` (mid)
+// band, using the same frame math drawLights() uses so the two stay in step.
+function currentLightColor() {
+  const frame = Math.floor(nowMs() / 86 + musicSync.light * 18) %
+    LIGHT_FRAME_COUNT;
+  const family = Math.floor(frame / FRAMES_PER_FAMILY);
+  return LIGHT_FAMILY_COLORS[family] || LIGHT_FAMILY_COLORS[0];
+}
+
+function currentStarColor() {
+  return musicActive() ? currentLightColor() : IDLE_STAR_COLOR;
+}
+
+function onMusicPlayerMessage(event) {
+  const data = event.data;
+  if (
+    !data || typeof data.type !== "string" ||
+    !data.type.startsWith(MUSIC_PREFIX)
+  ) {
+    return;
+  }
+  const command = data.type.slice(MUSIC_PREFIX.length);
+  if (command === "ready" || command === "register") {
+    // A music player announced itself — adopt it as the current one.
+    musicSync.currentMusicPlayer = event.source || musicSync.currentMusicPlayer;
+    return;
+  }
+  if (command === "frequency") {
+    musicSync.currentMusicPlayer = event.source || musicSync.currentMusicPlayer;
+    musicSync.bass = clamp01(data.bass);
+    musicSync.mid = clamp01(data.mid);
+    musicSync.high = clamp01(data.high);
+    musicSync.energy = clamp01(data.energy);
+    // `light` is the band that drives the rig; fall back to the mid band.
+    musicSync.light = clamp01(data.light !== undefined ? data.light : data.mid);
+    // A paused player still animates its idle decay but should read as inactive.
+    musicSync.lastMessage = data.playing === false ? -Infinity : nowMs();
+  }
+}
+
+globalThis.addEventListener("message", onMusicPlayerMessage);
+
 class Stars {
   constructor({ scene, x = 0, y = 0 }) {
-    const colors = [0xd4af37];
     const rect = new Phaser.Geom.Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
     const particleConfig = {
       alpha: {
-        onUpdate: () => Phaser.Math.FloatBetween(0.75, 0.85),
+        // Brighten with the player's energy while it feeds us; otherwise the
+        // original steady twinkle.
+        onUpdate: () =>
+          Phaser.Math.FloatBetween(0.75, 0.85) +
+          (musicActive() ? musicSync.energy * 0.15 : 0),
       },
       bounds: rect,
       collideBottom: false,
@@ -49,7 +144,9 @@ class Stars {
       speedY: { min: 60, max: 100 },
       scale: { min: 0.1, max: 0.2 },
       tint: {
-        onUpdate: () => Phaser.Utils.Array.GetRandom(colors),
+        // Each star follows the colour AZLegendGolden's light rig is showing,
+        // so the stars and the player's lights pulse the same hue together.
+        onUpdate: () => currentStarColor(),
       },
       x: { random: [0, SCREEN_WIDTH] },
     };
