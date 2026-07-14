@@ -87,6 +87,11 @@
   let musicId = $state(null);
   let musicTitle = $state('');
   let musicOpen = $state(false);
+  // The docked music-player frame (AZLegendGolden / any kind:'music' app) once
+  // it has registered itself over the shared `music-player:` protocol. Held so
+  // the launcher can broker its analyser feed to a running game (see
+  // onMusicPlayerMessage). Not reactive — only read inside message handlers.
+  let currentMusicPlayer = null;
   // Opposite-corner easter egg: the "normal secret touch" (bottom-left +
   // top-right) opens the OSD; touching the OPPOSITE corners (top-left +
   // bottom-right) boots the soft-mod cinematic overlay instead.
@@ -1770,6 +1775,7 @@
     // stops (mirrors the .game-iframe unmount delay). Guard against a reopen
     // during the slide-out clobbering the freshly-opened app.
     const closingId = musicId;
+    currentMusicPlayer = null; // player frame is going away — stop brokering its feed
     setTimeout(() => {
       if (!musicOpen && musicId === closingId) { musicSrc = null; musicId = null; }
     }, 350);
@@ -3569,6 +3575,40 @@
     if (e?.data?.type === 'softmod-done') closeSoftmod();
   }
 
+  // The docked music app (kind:'music', e.g. AZLegendGolden) speaks the shared
+  // `music-player:` protocol. It registers itself here on its ready handshake,
+  // and while a track plays it streams `music-player:frequency` — the analyser
+  // bands driving its on-screen light rig. We relay those bands to the running
+  // game frame so a game's own visualization (e.g. the Headphones Recommended
+  // demo's stars) can pulse in lock-step with the player's lights.
+  function onMusicPlayerMessage(e) {
+    const d = e?.data;
+    if (!d || typeof d.type !== 'string' || d.type.indexOf('music-player:') !== 0) return;
+    // Only our own docked music frame counts as the current music player — a
+    // window we didn't mount can't be e.source, so this is a strong guard.
+    const mframe = document.getElementById('musicframe');
+    if (!mframe || e.source !== mframe.contentWindow) return;
+    const command = d.type.slice('music-player:'.length);
+    if (command === 'ready' || command === 'register') {
+      currentMusicPlayer = mframe.contentWindow;
+      return;
+    }
+    if (command === 'frequency') {
+      // Adopt the frame as the current player if we missed its ready handshake,
+      // then only broker the frame we've registered as the current player.
+      if (!currentMusicPlayer) currentMusicPlayer = mframe.contentWindow;
+      if (e.source !== currentMusicPlayer) return;
+      // Forward the light-rig bands to the running game frame. targetOrigin '*'
+      // is fine — the payload is just numeric audio levels (nothing sensitive)
+      // and the game frame may be cross-origin. A game that doesn't listen for
+      // music-player:frequency simply ignores it.
+      const gframe = document.getElementById('gameframe') ||
+        document.querySelector('.game-iframe iframe');
+      const gw = gframe && gframe.contentWindow;
+      if (gw) { try { gw.postMessage(d, '*'); } catch (_) { /* frame gone */ } }
+    }
+  }
+
   function onWindowMessage(e) {
     // Identify our own mounted game frame by window reference. That comparison
     // holds even for a cross-origin game (window identities compare across
@@ -3752,6 +3792,7 @@
 
     window.addEventListener('keydown', onKey);
     window.addEventListener('message', onWindowMessage);
+    window.addEventListener('message', onMusicPlayerMessage);
     window.addEventListener('message', onSoftmodMessage);
     window.addEventListener('message', onSpritePickerMessage);
     window.addEventListener('message', onSpritexAppMessage);
