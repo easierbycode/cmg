@@ -1931,6 +1931,163 @@
     if (d.type === 'spritex-preload-ack') { spritexPreload = null; stopSpritexDelivery(); }
   }
 
+  // ─── CMG Tilemap hand-off → SpriteX editor (and save-back) ─────────────────
+  // A mounted CMG Network game (e.g. mario-land's level editor) posts
+  //   { type: 'cmg-open-spritex-tilemap', primary, maps: [{ key, path, json, png }] }
+  // to hand its tilemaps to the SpriteX editor. Same trust posture as the other
+  // cmg-* signals — accept it from our own frame at any origin — but WHICH game
+  // asked comes from the launcher's own record of the mounted frame (gameSrc
+  // matched back against the catalog), never from the payload. The launcher
+  // then boots SpriteX exactly like the sprite-picker bridge and re-posts
+  //   { type: 'spritex-tilemap-preload', gameId, primary, maps }
+  // into the frame every 500ms until { type: 'spritex-tilemap-preload-ack' }
+  // arrives (~60s give-up). Delivery uses targetOrigin '*' for the same reason
+  // as spritex-preload: SpriteX may be the same-origin cached copy or the
+  // cross-origin streamUrl build, and the payload is the game's own map data.
+  // SpriteX saves edits back with
+  //   { type: 'cmg-tilemap-save', gameId, files: [{ path, text }] }
+  // and the launcher writes each JSON into the game's cached tree
+  // (/cmg-net/<gameId>/<path>) so the next cached launch plays the edit, then
+  // acks with { type: 'cmg-tilemap-save-ack', ok, saved, error? }.
+  let tilemapSession = null; // { gameId, primary, maps } while a hand-off is live
+  let tilemapDeliverTimer = null;
+  let tilemapDeliverUntil = 0;
+  let tilemapDeliverSrc = null; // gameSrc when the hand-off started — detects re-mounts
+
+  const TILEMAP_MAX_MAPS = 8;
+
+  // The launcher's own record of which catalog game is showing: launchCmgnet
+  // only ever mounts a title at its streamUrl or its /cmg-net/<id>/ cache path,
+  // so gameSrc matched against the catalog IS the mounted-game identity.
+  function cmgnetMountedGame() {
+    if (typeof gameSrc !== 'string' || gameSrc === '') return null;
+    return cmgnetGames.find((g) => g && g.id &&
+      (gameSrc.startsWith('/cmg-net/' + g.id + '/') ||
+        (g.streamUrl && gameSrc === g.streamUrl))) || null;
+  }
+
+  // A relative path inside the game's cached tree — reject escapes ('..') and
+  // absolute paths so a cache write can never land outside /cmg-net/<id>/.
+  function tilemapPathOk(p) {
+    return typeof p === 'string' && p !== '' && !p.includes('..') && !p.startsWith('/');
+  }
+
+  function sanitizeTilemapMaps(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const m of raw.slice(0, TILEMAP_MAX_MAPS)) {
+      if (!m || typeof m.key !== 'string' || m.key === '') continue;
+      if (!m.json || typeof m.json !== 'object') continue;
+      out.push({
+        key: m.key,
+        path: tilemapPathOk(m.path) ? m.path : null,
+        json: m.json,
+        png: typeof m.png === 'string' && m.png !== '' ? m.png : null,
+      });
+    }
+    return out;
+  }
+
+  function stopTilemapDelivery() {
+    if (tilemapDeliverTimer) { clearInterval(tilemapDeliverTimer); tilemapDeliverTimer = null; }
+  }
+
+  function deliverTilemapPreload() {
+    if (!tilemapSession) { stopTilemapDelivery(); return; }
+    // The hand-off dies if the frame re-mounts to anything that isn't SpriteX.
+    // (The requester keeps showing while SpriteX downloads, so its src is fine.)
+    if (gameSrc !== tilemapDeliverSrc && !spritexIsRunning()) {
+      tilemapSession = null;
+      stopTilemapDelivery();
+      return;
+    }
+    const w = spritexFrameWindow();
+    if (w) {
+      try {
+        w.postMessage({
+          type: 'spritex-tilemap-preload',
+          gameId: tilemapSession.gameId,
+          primary: tilemapSession.primary,
+          maps: tilemapSession.maps,
+        }, '*');
+      } catch (_) {}
+    }
+    if (Date.now() > tilemapDeliverUntil) { tilemapSession = null; stopTilemapDelivery(); }
+  }
+
+  function startTilemapDelivery() {
+    stopTilemapDelivery();
+    // Generous window: a first launch may stream or download SpriteX first.
+    tilemapDeliverUntil = Date.now() + 60000;
+    tilemapDeliverSrc = gameSrc;
+    tilemapDeliverTimer = setInterval(deliverTilemapPreload, 500);
+  }
+
+  // Write the edited tilemap JSONs into the game's cached tree. It's fine if
+  // the game isn't downloaded yet — the entries simply pre-exist (and a later
+  // full download overwrites them). Invalid entries are skipped, not fatal.
+  async function tilemapSaveFiles(gameId, files) {
+    let saved = 0;
+    const cache = await caches.open(CMG_CACHE);
+    for (const f of Array.isArray(files) ? files : []) {
+      if (!f || !tilemapPathOk(f.path) || !f.path.endsWith('.json')) continue;
+      if (typeof f.text !== 'string') continue;
+      try { JSON.parse(f.text); } catch (_) { continue; }
+      await cache.put('/cmg-net/' + gameId + '/' + f.path,
+        new Response(f.text, { headers: { 'Content-Type': 'application/json' } }));
+      saved++;
+    }
+    return saved;
+  }
+
+  function onTilemapBridgeMessage(e) {
+    // Identity-check against our own mounted iframe like the other cmg-*
+    // signals (window identities compare across origins, so this holds for a
+    // cross-origin streamUrl build too).
+    const iframe = document.querySelector('.game-iframe iframe');
+    if (!iframe || e.source !== iframe.contentWindow) return;
+    const d = e?.data || {};
+    if (d.type === 'cmg-open-spritex-tilemap') {
+      // Resolve the requester from the launcher's own mounted-game record. If
+      // no cmgnet title is showing (or it can't be matched), ignore the ask.
+      const game = cmgnetMountedGame();
+      if (!game) return;
+      const maps = sanitizeTilemapMaps(d.maps);
+      if (!maps.length) return;
+      const primary = typeof d.primary === 'string' && d.primary ? d.primary : maps[0].key;
+      tilemapSession = { gameId: game.id, primary, maps };
+      // Capture the requester's src before launchSpriteX() swaps the frame
+      // (a cached SpriteX mounts synchronously).
+      startTilemapDelivery();
+      if (!spritexIsRunning() && !launchSpriteX()) {
+        // No spritex entry in the catalog — nothing to boot.
+        tilemapSession = null;
+        stopTilemapDelivery();
+      }
+      return;
+    }
+    if (d.type === 'spritex-tilemap-preload-ack') {
+      // Delivered. Keep tilemapSession — the save handler still needs its gameId.
+      stopTilemapDelivery();
+      return;
+    }
+    if (d.type === 'cmg-tilemap-save') {
+      // Only honor a save from the flow we started, for the game we recorded.
+      const session = tilemapSession;
+      if (!session || d.gameId !== session.gameId) return;
+      const src = e.source;
+      const reply = (ok, saved, error) => {
+        const msg = { type: 'cmg-tilemap-save-ack', ok, saved };
+        if (error) msg.error = error;
+        try { src.postMessage(msg, '*'); } catch (_) { /* frame gone */ }
+      };
+      tilemapSaveFiles(session.gameId, d.files)
+        .then((saved) => reply(true, saved))
+        .catch((err) => reply(false, 0, String((err && err.message) || err)));
+      return;
+    }
+  }
+
   // Throttle uninstalls: the currentGame-based entry points (gamepad X, keyboard
   // Delete — which auto-repeats when held — and the footer chip) act on whatever
   // row is selected, and an uninstall re-derives the Games list under the cursor.
@@ -3820,6 +3977,7 @@
     window.addEventListener('message', onSoftmodMessage);
     window.addEventListener('message', onSpritePickerMessage);
     window.addEventListener('message', onSpritexAppMessage);
+    window.addEventListener('message', onTilemapBridgeMessage);
     window.addEventListener('gamepadconnected', onPadConnect);
     window.addEventListener('gamepaddisconnected', onPadDisconnect);
     refreshPadConnected();
@@ -3925,7 +4083,9 @@
     window.removeEventListener('message', onSoftmodMessage);
     window.removeEventListener('message', onSpritePickerMessage);
     window.removeEventListener('message', onSpritexAppMessage);
+    window.removeEventListener('message', onTilemapBridgeMessage);
     stopSpritexDelivery();
+    stopTilemapDelivery();
     window.removeEventListener('gamepadconnected', onPadConnect);
     window.removeEventListener('gamepaddisconnected', onPadDisconnect);
     document.body.classList.remove('playing');

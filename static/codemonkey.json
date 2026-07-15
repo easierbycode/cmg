@@ -74,9 +74,9 @@
       "branch": "main",
       "entry": "index.html",
       "streamUrl": "https://easierbycode.com/mario-sp/",
-      "downloadUrl": "/api/cmgnet/zip?repo=easierbycode/mario-sp&branch=main",
-      "size": "0.4 MB",
-      "date": "07.09.26",
+      "downloadUrl": "https://raw.githubusercontent.com/easierbycode/cmg/main/static/cmg-net-downloads/mario-sp.zip",
+      "size": "0.7 MB",
+      "date": "07.14.26",
       "touchControls": { "default": true }
     },
     {
