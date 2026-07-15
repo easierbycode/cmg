@@ -49,12 +49,14 @@ const gameOptions = {
 const MUSIC_PREFIX = "music-player:";
 const IDLE_STAR_COLOR = 0xd4af37; // gold — the look when no player is feeding us
 // AZLegendGolden's light rig cycles four colour families (7 animation frames
-// each) as its `mid` band rises: yellow → blue → green → purple. Mirror those
-// families, and the same drawLights() frame math, so our stars land on the
-// colour its lights are currently on. See audio-visualizer.js drawLights().
-const LIGHT_FRAME_COUNT = 28; // 4 families × 7 frames
+// each) as its `mid` band rises: yellow → blue → green → purple. The player
+// broadcasts the rig frame it just drew (`lightFrame`/`lightFrames`), so the
+// stars land on the exact colour its lights are showing. Older players only
+// send the `light` band; for those we re-derive the frame with drawLights()'s
+// math on our own clock — right rate, arbitrary phase (performance.now()
+// epochs differ per window). See audio-visualizer.js drawLights().
+const LIGHT_FRAME_COUNT = 28; // fallback: 4 families × 7 frames
 const LIGHT_FAMILY_COLORS = [0xffcf33, 0x55aaff, 0x55ff88, 0xbb66ff];
-const FRAMES_PER_FAMILY = LIGHT_FRAME_COUNT / LIGHT_FAMILY_COLORS.length;
 
 const musicSync = {
   currentMusicPlayer: null, // window of the registered AZLegendGolden player
@@ -63,6 +65,8 @@ const musicSync = {
   high: 0,
   energy: 0,
   light: 0, // the mid band — the value AZLegendGolden feeds into its light rig
+  lightFrame: -1, // rig frame straight from the player (-1 = not provided)
+  lightFrameCount: 0, // rig frame count from the player (0 = not provided)
   lastMessage: -Infinity,
 };
 
@@ -79,17 +83,30 @@ function clamp01(value) {
 }
 
 // True while the current music player is actively feeding us frequency data.
-// Falls stale ~0.6s after the last message (playback paused / player closed).
+// Falls stale ~2s after the last playing message (playback paused / player
+// closed). The window is deliberately generous: the player broadcasts from its
+// requestAnimationFrame loop, and a browser that throttles a cross-origin
+// iframe's rAF (mobile Chrome under load / energy saver) can stretch the gap
+// between messages to a second or more — a tight window would flap the stars
+// back to idle gold between messages even though a track is playing.
 function musicActive() {
-  return nowMs() - musicSync.lastMessage < 600;
+  return nowMs() - musicSync.lastMessage < 2000;
 }
 
-// The colour AZLegendGolden's light rig is on for the current `light` (mid)
-// band, using the same frame math drawLights() uses so the two stay in step.
+// The colour AZLegendGolden's light rig is currently showing. Prefer the rig
+// frame the player broadcasts (computed with ITS clock, so it IS the frame on
+// screen); fall back to re-deriving it locally for older players that only
+// send the `light` band.
 function currentLightColor() {
-  const frame = Math.floor(nowMs() / 86 + musicSync.light * 18) %
-    LIGHT_FRAME_COUNT;
-  const family = Math.floor(frame / FRAMES_PER_FAMILY);
+  let frame = musicSync.lightFrame;
+  let frameCount = musicSync.lightFrameCount;
+  if (frame < 0 || frameCount <= 0) {
+    frameCount = LIGHT_FRAME_COUNT;
+    frame = Math.floor(nowMs() / 86 + musicSync.light * 18) % frameCount;
+  }
+  const family = Math.floor(
+    frame / (frameCount / LIGHT_FAMILY_COLORS.length),
+  );
   return LIGHT_FAMILY_COLORS[family] || LIGHT_FAMILY_COLORS[0];
 }
 
@@ -119,8 +136,18 @@ function onMusicPlayerMessage(event) {
     musicSync.energy = clamp01(data.energy);
     // `light` is the band that drives the rig; fall back to the mid band.
     musicSync.light = clamp01(data.light !== undefined ? data.light : data.mid);
-    // A paused player still animates its idle decay but should read as inactive.
-    musicSync.lastMessage = data.playing === false ? -Infinity : nowMs();
+    // The rig frame the player just drew — the authoritative colour source.
+    const frame = +data.lightFrame;
+    musicSync.lightFrame = Number.isInteger(frame) && frame >= 0 ? frame : -1;
+    const frames = +data.lightFrames;
+    musicSync.lightFrameCount = Number.isInteger(frames) && frames > 0
+      ? frames
+      : 0;
+    // Only an actively-playing feed refreshes the sync. A paused player just
+    // stops refreshing and goes stale via the musicActive() window (rather
+    // than force-expiring it, so a second idle player broadcasting alongside
+    // an active one can't cancel the live feed).
+    if (data.playing !== false) musicSync.lastMessage = nowMs();
   }
 }
 
