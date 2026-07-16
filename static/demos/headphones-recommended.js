@@ -114,6 +114,120 @@ function currentStarColor() {
   return musicActive() ? currentLightColor() : IDLE_STAR_COLOR;
 }
 
+// ── bass sync ───────────────────────────────────────────────────────────────
+// Two asks, one band. `bass` is the LOWEST band the player publishes: its
+// analyser runs fftSize 64 (32 bins) and `bass = average(this.data, 0, 5)` is
+// bins 0–4, the bottom sixth of the spectrum. It is ALSO the band the player's
+// back wall of TVs runs on — drawBackground() picks which of its five frames is
+// on screen with `Math.floor(now / 820 + bass * 5) % backgrounds.length` and
+// sets the wall's contrast to `1.05 + bass * 0.45`. Neither `mid` (which drives
+// the light rig, and through it our stars above) nor `high` goes anywhere near
+// that wall. So "sync the invader to the lowest frequency" and "sync the dancers
+// to the TV wall's band" name the SAME signal. Everything below rides one
+// number; what differs is how each consumer reads it — the invader as an
+// amplitude, the dancers as a rate, because a rate is how the wall itself reads
+// it. The wall isn't something this repo draws; see audio-visualizer.js
+// drawBackground() in the AZLegendGolden player, which we only mirror.
+//
+// Raw `bass` is a poor multiplier: those five bins span roughly 0–3.75 kHz at a
+// 48 kHz rate — nearly everything a mixed track puts out — so on a loud passage
+// the band pins to ~0.6–0.9 and does all its interesting work inside that top
+// third. Rebase on a floor and stretch what's left back out to 0–1 so the sync
+// reads as modulation rather than a constant "slightly faster". Raise the floor
+// if a track leaves the scene running hot; lower it if a sparse mix never lifts
+// it off the deck.
+const BASS_FLOOR = 0.35;
+
+// The scene's one bass read. 0 whenever no player is feeding us (the 2s
+// musicActive() window). That zero is load-bearing: every consumer below is
+// written as `original + drive × gain`, so drive 0 reproduces the pre-sync scene
+// exactly and the fallback costs nothing — there's no second code path to keep
+// in step. clamp01 absorbs a NaN or out-of-range band from a misbehaving player,
+// which is what guarantees the [0,1] range every formula assumes.
+function bassDrive() {
+  if (!musicActive()) return 0;
+  return clamp01((musicSync.bass - BASS_FLOOR) / (1 - BASS_FLOOR));
+}
+
+// The two smoothing coefficients below are quoted per 60fps frame; emaK converts
+// one to the frame actually rendered. A bare per-frame EMA would make every time
+// constant here a function of the display: on a 144Hz panel `* 0.3` per frame is
+// a ~21ms glide and the trail a ~104ms one, so the trail tracks the fast read
+// more closely, the gap between them shrinks and the strobe fires measurably less
+// than it does at 60fps. Compounding over `delta / FRAME_MS` frames' worth of
+// time keeps both constants the same WALL-CLOCK durations everywhere, which also
+// makes the refractory clock (real ms) and the trail comparable quantities rather
+// than two different notions of time. delta 0 gives k 0 (no advance) and a long
+// stall gives k→1 (snap to the current value), both of which are what we want.
+const FRAME_MS = 1000 / 60;
+const BASS_FAST_K = 0.3; // ≈50ms glide — fills the gaps between broadcasts
+const BASS_SLOW_K = 0.06; // ≈250ms trail — what a transient is measured against
+
+function emaK(k, delta) {
+  return 1 - Math.pow(1 - k, delta / FRAME_MS);
+}
+
+// Onset detection for the ghost's tint flip. A kick is a rising edge, not a
+// level: thresholding the band directly would chatter every frame it hovers near
+// the line, and a track that simply runs loud would latch on and never flip.
+//
+// The rise is measured as a DIFFERENCE from the slow trail, not as a ratio of it.
+// A ratio cannot work here: the drive is hard-capped at 1 by clamp01, so a
+// multiplicative threshold outruns its own signal's ceiling once the trail is
+// high — at ratio 1.3 anything above a 0.723 trail needs a >1 read to fire, which
+// is impossible. That silently disables the strobe on exactly the bass-heavy
+// tracks it's meant for: a real kick from a 0.72 bed to a full-scale 1.0 is a
+// large transient the detector simply cannot see. A difference has no ceiling
+// interaction — a rise of this much over the trail fires at any level — and it
+// still ignores a steady tone, whose trail converges to it leaving no rise.
+const BASS_ONSET_RISE = 0.1; // the fast read must clear its own slow trail by this much
+const BASS_ONSET_REFRACTORY = 110; // ms between flips — a fast kick still gets through, a wobbly envelope can't fire twice
+
+// Below this drive the ghost keeps its original per-frame shimmer rather than the
+// beat-latched strobe. The strobe is only meaningful when there's bass to strobe
+// ON: gating it on "is a player connected" instead would freeze the ghost on one
+// solid colour through any track whose low end never clears BASS_FLOOR (and
+// through every quiet intro and breakdown), which reads as the scene having hung
+// — the same failure the throw comment below refuses. This keeps the invariant
+// the rest of the sync is built on: at drive 0 every consumer, this one included,
+// IS the pre-sync scene. The epsilon (rather than `> 0`) is because bassLevel is
+// an EMA — it decays geometrically toward 0 and never quite arrives.
+const BASS_IDLE_EPS = 0.02;
+
+// Invader pump: five discrete sizes, 1.00 → 1.08.
+const INVADER_SCALE_STEPS = 4;
+const INVADER_SCALE_STEP = 0.02;
+
+// Ghost throw, px: ±8 at rest (the scene's original constant) → ±18 flat out.
+const GHOST_JITTER_IDLE = 8;
+const GHOST_JITTER_GAIN = 10;
+
+// Dancer rate: 1× at rest (DancerBack 9fps / Dancer 5fps, exactly as the classes
+// build them) → 2.35× flat out.
+//
+// anims.timeScale is the right lever and the only clean one. AnimationState
+// advances with `accumulator += delta * timeScale * globalTimeScale`, so it
+// scales the frame clock in place: live, per-sprite, mid-yoyo, mid-repeat, no
+// restart, and no interference with the animationcomplete-<key> chain DancerBack
+// hangs its popit-l/popit-r picks off. Because it scales the accumulator rather
+// than a per-frame interval, it also scales frames carrying their own
+// `duration:` — popit-l and popit-r both do — which anims.msPerFrame would not.
+// It's a plain property: AnimationState has no setTimeScale() in Phaser 4.2.1
+// (the only setTimeScale in the dist belongs to Tween), so `setTimeScale()`
+// would throw. scene.anims.globalTimeScale would work but is a blunt instrument
+// — it would drag the music-note bursts along with the dancers.
+//
+// The wall's `bass * 5` is a phase offset on a free-running clock, not a rate
+// multiplier, so this is a deliberate approximation of its feel rather than a
+// copy of its math. Emulating the offset honestly would mean either a negative
+// timeScale on every decay (which stalls the anim — the accumulator just walks
+// backwards and never reaches nextTick) or hand-scrubbing anims.currentFrame,
+// which bypasses the accumulator and kills DancerBack's popit chain. On real
+// music envelope swing and level correlate strongly, so a level-driven rate
+// reads the same to the eye: quiet bars at the original tempo, bass-heavy bars
+// churning — which is the wall's perceived behaviour.
+const DANCER_RATE_GAIN = 1.35;
+
 function onMusicPlayerMessage(event) {
   const data = event.data;
   if (
@@ -331,22 +445,42 @@ class GameScene extends Phaser.Scene {
   create() {
     new Stars({ scene: this });
 
+    // Bass sync state, held on the scene rather than at module scope so a scene
+    // restart re-seeds it cleanly. `bassLevel` is our own smoothed read of the
+    // band (see update()); `bassSlow` trails it and is what a transient is
+    // measured against; `bassFlipAt` is the refractory clock on the ghost's tint.
+    this.bassLevel = 0;
+    this.bassSlow = 0;
+    this.bassFlipAt = -Infinity;
+
     this.titleBack = this.add.sprite(
       SCREEN_WIDTH / 2,
       300,
       "headphone-invader",
     );
     this.titleBack.setTint(gameOptions.circleColors[currentColorIdx]);
+    // The ghost's tint latch — update() flips it on each bass transient. Seeded
+    // from this boot's colour *before* the alternator advances below, so frame 1
+    // keeps the colour we just set instead of jumping. (Without the latch that
+    // create() tint is dead on arrival: update() overwrote it with a coin-flip on
+    // the very first frame.) Kept on the scene, not on the module's
+    // `currentColorIdx`, so the per-boot alternation stays a per-boot thing
+    // rather than "wherever the last kick left it".
+    this.ghostColorIdx = currentColorIdx;
     if (currentColorIdx === gameOptions.circleColors.length - 1) {
       currentColorIdx = 0;
     } else {
       currentColorIdx++;
     }
 
-    const invader = this.add.sprite(SCREEN_WIDTH / 2, 300, "headphone-invader");
+    // Promoted from a local const: update() pumps its scale with the bass, so it
+    // has to survive create(). The two getCenter() reads below are unchanged and
+    // still run at the rest pose — don't set a base scale here, or the music
+    // notes' spawn anchors move with it.
+    this.invader = this.add.sprite(SCREEN_WIDTH / 2, 300, "headphone-invader");
 
-    const { x: lx, y: lyTop } = invader.getLeftCenter();
-    const { x: rx, y: ryTop } = invader.getRightCenter();
+    const { x: lx, y: lyTop } = this.invader.getLeftCenter();
+    const { x: rx, y: ryTop } = this.invader.getRightCenter();
     const ly = lyTop + 10;
     const ry = ryTop + 10;
     this.musicNotes = this.add.sprite(lx, ly, "music-notes");
@@ -431,10 +565,54 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  update() {
-    this.titleBack.setTint(
-      Phaser.Utils.Array.GetRandom(gameOptions.circleColors),
-    );
+  update(_time, delta) {
+    // ── the bass read ───────────────────────────────────────────────────────
+    // One sample per frame, shared by everything below, so the invader and the
+    // dancers read the same instant of the same band instead of each dipping
+    // into musicSync at a slightly different point in the frame.
+    //
+    // Smoothed on OUR clock, not the feed's. The player broadcasts from its own
+    // requestAnimationFrame loop, and a browser that throttles a cross-origin
+    // iframe — the same case musicActive()'s window is widened for above — can
+    // drop that to 10–20Hz. Read raw, we'd see the identical `bass` for four or
+    // five consecutive frames and the invader would step in chunks locked to the
+    // MESSAGE rate rather than to the music. The EMA fills the gaps: 0.3/frame is
+    // roughly a 50ms glide at 60fps, well inside a beat, so a kick still lands as
+    // a kick. (The player smooths its own `energy` the same way, at 0.26.)
+    //
+    // It also disarms the musicActive() cliff for free: bassDrive() drops to 0 in
+    // a single frame when the feed goes stale, but everything reads bassLevel,
+    // which glides back to its pre-sync value over ~150ms instead of snapping.
+    this.bassLevel += (bassDrive() - this.bassLevel) * emaK(BASS_FAST_K, delta);
+    const bass = this.bassLevel;
+
+    // Compare the fast read against a slow trail of itself and fire on the
+    // overshoot — the standard two-average onset trick. The refractory clock
+    // stops one kick firing twice as its envelope wobbles on the way up.
+    this.bassSlow += (bass - this.bassSlow) * emaK(BASS_SLOW_K, delta);
+    const now = nowMs();
+    const onset = bass - this.bassSlow > BASS_ONSET_RISE &&
+      now - this.bassFlipAt > BASS_ONSET_REFRACTORY;
+    if (onset) this.bassFlipAt = now;
+
+    // ── the invader ─────────────────────────────────────────────────────────
+    // Ghost tint. With no bass to strobe on — no player, a stale feed, or a
+    // passage with no bottom end — this is the original per-frame red/cyan
+    // coin-flip (at 60fps it reads as a shimmer). Once bass arrives we latch the
+    // colour and flip it only when a transient lands, so the ghost strobes ON the
+    // kick instead of at the refresh rate — the same flicker, except now it
+    // carries the beat. The EMA glides across the handover rather than cutting.
+    if (bass > BASS_IDLE_EPS) {
+      if (onset) {
+        this.ghostColorIdx = (this.ghostColorIdx + 1) %
+          gameOptions.circleColors.length;
+      }
+      this.titleBack.setTint(gameOptions.circleColors[this.ghostColorIdx]);
+    } else {
+      this.titleBack.setTint(
+        Phaser.Utils.Array.GetRandom(gameOptions.circleColors),
+      );
+    }
     this.musicNotes.setTint(
       Phaser.Utils.Array.GetRandom(gameOptions.musicNoteColors),
     );
@@ -458,11 +636,46 @@ class GameScene extends Phaser.Scene {
     ]);
     this.dancer.setTint(dancerTint);
     this.dancer2.setTint(dancerTint);
+
+    // ── the dancers ─────────────────────────────────────────────────────────
+    // The TV wall's band, read as a rate. `1 +` is the safety property, not just
+    // tidiness: a bare `bass * gain` would hit timeScale 0 on any quiet bar and
+    // freeze both sprites mid-pose — and worse, stop animationcomplete-default
+    // from ever firing, permanently killing DancerBack's popit chain, because the
+    // anim would park between frames with no pending tick. At bass 0 this is
+    // exactly 1, i.e. the frameRates the classes were built with. The tint above
+    // is deliberately left alone: it's the scene's party-lights layer, this is the
+    // tempo layer.
+    const rate = 1 + bass * DANCER_RATE_GAIN;
+    this.dancer.anims.timeScale = rate;
+    this.dancer2.anims.timeScale = rate;
+
     this.text.setTint(Phaser.Utils.Array.GetRandom(gameOptions.goldColors));
 
+    // Head pump. Quantized on purpose: `pixelArt: true` hands this 230×190 sprite
+    // a NEAREST sampler, so a continuously-varying scale makes rows and columns
+    // crawl as they double and un-double. Five discrete sizes let the head clunk
+    // between them like a sprite swap instead — and five is the same number of
+    // frames the player's own bass-driven TV wall cycles through. Ghost and head
+    // take the IDENTICAL scale so the ghost stays hidden behind the head except
+    // where the jitter reveals it; scaling them apart would leave a permanent halo
+    // the idle look doesn't have.
+    const pump = 1 +
+      Math.round(bass * INVADER_SCALE_STEPS) * INVADER_SCALE_STEP;
+    this.invader.setScale(pump);
+    this.titleBack.setScale(pump);
+
+    // Ghost throw. `original + drive × gain`, like the pump and the dancers' rate:
+    // at drive 0 — no player, stale feed, or a bar with no bottom end — it is
+    // exactly the ±8 this scene has always jittered, so the fallback needs no
+    // branch. Bass only ever ADDS, splaying the ghost to ±18 on a kick. It's
+    // deliberately never allowed below 8: the ±8 shimmer is the demo's resting
+    // identity, and a ghost that collapsed onto the head through a quiet bar would
+    // read as the scene having frozen rather than as the music being quiet.
+    const throwPx = Math.round(GHOST_JITTER_IDLE + bass * GHOST_JITTER_GAIN);
     this.titleBack.setPosition(
-      SCREEN_WIDTH / 2 + Phaser.Math.RND.integerInRange(-8, 8),
-      300 + Phaser.Math.RND.integerInRange(-8, 8),
+      SCREEN_WIDTH / 2 + Phaser.Math.RND.integerInRange(-throwPx, throwPx),
+      300 + Phaser.Math.RND.integerInRange(-throwPx, throwPx),
     );
   }
 }
@@ -493,7 +706,9 @@ function start() {
   // __PHASER_GAME__ is the canonical handle every cmg game exposes (debugger,
   // gamepad-support, controller-configurator); __currentGame is kept for
   // existing callers.
-  globalThis.__currentGame = globalThis.__PHASER_GAME__ = new Phaser.Game(config);
+  globalThis.__currentGame = globalThis.__PHASER_GAME__ = new Phaser.Game(
+    config,
+  );
 }
 
 start();
