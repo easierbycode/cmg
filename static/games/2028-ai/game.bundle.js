@@ -8504,6 +8504,7 @@
     };
     const game = new Phaser.Game(config);
     globalThis.__PHASER_4_GAME__ = game;
+    globalThis.__PHASER_GAME__ = game;
     console.log("[2028.Ai] Phaser game started");
     if (typeof window !== "undefined") {
       if (typeof window.__fitCanvas === "function") window.__fitCanvas();

@@ -259,7 +259,12 @@ function create2028Game() {
     };
 
     const game = new Phaser.Game(config);
+    // __PHASER_4_GAME__ is what the host page's audio-unlock/canvas-fit
+    // helpers already read; __PHASER_GAME__ is the canonical handle every cmg
+    // game exposes, for the debugger and for gamepad-support /
+    // controller-configurator, which look it up to start a scene.
     globalThis.__PHASER_4_GAME__ = game;
+    globalThis.__PHASER_GAME__ = game;
     console.log("[2028.Ai] Phaser game started");
 
     // Fit the canvas to the viewport + fix input mapping under CSS scale/

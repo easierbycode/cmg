@@ -977,7 +977,9 @@ class SoftmodScene extends Phaser.Scene {
 }
 
 // ─── boot ────────────────────────────────────────────────────────────────────
-new Phaser.Game({
+// __PHASER_GAME__ is the canonical handle every cmg game exposes (debugger,
+// gamepad-support, controller-configurator).
+globalThis.__PHASER_GAME__ = new Phaser.Game({
   type: Phaser.AUTO,
   parent: "game-container",
   width: GAME_W,

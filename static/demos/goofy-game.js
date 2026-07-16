@@ -1178,7 +1178,10 @@ function start() {
     },
     scene: GoofyMultiplayerScene,
   };
-  globalThis.__currentGame = new Phaser.Game(config);
+  // __PHASER_GAME__ is the canonical handle every cmg game exposes (debugger,
+  // gamepad-support, controller-configurator); __currentGame is kept for
+  // existing callers.
+  globalThis.__currentGame = globalThis.__PHASER_GAME__ = new Phaser.Game(config);
 }
 
 start();

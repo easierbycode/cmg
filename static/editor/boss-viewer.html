@@ -536,6 +536,8 @@
             };
 
             game = new Phaser.Game(config);
+            // Canonical handle every cmg game exposes, for the debugger.
+            globalThis.__PHASER_GAME__ = game;
         }
 
         // Load custom atlas from editor (IndexedDB image + sessionStorage frames) before creating Phaser
