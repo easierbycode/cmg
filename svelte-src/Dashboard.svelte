@@ -367,6 +367,13 @@
   // cheats/plugins this is opt-in per game, so the rows only exist while a game
   // has broadcast a set.
   let osdActions = $state([]);
+  // A game can advertise "extra" playable builds living next to it — e.g.
+  // 2019-turbo's unlocked super-scaler 3D build (ex.html) — by postMessage'ing
+  // { type: 'cmg-ex', url, label } on boot or the moment one is earned. Each
+  // gets a launch row in the Guide's Game section that swaps the iframe to it.
+  // (Level editors go through osdLevelEditor / cmg-level-editor instead.) Keyed
+  // by url so re-adverts update in place; capped to keep the Guide sane.
+  let osdExtras = $state([]);
   // Harden the game-supplied payload before it drives the menu: whitelist kind,
   // clamp counts/lengths, coerce slider bounds. Each item keeps a stable `key`
   // for the keyed {#each}. Returns [] on anything malformed.
@@ -400,6 +407,32 @@
       }
     }
     return out;
+  }
+  // Harden the game-supplied EX advert. The URL may be absolute http(s) — the
+  // game resolves ex.html against its own location, which the launcher can't
+  // see for a cross-origin frame — or relative (resolved against gameSrc at
+  // launch). Other schemes and protocol-relative URLs are rejected. Accepting
+  // this from the frame grants no new capability: an iframe can already
+  // navigate itself anywhere; the Guide row just does it on the player's cue.
+  function sanitizeEx(raw) {
+    if (!raw || typeof raw.url !== 'string' || !raw.url) return null;
+    const url = raw.url.slice(0, 512);
+    if (url.startsWith('//')) return null;
+    if (/^(?!https?:)[a-z][a-z0-9+.-]*:/i.test(url)) return null;
+    const label = (typeof raw.label === 'string' && raw.label) ? raw.label.slice(0, 40) : 'EX Version';
+    return { url, label };
+  }
+  // Swap the running iframe to an advertised extra. Relative URLs resolve
+  // against the current game URL; keep gameSrc's absolute/relative shape so
+  // same-origin games stay same-origin (as setCheat does).
+  function launchEx(url) {
+    if (!url || !gameSrc) return;
+    const base = cheatUrl();
+    let target;
+    try { target = base ? new URL(url, base) : new URL(url); }
+    catch (_) { return; }
+    const relative = target.origin === window.location.origin;
+    gameSrc = relative ? target.pathname + target.search + target.hash : target.href;
   }
   // Parse gameSrc (absolute https://… for external games, root-relative /…/ for
   // in-repo ones) into a URL so we can read/rewrite a single query param.
@@ -835,6 +868,12 @@
     if (osdLevelEditor) {
       game.push({ key: 'leveleditor', kind: 'button', label: 'Edit Levels' });
     }
+    // Game-advertised extra builds (e.g. an unlocked EX super-scaler 3D
+    // version) each get a launch row; like Cheats, they exist only while the
+    // running game has broadcast them (cmg-ex → osdExtras).
+    for (const ex of osdExtras) {
+      game.push({ key: 'ex:' + ex.url, kind: 'button', label: ex.label, exUrl: ex.url });
+    }
     addSection('Game', game);
 
     // Game-advertised live plugins render as toggles under a "Plugins" header.
@@ -961,6 +1000,7 @@
     else if (it.key === 'leveleditor') { openLevelEditor(); }
     else if (it.key === 'cheats') { sfx.enter(); osdView = 'cheats'; osdSel = firstSelectable(osdItems); }
     else if (it.key === 'cheats-back') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); }
+    else if (it.exUrl) { sfx.enter(); osdOpen = false; launchEx(it.exUrl); }
   }
 
   // Two-finger corner gesture (bottom-left + top-right at once) opens the OSD on
@@ -2982,6 +3022,7 @@
     osdCheats = [];
     osdPlugins = [];
     osdActions = [];
+    osdExtras = [];
     osdLevelEditor = null;
     twinStickAvail = false;
     twinStickOn = false;
@@ -3910,6 +3951,15 @@
       // other cmg-* capability signals. `twinGameId` is the id of the launched
       // game, used to derive the editor's ?game= when none is given.
       osdLevelEditor = sanitizeLevelEditor(d, twinGameId);
+      return;
+    }
+    if (d.type === 'cmg-ex') {
+      // The running game advertises an extra playable build (see osdExtras).
+      // Benign — worst case the Guide gains a row that swaps the iframe to a
+      // page the frame could already have navigated itself to — so accept it
+      // from our own frame at any origin (like cmg-cheats). Payload sanitized.
+      const ex = sanitizeEx(d);
+      if (ex) osdExtras = [...osdExtras.filter((x) => x.url !== ex.url), ex].slice(0, 4);
       return;
     }
     // Sensitive actions — closing the game and BYOD disc-file transfer — stay
