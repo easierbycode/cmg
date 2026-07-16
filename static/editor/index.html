@@ -8,6 +8,11 @@
          the module bridge (bottom of <body>) can execute the moment parsing
          ends, before the page is realistically interactive. -->
     <link rel="modulepreload" href="/phaser-plugins/level-loader.js">
+    <!-- Pixel Composer bridge: voxelizes selected sprite frames via the
+         /pixel-composer/ service (loads lazily in a hidden iframe on first
+         use; the Voxelize button degrades gracefully if this 404s, e.g. in
+         the Cordova-packaged build). -->
+    <script src="/pixel-composer/pc-client.js" defer></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
@@ -871,6 +876,7 @@
                 <span id="fb-selected-count" style="font-size:11px;font-family:monospace;color:#94a3b8;flex:1;">0 selected</span>
                 <button onclick="addFirebaseSpritesToAtlas('add')" class="menu-btn" style="background:#84cc16;color:#000;font-weight:700;">+ Add as New</button>
                 <button onclick="addFirebaseSpritesToAtlas('replace')" class="menu-btn" style="background:#f59e0b;color:#000;font-weight:700;">↻ Replace</button>
+                <button id="fb-voxelize-btn" onclick="voxelizeSelectedFirebaseFrames()" class="menu-btn" style="background:#38bdf8;color:#000;font-weight:700;" title="Send the selected frames to Pixel Composer; voxelized versions join the atlas as new frames">⬢ Voxelize</button>
             </div>
             <div id="fb-sprites-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;max-height:60vh;overflow-y:auto;padding:4px;background:#0f172a;border-radius:4px;"></div>
         </div>
@@ -2714,6 +2720,62 @@
             closeFirebaseSprites();
             renderAtlas();
             if (skipped > 0) alert('Added ' + added + ' frame(s). Skipped ' + skipped + ' (extraction failed).');
+        }
+
+        // ================== PIXEL COMPOSER (VOXELIZE) ==================
+        // Sends the frames selected in the Firebase sprites modal to the
+        // Pixel Composer service (/pixel-composer/ via pc-client.js) and adds
+        // the voxelized renders back as new atlas frames (<name>_voxel).
+        async function voxelizeSelectedFirebaseFrames() {
+            if (!window.CMGPixelComposer) { alert('Pixel Composer unavailable (pc-client.js not loaded)'); return; }
+            if (fbSelectedFrames.size === 0) { alert('Select at least one frame'); return; }
+            if (!fbCurrentAtlasImage) { alert('Select an atlas first'); return; }
+            // Preserve source-atlas order, like addFirebaseSpritesToAtlas
+            const framesMap = fbGetFramesMap(fbCurrentAtlasJson);
+            const orderedKeys = Object.keys(framesMap).filter(k => fbSelectedFrames.has(k));
+            const frames = [];
+            for (const k of orderedKeys) {
+                const ex = fbExtractFrameCanvas(k);
+                if (ex) frames.push({ name: fbDecodeFrameKey(k), canvas: ex.canvas });
+            }
+            if (!frames.length) { alert('Could not extract any frames'); return; }
+            const btn = document.getElementById('fb-voxelize-btn');
+            if (btn) { btn.disabled = true; btn.textContent = '⬢ Voxelizing…'; }
+            try {
+                const res = await CMGPixelComposer.voxelize(frames, { depth: 6, pixelSize: 3 });
+                const existing = new Set([
+                    ...Object.keys((atlasData && atlasData.frames) || {}),
+                    ...extraSprites.map(s => s.key)
+                ]);
+                let added = 0;
+                for (const f of res.frames) {
+                    const img = new Image();
+                    img.src = f.dataURL;
+                    await new Promise(r => { img.onload = r; img.onerror = r; });
+                    if (!img.width) continue;
+                    const cv = document.createElement('canvas');
+                    cv.width = img.width; cv.height = img.height;
+                    cv.getContext('2d').drawImage(img, 0, 0);
+                    let name = f.name;
+                    if (existing.has(name)) {
+                        let i = 2;
+                        while (existing.has(name + '_' + i)) i++;
+                        name = name + '_' + i;
+                    }
+                    existing.add(name);
+                    extraSprites.push({ key: name, canvas: cv, w: img.width, h: img.height });
+                    customFrameKeys.add(name);
+                    added++;
+                }
+                closeFirebaseSprites();
+                renderAtlas();
+                const failed = (res.errors || []).length;
+                flash(added + ' VOXELIZED FRAME(S) ADDED' + (failed ? ' · ' + failed + ' FAILED' : '') + ' — REPACK TO SAVE');
+            } catch (e) {
+                alert('Voxelize failed: ' + ((e && e.message) || e));
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '⬢ Voxelize'; }
+            }
         }
 
         function buildAtlasWithReplacements() {
