@@ -397,7 +397,10 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 /* Music app sidebar — a CMG Network kind:'music' app docked to the right edge.
    Layered above the game iframe (z 99) but below the Guide (z 102/103) so the
    Guide can still open over it. No full-screen scrim: the game stays visible and
-   interactive at the left and keeps running in parallel while the music plays. */
+   interactive at the left and keeps running in parallel while the music plays.
+   NB: while a game runs with the Guide closed, the top-right two-corner gesture
+   zone (.osd-corner.tr, z 102) sits over the header's ✕ — so the docked player
+   is closed with B (via osdBack) from inside the Guide, not the docked ✕. */
 .music-sidebar {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 101;
   width: min(380px, 86vw);
@@ -426,6 +429,25 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 }
 .music-x:hover { background: rgba(120, 255, 90, .12); color: #eaffd2; }
 .music-sidebar iframe { flex: 1; width: 100%; border: 0; background: #000; display: block; }
+
+/* XBOX 360 blades Guide — while the Music blade is expanded with a player on,
+   the Osd renders an inline player slot and publishes its rect as the
+   --osd-music-* vars (plus body.osd-music-blade). Lift the docked sidebar onto
+   that slot instead of reparenting its iframe, which would reload the player
+   and cut the audio. Back to the right dock the moment the Guide closes. */
+body.theme-xbox360.osd-music-blade .music-sidebar {
+  top: var(--osd-music-y, 0); left: var(--osd-music-x, auto);
+  right: auto; bottom: auto;
+  width: var(--osd-music-w, 380px); height: var(--osd-music-h, 60vh);
+  z-index: 104; /* above the blades layer (103) */
+  border-radius: 10px; border: 1px solid rgba(255, 255, 255, .18);
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .5);
+}
+body.theme-xbox360.osd-music-blade .music-hd {
+  font-family: 'Orbitron', sans-serif;
+  color: #eaffd2; border-bottom-color: rgba(200, 255, 170, .25);
+}
 
 /* Music app store badge (CMG Network list) — violet to set it apart from the
    green GET / blue download badges, since it opens rather than installs. */
@@ -805,4 +827,141 @@ body.theme-nintendo .uninstall-btn { position: absolute; top: 10px; right: 10px;
   body.theme-nintendo .games-screen { bottom: 0; }
   body.theme-nintendo .footer { bottom: 4vmin; }
   body.theme-nintendo .games-panel { height: min(92vh, 1500px); }
+}
+
+/* ═══ Xbox 360 theme (Settings → THEME) ═══════════════════════════════════
+   CRT-green rework of the "blades" look: the 360 geometry (glossy top-lit
+   rounded cards, node orbs, silver power-button sphere) carried by ONE
+   unified brand-green accent — selection is the lit blade. Type matches the
+   default XBOX theme (Orbitron / Share Tech Mono). Fixed palette like
+   Nintendo, so the hue tweak is ignored. */
+body.theme-xbox360 {
+  --green: #dfffc4;          /* primary text — CRT cream-green */
+  --green-glow: #7CFF4F;     /* brand glow green */
+  --green-deep: #0e6a2b;
+  --yellow: #9CFF6B;         /* selection color — lit blade green */
+  --yellow-hot: #D9FFA6;
+  --tile-edge: rgba(140, 255, 110, .5);
+  font-family: 'Orbitron', sans-serif;
+  /* base body background (default theme's green radial) applies — no override */
+  color: var(--green);
+}
+/* default green scanlines apply — no .scan override */
+
+/* Orb — the 360 power button: silver sphere, brand-green ring-of-light */
+@keyframes breathe360 {
+  0%, 100% { filter: drop-shadow(0 0 28px rgba(124, 255, 79, .5)) drop-shadow(0 0 80px rgba(124, 255, 79, .3)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 60px rgba(160, 255, 120, .85)) drop-shadow(0 0 140px rgba(124, 255, 79, .5)); transform: scale(1.035); }
+}
+body.theme-xbox360 .orb { animation-name: breathe360; }
+body.theme-xbox360 .orb .core {
+  background: radial-gradient(circle at 38% 38%, #fff 0%, #eef5ea 12%, #c2d0bc 38%, #5f6e58 66%, #131c0e 90%, #000 100%);
+  box-shadow: inset -10px -20px 60px rgba(0, 0, 0, .55), inset 20px 30px 80px rgba(255, 255, 255, .4), 0 0 60px rgba(124, 255, 79, .6);
+}
+body.theme-xbox360 .orb .ring { border-color: rgba(150, 255, 110, .55); box-shadow: inset 0 0 30px rgba(124, 255, 79, .22), 0 0 30px rgba(124, 255, 79, .28); }
+body.theme-xbox360 .orb .ring.b { border-color: rgba(150, 255, 110, .3); }
+body.theme-xbox360 .orb .ring.c { border-color: rgba(150, 255, 110, .16); }
+body.theme-xbox360 .orb::before, body.theme-xbox360 .orb::after { background: radial-gradient(ellipse 60% 30% at 50% 40%, rgba(124, 255, 79, .25), transparent 70%); }
+
+/* Menu — every row is the same brand-green blade; selection is the lit one.
+   One accent set, no per-item nth-child overrides. */
+body.theme-xbox360 .item { --blade: 124, 255, 79; --blade-hi: #d9ffa6; --blade-mid: #9cff6b; --blade-lo: #17842f; --blade-edge: #d9ffa6; }
+body.theme-xbox360 .node::before {
+  background: radial-gradient(circle at 35% 30%, #fff 0%, #9cff6b 45%, #1c5b2a 75%, #04120a 100%);
+  box-shadow: 0 0 22px rgba(var(--blade), .5), inset -3px -6px 14px rgba(0, 0, 0, .5);
+}
+body.theme-xbox360 .node::after { border-color: rgba(140, 255, 110, .5); box-shadow: inset 0 0 14px rgba(140, 255, 110, .22), 0 0 18px rgba(var(--blade), .25); }
+body.theme-xbox360 .item.sel .node::before {
+  background: radial-gradient(circle at 35% 30%, #fff 0%, var(--blade-hi) 40%, #7cff4f 62%, #1c6a2e 85%, #04120a 100%);
+  box-shadow: 0 0 28px rgba(var(--blade), .85), inset -3px -6px 14px rgba(0, 0, 0, .5);
+}
+body.theme-xbox360 .item.sel .node::after { border-color: rgba(217, 255, 166, .9); box-shadow: inset 0 0 16px rgba(var(--blade), .4), 0 0 26px rgba(var(--blade), .45); }
+body.theme-xbox360 .bar {
+  color: #dfffc4; font-weight: 700; letter-spacing: .18em;
+  clip-path: none; border-radius: 12px;
+  border: 1px solid rgba(140, 255, 110, .3);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .18), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, rgba(var(--blade), .14), rgba(8, 22, 10, .78));
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(200, 255, 170, .3);
+}
+body.theme-xbox360 .bar::before { background: linear-gradient(90deg, transparent, rgba(160, 255, 110, .35), transparent); }
+body.theme-xbox360 .bar .num { color: rgba(200, 255, 170, .55); }
+body.theme-xbox360 .item.sel .bar {
+  color: #05230d; font-weight: 800; text-shadow: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .4), rgba(255, 255, 255, 0) 45%),
+    linear-gradient(180deg, var(--blade-hi) 0%, var(--blade-mid) 32%, #58e05f 68%, var(--blade-lo) 100%);
+  border-color: var(--blade-edge);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .65), 0 0 44px rgba(var(--blade), .55), 0 0 90px rgba(var(--blade), .25);
+}
+body.theme-xbox360 .item.sel .bar .num { color: rgba(8, 60, 24, .65); }
+body.theme-xbox360 .item:hover:not(.sel) .bar {
+  color: #f4ffe8;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .24), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, rgba(var(--blade), .26), rgba(10, 28, 14, .8));
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(200, 255, 170, .4), 0 0 32px rgba(var(--blade), .3);
+}
+body.theme-xbox360 .item .tag { color: rgba(180, 255, 140, .5); }
+
+/* Footer hints — the default theme's face buttons (green A, amber B, red X,
+   teal Y) fit the CRT palette: no overrides needed. */
+
+/* Games / Settings screens — glossy blade cards, unified green */
+body.theme-xbox360 .strip-top { color: rgba(220, 255, 180, .55); }
+body.theme-xbox360 .title-bar {
+  clip-path: none; border-radius: 12px;
+  border: 1px solid rgba(190, 255, 150, .55);
+  color: #f4ffe8; font-weight: 800; letter-spacing: .22em;
+  text-shadow: 0 0 18px rgba(124, 255, 79, .55), 0 1px 2px rgba(0, 0, 0, .4);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .26), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, #58e05f 0%, #1f8a35 55%, #0b4a1c 100%);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .5), 0 0 30px rgba(124, 255, 79, .35);
+}
+body.theme-xbox360 .counter { color: rgba(220, 255, 180, .7); }
+body.theme-xbox360 .meta {
+  border: 1px solid rgba(140, 255, 110, .3); border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, 0) 40%),
+    linear-gradient(180deg, rgba(124, 255, 79, .12), rgba(8, 22, 10, .8));
+  color: #e7ffce;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(200, 255, 170, .25);
+}
+body.theme-xbox360 .meta .k { color: rgba(180, 255, 140, .55); }
+body.theme-xbox360 .game-icon {
+  background:
+    radial-gradient(circle at 50% 50%, #08140a 25%, transparent 26%),
+    conic-gradient(from 30deg, rgba(124, 255, 79, .75), rgba(30, 110, 45, .28), rgba(124, 255, 79, .75) 60%, rgba(30, 110, 45, .28), rgba(124, 255, 79, .75));
+  box-shadow: 0 0 18px rgba(124, 255, 79, .5), inset 0 0 14px rgba(0, 0, 0, .55);
+}
+body.theme-xbox360 .game-icon .glass { background: #07160b; box-shadow: inset 0 0 12px rgba(124, 255, 79, .4), 0 0 0 2px rgba(150, 255, 110, .75); }
+body.theme-xbox360 .game-icon .glass .ph { color: #c9f7a0; text-shadow: 0 0 10px rgba(124, 255, 79, .7); }
+body.theme-xbox360 .game-bar {
+  clip-path: none; border-radius: 12px;
+  border: 1px solid rgba(140, 255, 110, .25);
+  color: #dfffc4; font-weight: 600; letter-spacing: .1em;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, rgba(124, 255, 79, .1), rgba(8, 22, 10, .72));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(200, 255, 170, .22);
+}
+body.theme-xbox360 .game-bar .name { text-shadow: none; }
+body.theme-xbox360 .game-bar .sub { color: rgba(200, 255, 170, .55); }
+body.theme-xbox360 .game-row.sel .game-icon { box-shadow: 0 0 28px rgba(124, 255, 79, .7), inset 0 0 14px rgba(0, 0, 0, .55); }
+body.theme-xbox360 .game-row.sel .game-icon .glass { box-shadow: inset 0 0 12px rgba(124, 255, 79, .5), 0 0 0 2px rgba(217, 255, 166, .95); }
+body.theme-xbox360 .game-row.sel .game-bar {
+  color: #05230d; font-weight: 700; text-shadow: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .36), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, #d9ffa6 0%, #9cff6b 35%, #4ecf5c 70%, #17842f 100%);
+  border-color: #d9ffa6;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .65), 0 0 36px rgba(124, 255, 79, .5);
+}
+body.theme-xbox360 .game-row.sel .game-bar .sub { color: rgba(8, 60, 24, .7); }
+body.theme-xbox360 .game-row:hover:not(.sel) .game-bar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .2), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, rgba(124, 255, 79, .24), rgba(10, 28, 14, .76));
 }

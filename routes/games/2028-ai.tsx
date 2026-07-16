@@ -74,50 +74,21 @@ const LEVEL_EDITOR_BROADCAST = `
 })();
 `;
 
-// Cheat-availability broadcast. Advertises the same URL-param cheats the
-// embedded OSD offers (window.__CMG_OSD__.cheats — single source of truth) to
-// the parent launcher over the cmg-cheats opt-in pattern, so its Guide OSD
-// surfaces a Cheats submenu (incl. the ?boss=goki Akuma cheat) when this game
-// runs inside cmg. Must run after OSD_CONFIG has defined __CMG_OSD__.
+// Cheat-availability broadcast. Advertises this game's boot-time URL-param
+// cheats (bossRush, stage, and the ?boss=goki Akuma cheat) to the parent
+// launcher over the cmg-cheats opt-in pattern, so its Guide OSD surfaces a
+// Cheats submenu when this game runs inside cmg. The Xbox-360-blade embedded
+// OSD that used to render these in-page was extracted into the launcher's
+// XBOX 360 dashboard theme (Settings → Theme).
 const CHEATS_BROADCAST = `
 (function () {
   if (window.parent === window) return; // standalone — no launcher to notify
-  var cheats = (window.__CMG_OSD__ && window.__CMG_OSD__.cheats) || [];
-  if (!cheats.length) return;
-  try { window.parent.postMessage({ type: "cmg-cheats", cheats: cheats }, "*"); } catch (_) {}
-})();
-`;
-
-// Config for the embedded Xbox-360-blade OSD (/osd/embedded-osd.js). Opened by
-// the secret two-corner touch, it exposes Game (cheats), Music (AZ Legend
-// player), and Look (CRT) blades. The cheats are URL-param toggles the game
-// already understands on boot (bossRush, stage), so they work the same whether
-// the game runs in the launcher or as a standalone exported APK. playerUrl is
-// the deployed AZ Legend player (override at runtime with ?osdPlayer=). The demo
-// album points at this game's bundled boss BGM so the Music blade has content
-// even though 2028.Ai drives BGM through Phaser rather than broadcasting an album.
-const OSD_CONFIG = `
-window.__CMG_OSD__ = {
-  title: "2028.AI",
-  cheats: [
-    { param: "bossRush", kind: "toggle", label: "Boss Rush", on: "1", sub: "Skip straight to the boss gauntlet" },
+  try { window.parent.postMessage({ type: "cmg-cheats", cheats: [
+    { param: "bossRush", kind: "toggle", label: "Boss Rush", on: "1" },
     { param: "stage", kind: "slider", label: "Start Stage", min: 0, max: 4 },
-    { param: "boss", kind: "toggle", label: "Akuma Boss", on: "goki", sub: "Force Goki (Akuma) as the stage boss" }
-  ],
-  music: {
-    playerUrl: "https://azlegend.easierbycode.deno.net/player.html",
-    album: {
-      id: "2028-bgm",
-      title: "2028 BGM",
-      tracks: [
-        { id: "boss_bison_bgm", title: "Bison", url: "/games/2028-ai/assets/sounds/boss_bison_bgm.mp3" },
-        { id: "boss_sagat_bgm", title: "Sagat", url: "/games/2028-ai/assets/sounds/boss_sagat_bgm.mp3" },
-        { id: "boss_goki_bgm", title: "Goki (Akuma)", url: "/games/2028-ai/assets/sounds/boss_goki_bgm.mp3" }
-      ]
-    }
-  },
-  look: { scanlines: true, vignette: true }
-};
+    { param: "boss", kind: "toggle", label: "Akuma Boss", on: "goki" }
+  ] }, "*"); } catch (_) {}
+})();
 `;
 
 // Screen-fit + portrait, ported from 2019-es7/phaser-game.html.
@@ -294,10 +265,8 @@ export default define.page(function Game2028() {
       <script src="/games/2028-ai/lib/phaser.min.js" defer></script>
       <script src="/games/2028-ai/game.bundle.js" defer></script>
 
-      {/* Embedded blade OSD: secret two-corner touch opens Game/Music/Look. */}
-      <script dangerouslySetInnerHTML={{ __html: OSD_CONFIG }} />
+      {/* Advertise boot-time cheats to the cmg launcher's Guide OSD. */}
       <script dangerouslySetInnerHTML={{ __html: CHEATS_BROADCAST }} />
-      <script src="/osd/embedded-osd.js" defer></script>
     </>
   );
 });

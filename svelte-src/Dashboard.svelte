@@ -154,11 +154,14 @@
   let addFileInput = $state(null);
   let lastDeleteTs = 0;
   // ─── Settings → Theme / OpenEmu import / Controller sync ──────────────────
-  // Dashboard skins. 'xbox' is the shipped green look; 'nintendo' is the NES
-  // cabinet palette ported from codemonkey-games-launcher (body.theme-nintendo
-  // overrides in dashboard.css).
+  // Dashboard skins. 'xbox' is the shipped green look; 'xbox360' is the
+  // Xbox-360 blades skin extracted from the embedded blade OSD that used to
+  // ship inside 2019 TURBO / 2028.Ai; 'nintendo' is the NES cabinet palette
+  // ported from codemonkey-games-launcher (body.theme-* overrides in
+  // dashboard.css).
   const THEMES = [
     { id: 'xbox', label: 'XBOX' },
+    { id: 'xbox360', label: 'XBOX 360' },
     { id: 'nintendo', label: 'NINTENDO' },
   ];
   // Desktop "Install" — probed once at mount from /api/install. installInfo is
@@ -391,7 +394,7 @@
         out.push({ key: 'cheat-' + param, param, kind, label, min, max, step, unit, commit: true });
       } else {
         // Optional `on` is the param value that means "enabled" (e.g. the
-        // Akuma cheat's ?boss=goki); defaults to '1'. Mirrors embedded-osd.js.
+        // Akuma cheat's ?boss=goki); defaults to '1'.
         const on = (typeof c.on === 'string' && c.on) ? c.on.slice(0, 32) : '1';
         out.push({ key: 'cheat-' + param, param, kind, label, on });
       }
@@ -888,6 +891,12 @@
   // whole Guide; the ✕ button and tap-out always close outright.
   function osdBack() {
     if (osdView === 'cheats') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); return; }
+    // B / FACEBTN_RIGHT dismisses the topmost overlay first: if the music player
+    // is open (docked over the game or inline in the xbox360 Music blade), close
+    // it and stay in the Guide — a second B then closes the Guide. This is the
+    // primary close path for the docked player, whose ✕ sits under the in-game
+    // two-corner gesture zone. Mirrors actB()'s off-game "close topmost first".
+    if (musicOpen) { closeMusic(); return; }
     closeOsd();
   }
   function closeOsd() {
@@ -3689,7 +3698,10 @@
         if (ev.code === 'Backquote' || ev.key === '`' || ev.key === '~' || ev.keyCode === 192 || ev.key === 'Escape') {
           ev.preventDefault();
           ev.stopImmediatePropagation();
-          if (osdOpen) closeOsd(); else { osdOpenedByTouch = false; openOsd(); }
+          // osdBack (not closeOsd) so the in-frame ` / Esc gesture matches the
+          // window + gamepad handlers: back out of Cheats / dismiss an open
+          // music player before closing the Guide.
+          if (osdOpen) osdBack(); else { osdOpenedByTouch = false; openOsd(); }
         }
       }, true);
     } catch (_) { /* cross-origin frame — can't inject; it must postMessage instead */ }
@@ -3805,8 +3817,10 @@
     if (d.type === 'tg16-toggle-controls') {
       // ` / ~ inside the focused game frame (see play.html / the snippet a
       // cross-origin game posts) — toggle the OSD so the in-game menu (incl.
-      // Exit) stays reachable even when no gamepad is seen.
-      if (osdOpen) closeOsd(); else openOsd();
+      // Exit) stays reachable even when no gamepad is seen. osdBack (not
+      // closeOsd) mirrors the window/gamepad back-gesture: Cheats-back /
+      // dismiss an open music player before closing the Guide.
+      if (osdOpen) osdBack(); else openOsd();
       return;
     }
     if (d.type === 'tg16-first-touch') { chromeDismissed = true; return; }
@@ -3884,7 +3898,7 @@
       // The level editor's Display section syncs the launcher's look in real
       // time. Benign, idempotent UI tweaks — same trust posture as the other
       // cmg-* capability signals — and values are validated before applying.
-      if (d.type === 'cmg-theme' && (d.theme === 'xbox' || d.theme === 'nintendo')) setTweak('theme', d.theme);
+      if (d.type === 'cmg-theme' && (d.theme === 'xbox' || d.theme === 'xbox360' || d.theme === 'nintendo')) setTweak('theme', d.theme);
       if (d.type === 'cmg-scanlines') setTweak('scanlines', !!d.value);
       return;
     }
@@ -4041,10 +4055,12 @@
   $effect(() => {
     const root = document.documentElement;
     const nintendo = tweaks.theme === 'nintendo';
+    const xbox360 = tweaks.theme === 'xbox360';
     document.body.classList.toggle('theme-nintendo', nintendo);
-    if (nintendo) {
-      // The Nintendo skin is a fixed palette (body.theme-nintendo in
-      // dashboard.css) — drop the inline hue overrides so it wins.
+    document.body.classList.toggle('theme-xbox360', xbox360);
+    if (nintendo || xbox360) {
+      // The Nintendo and Xbox 360 skins are fixed palettes (body.theme-* in
+      // dashboard.css) — drop the inline hue overrides so they win.
       for (const p of ['--green-glow', '--green', '--tile-edge', '--green-deep']) {
         root.style.removeProperty(p);
       }
@@ -4061,7 +4077,7 @@
 
   // Disco mode — cycle the glow hue while enabled.
   $effect(() => {
-    if (!tweaks.discoMode || tweaks.theme === 'nintendo') return;
+    if (!tweaks.discoMode || tweaks.theme === 'nintendo' || tweaks.theme === 'xbox360') return;
     let h = tweaks.hue;
     const root = document.documentElement;
     const id = setInterval(() => {
@@ -5199,6 +5215,7 @@
   <pre class="pad-debug">{padDebugText}</pre>
 {/if}
 
-<Osd open={osdOpen} items={osdItems} sel={osdSel}
+<Osd open={osdOpen} items={osdItems} sel={osdSel} theme={tweaks.theme}
+     clock={clockStr} title={musicOpen ? musicTitle : (currentGame?.title || currentGame?.name || '')}
      onactivate={activateOsd} onsetvalue={setOsdValue}
      onselect={(i) => (osdSel = i)} onclose={closeOsd} />
