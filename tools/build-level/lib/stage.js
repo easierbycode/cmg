@@ -66,11 +66,15 @@ function patchBundleForOffline(bundleSrc) {
 
 // gameDir  = <cmg>/static/games/2028-ai
 // gamepad  = <cmg>/static/gamepad-compatibility-plugin.js (optional)
+// phaserGlobalShim = <cmg>/static/phaser-plugins/phaser-global.js (optional);
+//            staged as www/phaser-global.js, the target of the shell's
+//            "phaser" import map
 // wwwRoot  = build/<slug>/www
 // levelData= raw Firebase level record (carries atlasImageDataURL/atlasFrames
 //            which the runtime plugin composites over the base game_asset atlas)
 function stageWww(opts) {
-  const { gameDir, gamepad, wwwRoot, levelName, levelData } = opts;
+  const { gameDir, gamepad, phaserGlobalShim, wwwRoot, levelName, levelData } =
+    opts;
 
   fs.rmSync(wwwRoot, { recursive: true, force: true });
   fs.mkdirSync(wwwRoot, { recursive: true });
@@ -85,6 +89,12 @@ function stageWww(opts) {
     path.join(gameDir, "lib", "phaser.min.js"),
     path.join(wwwRoot, "lib", "phaser.min.js"),
   );
+
+  // The shell's import map points "phaser" here; without it a scene script
+  // doing `import Phaser from "phaser"` would fail to resolve offline.
+  if (phaserGlobalShim && fs.existsSync(phaserGlobalShim)) {
+    copyFile(phaserGlobalShim, path.join(wwwRoot, "phaser-global.js"));
+  }
   fs.writeFileSync(
     path.join(wwwRoot, "game.bundle.js"),
     patchBundleForOffline(path.join(gameDir, "game.bundle.js")),

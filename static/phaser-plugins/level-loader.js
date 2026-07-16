@@ -429,6 +429,12 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
         recipe.storyData = levelData.storyData;
       }
 
+      // Player scene scripts (title/adv hooks or replacements) ride along the
+      // recipe; the scene-script runtime reads recipe.sceneScripts.
+      if (levelData.sceneScripts && typeof levelData.sceneScripts === "object") {
+        recipe.sceneScripts = levelData.sceneScripts;
+      }
+
       if (levelData.playerData && typeof levelData.playerData === "object") {
         const localPlayer = recipe.playerData ? deepClone(recipe.playerData) : {};
         const mergedPlayer = Object.assign(localPlayer, deepClone(levelData.playerData));

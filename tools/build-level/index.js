@@ -49,6 +49,14 @@ const GAMEPAD_PLUGIN = path.join(
   "static",
   "gamepad-compatibility-plugin.js",
 );
+// Shim the offline shell's import map points "phaser" at, so inline scene
+// scripts resolve a bare `import Phaser from "phaser"` with no network.
+const PHASER_GLOBAL_SHIM = path.join(
+  CMG_ROOT,
+  "static",
+  "phaser-plugins",
+  "phaser-global.js",
+);
 const SCAFFOLD_ROOT = path.join(__dirname, "scaffold");
 
 function parseArgs(argv) {
@@ -137,6 +145,7 @@ async function main() {
   stageWww({
     gameDir: GAME_DIR,
     gamepad: GAMEPAD_PLUGIN,
+    phaserGlobalShim: PHASER_GLOBAL_SHIM,
     wwwRoot,
     levelName,
     levelData,

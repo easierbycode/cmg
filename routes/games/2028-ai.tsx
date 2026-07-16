@@ -13,6 +13,12 @@ import { define } from "../../utils.ts";
 // portrait. The input-mapping patches keep Phaser's pointer→game coordinate
 // transforms correct under that CSS scale/rotation.
 
+// Maps the bare "phaser" specifier onto the shim that re-exports the UMD
+// global this page loads, so scene scripts share the game's single Phaser.
+const PHASER_IMPORT_MAP = JSON.stringify({
+  imports: { "phaser": "/phaser-plugins/phaser-global.js" },
+});
+
 const AUDIO_UNLOCK = `
 (function () {
   var ctxs = [];
@@ -247,6 +253,18 @@ export default define.page(function Game2028() {
           }
           `}
         </style>
+        {
+          /* Lets a player scene script (and the 5velte-ph4ser build it may
+             pull from esm.sh with ?external=phaser) resolve a bare
+             `import Phaser from "phaser"`. Phaser ships here as a UMD global,
+             so the specifier maps to a shim re-exporting globalThis.Phaser —
+             pointing it at a CDN ESM build instead would give scripts a
+             second, unrelated Phaser. Must precede any module script. */
+        }
+        <script
+          type="importmap"
+          dangerouslySetInnerHTML={{ __html: PHASER_IMPORT_MAP }}
+        />
         <script src="/gamepad-compatibility-plugin.js"></script>
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
         <script dangerouslySetInnerHTML={{ __html: LEVEL_EDITOR_BROADCAST }} />

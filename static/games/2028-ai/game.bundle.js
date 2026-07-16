@@ -324,6 +324,9 @@
         if (levelData.storyData) {
           recipe.storyData = levelData.storyData;
         }
+        if (levelData.sceneScripts && typeof levelData.sceneScripts === "object") {
+          recipe.sceneScripts = levelData.sceneScripts;
+        }
         if (levelData.playerData && typeof levelData.playerData === "object") {
           const localPlayer = recipe.playerData ? deepClone(recipe.playerData) : {};
           const mergedPlayer = Object.assign(localPlayer, deepClone(levelData.playerData));
@@ -571,6 +574,410 @@
       plugin: createLevelLoaderPlugin(o.Phaser),
       mapping: o.mapping || "levelLoader"
     };
+  }
+
+  // static/phaser-plugins/scene-script.js
+  var SCENE_SCRIPT_DEFAULTS = {
+    editorKey: "__editorSceneScripts__",
+    targets: {
+      title: { param: "titleScript", modeParam: "titleScriptMode" },
+      adv: { param: "advScript", modeParam: "advScriptMode" }
+    },
+    defaultGistUser: "easierbycode",
+    gistApiBase: "https://api.github.com/gists",
+    gistUserApiBase: "https://api.github.com/users",
+    sucraseCdn: "https://esm.sh/sucrase@3.35.0",
+    svelteCdn: "https://esm.sh/svelte@5.16.0"
+  };
+  var SCENE_SCRIPT_TARGETS = ["title", "adv"];
+  function dynImport(url) {
+    return new Function("u", "return import(u)")(url);
+  }
+  function readParam2(name) {
+    if (typeof globalThis === "undefined" || !globalThis.location) return null;
+    try {
+      return new URLSearchParams(globalThis.location.search).get(name);
+    } catch (_e) {
+      return null;
+    }
+  }
+  function inferSceneScriptLang(filename) {
+    const f = String(filename || "").split(/[?#]/)[0].toLowerCase();
+    if (f.endsWith(".svelte")) return "svelte";
+    if (f.endsWith(".ts") || f.endsWith(".tsx") || f.endsWith(".mts")) return "ts";
+    return "js";
+  }
+  async function compileTypeScript(code) {
+    const sucrase = await dynImport(SCENE_SCRIPT_DEFAULTS.sucraseCdn);
+    const transform = sucrase.transform || sucrase.default && sucrase.default.transform;
+    if (!transform) throw new Error("sucrase transform unavailable");
+    return transform(code, { transforms: ["typescript"] }).code;
+  }
+  async function compileSvelte(code, filename) {
+    const compiler = await dynImport(SCENE_SCRIPT_DEFAULTS.svelteCdn + "/compiler");
+    const compile = compiler.compile || compiler.default && compiler.default.compile;
+    if (!compile) throw new Error("svelte compiler unavailable");
+    const out = compile(code, {
+      filename: filename || "SceneScript.svelte",
+      generate: "client",
+      css: "injected"
+      // keep <style> blocks — there is no separate .css file at runtime
+    });
+    let js = out.js.code.replace(
+      /((?:from|import)\s*\(?\s*)(["'])(svelte(?:\/[^"']*)?)\2/g,
+      (_m, pre, q, spec) => pre + q + SCENE_SCRIPT_DEFAULTS.svelteCdn + spec.slice("svelte".length) + q
+    );
+    js += "\nexport const __svelte = true;\n";
+    return js;
+  }
+  function compileSceneScript(code, lang, filename) {
+    const l = lang || inferSceneScriptLang(filename);
+    if (l === "ts") return compileTypeScript(code);
+    if (l === "svelte") return compileSvelte(code, filename);
+    return Promise.resolve(code);
+  }
+  async function importModuleFromSource(jsCode) {
+    const blob = new Blob([jsCode], { type: "text/javascript" });
+    const url = URL.createObjectURL(blob);
+    try {
+      return await dynImport(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  async function fetchGistFile(spec) {
+    const s = spec || {};
+    if (!s.id) throw new Error("gist id required");
+    const rev = s.rev && s.rev !== "latest" ? "/" + s.rev : "";
+    const res = await fetch(`${SCENE_SCRIPT_DEFAULTS.gistApiBase}/${s.id}${rev}`, {
+      headers: { Accept: "application/vnd.github+json" }
+    });
+    if (!res.ok) throw new Error(`gist ${s.id}${rev}: HTTP ${res.status}`);
+    const gist = await res.json();
+    const files = gist.files || {};
+    const names = Object.keys(files);
+    let name = s.file && files[s.file] ? s.file : null;
+    if (!name) name = names.find((f) => /scene/i.test(f) && /\.(js|ts|svelte)$/i.test(f));
+    if (!name) name = names.find((f) => /\.(js|ts|svelte)$/i.test(f));
+    if (!name) name = names[0];
+    if (!name) throw new Error(`gist ${s.id} has no files`);
+    const file = files[name];
+    let content = file.content;
+    if (file.truncated || content == null) {
+      const raw = await fetch(file.raw_url);
+      if (!raw.ok) throw new Error(`gist raw ${name}: HTTP ${raw.status}`);
+      content = await raw.text();
+    }
+    return { content, filename: name, revision: gist.history && gist.history[0] ? gist.history[0].version : null };
+  }
+  function parseGistSpec(value) {
+    let rest = String(value || "").replace(/^gist:/, "");
+    let file;
+    const hash = rest.indexOf("#");
+    if (hash >= 0) {
+      file = rest.slice(hash + 1) || void 0;
+      rest = rest.slice(0, hash);
+    }
+    let rev;
+    const at = rest.indexOf("@");
+    if (at >= 0) {
+      rev = rest.slice(at + 1) || void 0;
+      rest = rest.slice(0, at);
+    }
+    let user, id;
+    const slash = rest.indexOf("/");
+    if (slash >= 0) {
+      user = rest.slice(0, slash) || void 0;
+      id = rest.slice(slash + 1);
+    } else {
+      id = rest;
+    }
+    return { user, id, rev: rev || "latest", file };
+  }
+  function entryFromParamValue(value, mode) {
+    const m = mode === "replace" ? "replace" : "hook";
+    if (/^gist:/i.test(value)) {
+      return { sourceType: "gist", mode: m, gist: parseGistSpec(value) };
+    }
+    return { sourceType: "url", mode: m, url: value };
+  }
+  function resolveSceneScriptEntries(opts) {
+    const o = opts || {};
+    const out = { title: null, adv: null };
+    if (readParam2("editorPlay") === "1") {
+      try {
+        const raw = localStorage.getItem(SCENE_SCRIPT_DEFAULTS.editorKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          for (const t of SCENE_SCRIPT_TARGETS) {
+            if (parsed && parsed[t] && typeof parsed[t] === "object") out[t] = parsed[t];
+          }
+        }
+      } catch (_e) {
+      }
+    }
+    for (const t of SCENE_SCRIPT_TARGETS) {
+      const v = readParam2(SCENE_SCRIPT_DEFAULTS.targets[t].param);
+      if (v) out[t] = entryFromParamValue(v, readParam2(SCENE_SCRIPT_DEFAULTS.targets[t].modeParam));
+    }
+    const rs = o.recipe && o.recipe.sceneScripts;
+    if (rs && typeof rs === "object") {
+      for (const t of SCENE_SCRIPT_TARGETS) {
+        if (!out[t] && rs[t] && typeof rs[t] === "object") out[t] = rs[t];
+      }
+    }
+    return out;
+  }
+  async function resolveEntrySource(entry) {
+    if (entry.sourceType === "inline") {
+      if (entry.compiledJs) return { js: entry.compiledJs };
+      return { js: await compileSceneScript(entry.code || "", entry.lang, null) };
+    }
+    if (entry.sourceType === "gist") {
+      const g = Object.assign({ user: SCENE_SCRIPT_DEFAULTS.defaultGistUser }, entry.gist);
+      const { content, filename } = await fetchGistFile(g);
+      return { js: await compileSceneScript(content, null, filename) };
+    }
+    const url = entry.url;
+    const lang = inferSceneScriptLang(url);
+    if (lang === "js") {
+      try {
+        return { module: await dynImport(url) };
+      } catch (_e) {
+      }
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`scene script ${url}: HTTP ${res.status}`);
+    return { js: await compileSceneScript(await res.text(), lang, url) };
+  }
+  function normalizeLoaded(entry, module) {
+    const svelte = !!module.__svelte;
+    let hooks = module.default;
+    const mode = entry.mode === "replace" ? "replace" : "hook";
+    if (!svelte && typeof hooks === "function") {
+      hooks = mode === "replace" ? { create: hooks } : { onStart: hooks };
+    }
+    if (!svelte && (!hooks || typeof hooks !== "object")) {
+      hooks = {
+        onStart: module.onStart,
+        onEnd: module.onEnd,
+        create: module.create,
+        update: module.update
+      };
+    }
+    return { entry, mode, module, hooks: svelte ? null : hooks, svelte };
+  }
+  async function loadSceneScriptModule(entry) {
+    const src = await resolveEntrySource(entry);
+    const module = src.module || await importModuleFromSource(src.js);
+    return normalizeLoaded(entry, module);
+  }
+  var _loaded = { title: null, adv: null };
+  var _initPromise = null;
+  function initSceneScripts(opts) {
+    if (!_initPromise) {
+      _initPromise = (async () => {
+        let entries;
+        try {
+          entries = resolveSceneScriptEntries(opts);
+        } catch (e) {
+          console.error("[scene-script] entry resolution failed:", e);
+          return _loaded;
+        }
+        for (const t of SCENE_SCRIPT_TARGETS) {
+          if (!entries[t]) continue;
+          try {
+            _loaded[t] = await loadSceneScriptModule(entries[t]);
+            console.log(`[scene-script] loaded ${t} script (${_loaded[t].mode} mode)`);
+          } catch (e) {
+            console.error(`[scene-script] failed to load ${t} script:`, e);
+          }
+        }
+        return _loaded;
+      })();
+    }
+    return _initPromise;
+  }
+  function hasSceneScript(target) {
+    return !!_loaded[target];
+  }
+  function isSceneScriptReplaced(scene) {
+    return !!(scene && scene.__sceneScriptReplaced);
+  }
+  function registerCleanup(scene, fn) {
+    if (!scene.__sceneScriptCleanup) {
+      scene.__sceneScriptCleanup = [];
+      scene.events.once("shutdown", () => {
+        const fns = scene.__sceneScriptCleanup || [];
+        scene.__sceneScriptCleanup = null;
+        scene.__sceneScriptCtx = null;
+        scene.__sceneScriptReplaced = false;
+        for (const f of fns) {
+          try {
+            f();
+          } catch (e) {
+            console.error("[scene-script] cleanup failed:", e);
+          }
+        }
+      });
+    }
+    scene.__sceneScriptCleanup.push(fn);
+  }
+  function createOverlayHost(scene) {
+    const canvas = scene.game.canvas;
+    const div = document.createElement("div");
+    div.className = "scene-script-overlay";
+    div.style.cssText = "position:absolute;z-index:1000;overflow:hidden;pointer-events:none;";
+    const place = () => {
+      const r = canvas.getBoundingClientRect();
+      div.style.left = r.left + globalThis.scrollX + "px";
+      div.style.top = r.top + globalThis.scrollY + "px";
+      div.style.width = r.width + "px";
+      div.style.height = r.height + "px";
+    };
+    place();
+    document.body.appendChild(div);
+    globalThis.addEventListener("resize", place);
+    const interval = setInterval(place, 500);
+    registerCleanup(scene, () => {
+      globalThis.removeEventListener("resize", place);
+      clearInterval(interval);
+      div.remove();
+    });
+    return div;
+  }
+  function getSceneScriptContext(target, scene, opts) {
+    if (scene.__sceneScriptCtx) return scene.__sceneScriptCtx;
+    const o = opts || {};
+    let advanced = false;
+    let overlayHost = null;
+    const ctx = {
+      scene,
+      game: scene.game,
+      Phaser: o.Phaser || globalThis.Phaser,
+      state: o.state || {},
+      target,
+      get stageId() {
+        return o.state && o.state.stageId != null ? o.state.stageId : 0;
+      },
+      get gameObjects() {
+        return scene.children && scene.children.list ? scene.children.list.slice() : [];
+      },
+      find(name) {
+        if (!name) return null;
+        const byName = scene.children && scene.children.getByName ? scene.children.getByName(name) : null;
+        if (byName) return byName;
+        const v = scene[name];
+        return v && typeof v === "object" && typeof v.destroy === "function" ? v : null;
+      },
+      overlay() {
+        if (!overlayHost) overlayHost = createOverlayHost(scene);
+        return overlayHost;
+      },
+      next() {
+        if (advanced) return;
+        advanced = true;
+        if (typeof o.next === "function") o.next();
+      },
+      onCleanup(fn) {
+        registerCleanup(scene, fn);
+      }
+    };
+    registerCleanup(scene, () => {
+    });
+    scene.__sceneScriptCtx = ctx;
+    return ctx;
+  }
+  async function mountSvelteScript(script, scene, ctx) {
+    const svelte = await dynImport(SCENE_SCRIPT_DEFAULTS.svelteCdn);
+    const host = ctx.overlay();
+    const instance = svelte.mount(script.module.default, {
+      target: host,
+      props: { ctx }
+    });
+    registerCleanup(scene, () => {
+      try {
+        svelte.unmount(instance);
+      } catch (_e) {
+      }
+    });
+  }
+  function runSceneScriptCreate(target, scene, opts) {
+    const s = _loaded[target];
+    if (!s || s.mode !== "replace") return false;
+    scene.__sceneScriptReplaced = true;
+    const ctx = getSceneScriptContext(target, scene, opts);
+    try {
+      if (s.svelte) {
+        mountSvelteScript(s, scene, ctx).catch(
+          (e) => console.error("[scene-script] svelte mount failed:", e)
+        );
+      } else if (s.hooks && typeof s.hooks.create === "function") {
+        s.hooks.create(ctx);
+      } else if (s.hooks && typeof s.hooks.onStart === "function") {
+        s.hooks.onStart(ctx);
+      } else {
+        console.warn(`[scene-script] ${target} replace script exports no create(); continuing to next scene`);
+        ctx.next();
+      }
+    } catch (e) {
+      console.error(`[scene-script] ${target} create failed:`, e);
+    }
+    return true;
+  }
+  function runSceneScriptStart(target, scene, opts) {
+    const s = _loaded[target];
+    if (!s || s.mode === "replace") return;
+    const ctx = getSceneScriptContext(target, scene, opts);
+    try {
+      if (s.svelte) {
+        mountSvelteScript(s, scene, ctx).catch(
+          (e) => console.error("[scene-script] svelte mount failed:", e)
+        );
+      } else if (s.hooks && typeof s.hooks.onStart === "function") {
+        s.hooks.onStart(ctx);
+      }
+    } catch (e) {
+      console.error(`[scene-script] ${target} onStart failed:`, e);
+    }
+  }
+  function runSceneScriptEnd(target, scene, opts) {
+    const s = _loaded[target];
+    if (!s || s.svelte || !s.hooks || typeof s.hooks.onEnd !== "function") return false;
+    const ctx = getSceneScriptContext(target, scene, opts);
+    let result;
+    try {
+      result = s.hooks.onEnd(ctx);
+    } catch (e) {
+      console.error(`[scene-script] ${target} onEnd failed:`, e);
+      return false;
+    }
+    if (result === true) return true;
+    if (result && typeof result.then === "function") {
+      result.then(
+        (v) => {
+          if (v !== true) ctx.next();
+        },
+        (e) => {
+          console.error(`[scene-script] ${target} onEnd rejected:`, e);
+          ctx.next();
+        }
+      );
+      return true;
+    }
+    return false;
+  }
+  function runSceneScriptUpdate(target, scene, time, delta) {
+    const s = _loaded[target];
+    if (!s || s.svelte || !s.hooks || typeof s.hooks.update !== "function") return;
+    const ctx = scene.__sceneScriptCtx;
+    if (!ctx) return;
+    try {
+      s.hooks.update(ctx, time, delta);
+    } catch (e) {
+      console.error(`[scene-script] ${target} update failed:`, e);
+      s.hooks.update = null;
+    }
   }
 
   // ../2019-es7/src/constants.js
@@ -7987,13 +8394,81 @@
         if (result.bgmSourceURLs) {
           gameState.bgmSourceURLs = result.bgmSourceURLs;
         }
-        const nextScene = result.showTitle ? "PhaserTitleScene" : "PhaserGameScene";
-        console.log("[2028.Ai] level loaded via plugin — source=" + result.source + " stage=" + result.stageId + " → " + nextScene);
-        setTimeout(() => {
-          game.scene.stop("BootScene");
-          game.scene.start(nextScene);
-        }, 50);
+        return initSceneScripts({ recipe: gameState._phaserRecipe }).then(() => {
+          let nextScene = result.showTitle ? "PhaserTitleScene" : "PhaserGameScene";
+          if (nextScene === "PhaserGameScene") {
+            if (hasSceneScript("title")) nextScene = "PhaserTitleScene";
+            else if (hasSceneScript("adv")) nextScene = "PhaserAdvScene";
+          }
+          console.log("[2028.Ai] level loaded via plugin — source=" + result.source + " stage=" + result.stageId + " → " + nextScene);
+          setTimeout(() => {
+            game.scene.stop("BootScene");
+            game.scene.start(nextScene);
+          }, 50);
+        });
       });
+    }
+  };
+  var ScriptedTitleScene = class extends PhaserTitleScene {
+    _ssOpts() {
+      return {
+        Phaser: globalThis.Phaser,
+        state: gameState,
+        next: () => {
+          if (this.__ssAdvanced) return;
+          this.__ssAdvanced = true;
+          if (isSceneScriptReplaced(this)) super.goToAdvScene();
+          else super.titleStart();
+        }
+      };
+    }
+    create() {
+      this.__ssAdvanced = false;
+      if (runSceneScriptCreate("title", this, this._ssOpts())) return;
+      super.create();
+      runSceneScriptStart("title", this, this._ssOpts());
+    }
+    titleStart() {
+      if (!this.transitioning && !(this.staffRollPanel && this.staffRollPanel.active)) {
+        if (runSceneScriptEnd("title", this, this._ssOpts())) return;
+      }
+      super.titleStart();
+    }
+    update(time, delta) {
+      runSceneScriptUpdate("title", this, time, delta);
+      if (isSceneScriptReplaced(this)) return;
+      super.update(time, delta);
+    }
+  };
+  var ScriptedAdvScene = class extends PhaserAdvScene {
+    _ssOpts() {
+      return {
+        Phaser: globalThis.Phaser,
+        state: gameState,
+        next: () => {
+          if (this.__ssAdvanced) return;
+          this.__ssAdvanced = true;
+          if (this.endingFlg === void 0) {
+            this.endingFlg = gameState.stageId === 5 || gameState.stageId === 4 && !(gameState.akebonoCnt >= 4 && gameState.continueCnt === 0);
+          }
+          super.goToNextScene();
+        }
+      };
+    }
+    create() {
+      this.__ssAdvanced = false;
+      if (runSceneScriptCreate("adv", this, this._ssOpts())) return;
+      super.create();
+      runSceneScriptStart("adv", this, this._ssOpts());
+    }
+    goToNextScene() {
+      if (runSceneScriptEnd("adv", this, this._ssOpts())) return;
+      super.goToNextScene();
+    }
+    update(time, delta) {
+      runSceneScriptUpdate("adv", this, time, delta);
+      if (isSceneScriptReplaced(this)) return;
+      super.update(time, delta);
     }
   };
   function create2028Game() {
@@ -8019,8 +8494,8 @@
       },
       scene: [
         PluginBootScene,
-        PhaserTitleScene,
-        PhaserAdvScene,
+        ScriptedTitleScene,
+        ScriptedAdvScene,
         PhaserGameScene,
         PhaserContinueScene,
         PhaserEndingScene,

@@ -19,6 +19,16 @@ import {
     parseStageId,
 } from "../../static/phaser-plugins/level-loader.js";
 
+import {
+    hasSceneScript,
+    initSceneScripts,
+    isSceneScriptReplaced,
+    runSceneScriptCreate,
+    runSceneScriptEnd,
+    runSceneScriptStart,
+    runSceneScriptUpdate,
+} from "../../static/phaser-plugins/scene-script.js";
+
 import { GAME_DIMENSIONS } from "../../../2019-es7/src/constants.js";
 import { gameState, syncRuntimeFlagsFromLocation } from "../../../2019-es7/src/gameState.js";
 
@@ -104,16 +114,113 @@ class PluginBootScene extends BootScene {
             if (result.bgmSourceURLs) {
                 gameState.bgmSourceURLs = result.bgmSourceURLs;
             }
-            const nextScene = result.showTitle ? "PhaserTitleScene" : "PhaserGameScene";
-            console.log("[2028.Ai] level loaded via plugin — source=" + result.source +
-                " stage=" + result.stageId + " → " + nextScene);
-            // Phaser 4: start the next scene via the game scene manager on the
-            // next tick (matches BootScene's own transition pattern).
-            setTimeout(() => {
-                game.scene.stop("BootScene");
-                game.scene.start(nextScene);
-            }, 50);
+            // Resolve player scene scripts (editor hand-off / query params /
+            // recipe.sceneScripts) before any scripted scene can start. Never
+            // rejects — a broken script logs and the default scenes run.
+            return initSceneScripts({ recipe: gameState._phaserRecipe }).then(() => {
+                // Editor play / ?level= normally skips straight into the game,
+                // but when the player attached scene scripts, route through the
+                // scenes they customized so PLAY actually previews them.
+                let nextScene = result.showTitle ? "PhaserTitleScene" : "PhaserGameScene";
+                if (nextScene === "PhaserGameScene") {
+                    if (hasSceneScript("title")) nextScene = "PhaserTitleScene";
+                    else if (hasSceneScript("adv")) nextScene = "PhaserAdvScene";
+                }
+                console.log("[2028.Ai] level loaded via plugin — source=" + result.source +
+                    " stage=" + result.stageId + " → " + nextScene);
+                // Phaser 4: start the next scene via the game scene manager on
+                // the next tick (matches BootScene's own transition pattern).
+                setTimeout(() => {
+                    game.scene.stop("BootScene");
+                    game.scene.start(nextScene);
+                }, 50);
+            });
         });
+    }
+}
+
+// ---- Player scene scripts ---------------------------------------------------
+// Wrap the 2019-es7 title/story scenes with the scene-script runtime: a player
+// script (from the level editor, ?titleScript=/?advScript= params, or the
+// level record's sceneScripts) can hook each scene's start/end or replace it
+// entirely, with full access to the scene's GameObjects via ctx.
+
+class ScriptedTitleScene extends PhaserTitleScene {
+    _ssOpts() {
+        return {
+            Phaser: globalThis.Phaser,
+            state: gameState,
+            next: () => {
+                if (this.__ssAdvanced) return;
+                this.__ssAdvanced = true;
+                // In replace mode the default UI never existed, so skip
+                // titleStart's tween/button teardown and jump straight to the
+                // scene hand-off.
+                if (isSceneScriptReplaced(this)) super.goToAdvScene();
+                else super.titleStart();
+            },
+        };
+    }
+
+    create() {
+        this.__ssAdvanced = false;
+        if (runSceneScriptCreate("title", this, this._ssOpts())) return;
+        super.create();
+        runSceneScriptStart("title", this, this._ssOpts());
+    }
+
+    titleStart() {
+        // Mirror the base guards so the onEnd hook only fires when the start
+        // would actually go through.
+        if (!this.transitioning && !(this.staffRollPanel && this.staffRollPanel.active)) {
+            if (runSceneScriptEnd("title", this, this._ssOpts())) return;
+        }
+        super.titleStart();
+    }
+
+    update(time, delta) {
+        runSceneScriptUpdate("title", this, time, delta);
+        if (isSceneScriptReplaced(this)) return;
+        super.update(time, delta);
+    }
+}
+
+class ScriptedAdvScene extends PhaserAdvScene {
+    _ssOpts() {
+        return {
+            Phaser: globalThis.Phaser,
+            state: gameState,
+            next: () => {
+                if (this.__ssAdvanced) return;
+                this.__ssAdvanced = true;
+                if (this.endingFlg === undefined) {
+                    // Replace mode: default create() never ran — mirror its
+                    // ending-vs-game routing so goToNextScene lands right.
+                    this.endingFlg = gameState.stageId === 5 ||
+                        (gameState.stageId === 4 &&
+                            !(gameState.akebonoCnt >= 4 && gameState.continueCnt === 0));
+                }
+                super.goToNextScene();
+            },
+        };
+    }
+
+    create() {
+        this.__ssAdvanced = false;
+        if (runSceneScriptCreate("adv", this, this._ssOpts())) return;
+        super.create();
+        runSceneScriptStart("adv", this, this._ssOpts());
+    }
+
+    goToNextScene() {
+        if (runSceneScriptEnd("adv", this, this._ssOpts())) return;
+        super.goToNextScene();
+    }
+
+    update(time, delta) {
+        runSceneScriptUpdate("adv", this, time, delta);
+        if (isSceneScriptReplaced(this)) return;
+        super.update(time, delta);
     }
 }
 
@@ -142,8 +249,8 @@ function create2028Game() {
         },
         scene: [
             PluginBootScene,
-            PhaserTitleScene,
-            PhaserAdvScene,
+            ScriptedTitleScene,
+            ScriptedAdvScene,
             PhaserGameScene,
             PhaserContinueScene,
             PhaserEndingScene,

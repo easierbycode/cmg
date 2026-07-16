@@ -165,6 +165,12 @@ function renderShell(opts) {
     <title>${levelName}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#000000">
+    <!-- Lets an inline scene script resolve a bare \`import Phaser from "phaser"\`
+         offline: Phaser ships here as a UMD global, so the specifier maps to a
+         shim re-exporting globalThis.Phaser (staged next to this file). Without
+         it, exported builds would silently drop scene scripts that work on the
+         web. Must precede any module script. -->
+    <script type="importmap">{"imports":{"phaser":"./phaser-global.js"}}</script>
     <style>${STYLE}</style>
 </head>
 <body>

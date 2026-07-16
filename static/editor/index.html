@@ -643,6 +643,51 @@
         .audio-stats {
             font-size: 9px; color: var(--rsub); font-family: 'Share Tech Mono', monospace; letter-spacing: .08em;
         }
+
+        /* ---- Scene-script panel (Story + Title editor modals) ---- */
+        .ss-panel { margin-top: 16px; border-top: 1px solid var(--redge); padding-top: 12px; }
+        .ss-title {
+            font-size: 11px; font-weight: 800; letter-spacing: .12em; color: var(--rink);
+            font-family: 'Orbitron', sans-serif; margin-bottom: 2px;
+        }
+        .ss-hint { font-size: 10px; color: var(--rsub); font-family: 'Share Tech Mono', monospace; margin-bottom: 8px; }
+        .ss-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+        .ss-pill {
+            padding: 4px 12px; border-radius: 999px; border: 1px solid var(--redge); cursor: pointer;
+            font-size: 9px; letter-spacing: .1em; font-family: 'Orbitron', sans-serif; color: var(--rsub);
+            user-select: none; transition: background .15s;
+        }
+        .ss-pill:hover { background: rgba(255,255,255,.06); }
+        .ss-pill.on { border-color: var(--tgedge); color: var(--sel); background: var(--rbg); }
+        .ss-label { font-size: 9px; color: var(--rsub); font-family: 'Share Tech Mono', monospace; letter-spacing: .08em; }
+        .ss-input, .ss-select {
+            background: rgba(0,0,0,.5); color: var(--rink); border: 1px solid var(--redge); border-radius: 7px;
+            padding: 4px 8px; font-size: 10px; font-family: 'Share Tech Mono', monospace; outline: none;
+        }
+        .ss-input::placeholder { color: var(--rsub); }
+        .ss-input:focus, .ss-select:focus { border-color: var(--tgedge); }
+        .ss-code {
+            width: 100%; min-height: 200px; resize: vertical; background: rgba(0,0,0,.55); color: #d2f8d2;
+            border: 1px solid var(--redge); border-radius: 8px; padding: 8px; font-size: 11px; line-height: 1.45;
+            font-family: 'Share Tech Mono', monospace; outline: none; white-space: pre; tab-size: 2;
+        }
+        .ss-code:focus { border-color: var(--tgedge); }
+        .ss-btn {
+            background: none; color: var(--rink); border: 1px solid var(--redge); border-radius: 7px;
+            padding: 4px 10px; font-size: 9px; letter-spacing: .08em; font-weight: 700; cursor: pointer;
+            font-family: 'Orbitron', sans-serif; transition: background .15s;
+        }
+        .ss-btn:hover { background: rgba(255,255,255,.06); }
+        .ss-btn.accent { border-color: var(--tgedge); color: var(--sel); }
+        .ss-status { font-size: 9px; font-family: 'Share Tech Mono', monospace; margin-top: 6px; min-height: 12px; }
+        .ss-gist-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+        .ss-gist-item {
+            border: 1px solid var(--redge); border-radius: 8px; padding: 6px 8px; cursor: pointer;
+            font-size: 10px; font-family: 'Share Tech Mono', monospace; color: var(--rink);
+        }
+        .ss-gist-item:hover { background: rgba(255,255,255,.06); }
+        .ss-gist-item.sel { border-color: var(--tgedge); background: var(--rbg); }
+        .ss-gist-item .ss-gist-desc { color: var(--rsub); font-size: 9px; }
     </style>
 </head>
 <body>
@@ -897,6 +942,7 @@
                 <button onclick="addStoryPart()" class="menu-btn" style="flex:1;justify-content:center;">+ Add Part</button>
                 <button onclick="saveStoryData()" class="menu-btn" style="background:#84cc16;color:#000;font-weight:700;flex:1;justify-content:center;">Save Story</button>
             </div>
+            <div id="story-script-panel" class="ss-panel"></div>
         </div>
     </div>
 
@@ -906,6 +952,7 @@
             <div class="picker-title">TITLE EDITOR</div>
             <div style="font-size:11px;color:#888;margin-bottom:12px;font-family:monospace;">Customize title screen logo, subtitle, and background</div>
             <div id="title-editor-slots" class="story-images-row"></div>
+            <div id="title-script-panel" class="ss-panel"></div>
         </div>
     </div>
 
@@ -959,6 +1006,23 @@
             openCustomAudioDB,
             parseStageId,
             sanitizeLevelName,
+        });
+    </script>
+    <!-- Scene-script helpers (shared with the game runtimes): TS/Svelte
+         compilation, gist listing/fetching, and the editor-play localStorage
+         key. Same lazy-globals caveat as the level-loader bridge above. -->
+    <script type="module">
+        import {
+            SCENE_SCRIPT_DEFAULTS,
+            compileSceneScript,
+            fetchGistFile,
+            listSceneGists,
+        } from '/phaser-plugins/scene-script.js';
+        Object.assign(window, {
+            SCENE_SCRIPT_DEFAULTS,
+            compileSceneScript,
+            fetchGistFile,
+            listSceneGists,
         });
     </script>
 
@@ -1404,6 +1468,7 @@
             }
             bossData = gameData.bossData || {};
             playerData = gameData.playerData || {};
+            ssRestoreFromGameData();
             storeBossDataForViewers();
 
             // Load atlas JSON
@@ -1447,6 +1512,7 @@
                 catch { alert("game.json not found"); return; }
             }
             gameData = JSON.parse(jsonText);
+            ssRestoreFromGameData();
 
             // Try to find atlas JSON + PNG — prefer editor-repacked (_) versions
             try {
@@ -2872,14 +2938,23 @@
             }
             r[currentStageKey] = r[currentStageKey] || {};
             r[currentStageKey].enemylist = normalizeGrid(currentGrid);
+            const ss = ssEntriesPlain();
+            if (ss) r.sceneScripts = ss;
+            else delete r.sceneScripts;
             return r;
         }
 
-        function playCurrentStage() {
+        async function playCurrentStage() {
             if (!gameData) { alert('Load directory first'); return; }
             if (!syncEnemyEditorForm(true)) return;
             const sid = getCurrentStageId();
             try {
+                // Pre-compile inline TS/Svelte scene scripts so the game gets
+                // ready-to-import JS, then hand them off alongside the recipe.
+                const ss = await ensureSceneScriptsCompiled();
+                const ssKey = (window.SCENE_SCRIPT_DEFAULTS && SCENE_SCRIPT_DEFAULTS.editorKey) || '__editorSceneScripts__';
+                if (ss) localStorage.setItem(ssKey, JSON.stringify(ss));
+                else localStorage.removeItem(ssKey);
                 localStorage.setItem(LEVEL_LOADER_DEFAULTS.editorRecipeKey, JSON.stringify(buildRuntimeRecipe()));
                 localStorage.setItem(LEVEL_LOADER_DEFAULTS.editorStageKey, String(sid));
             } catch (e) { alert('Error: ' + e.message); return; }
@@ -2948,6 +3023,7 @@
             closeMenu();
             await _ensureGameUiAtlas();
             renderTitleEditor();
+            renderSceneScriptPanel('title');
             document.getElementById('title-editor-modal').classList.remove('hidden');
         }
 
@@ -3233,6 +3309,7 @@
             storyEditorStage = 0;
             await ensureGameUiThumbs();
             renderStoryEditor();
+            renderSceneScriptPanel('adv');
             document.getElementById('story-editor-modal').classList.remove('hidden');
         }
 
@@ -3427,6 +3504,402 @@
             alert('Story data updated in memory. Use Save Game (cloud) to persist.');
         }
 
+        // ================== SCENE SCRIPTS ==================
+        // Player scripts that hook or replace the TitleScene ('title') and the
+        // story/level intro AdvScene ('adv'). Entry shape + runtime contract
+        // live in /phaser-plugins/scene-script.js (shared with the games).
+        let sceneScripts = { title: null, adv: null };
+        const _ssGists = { title: [], adv: [] };          // last gist listing per target
+        const SS_PANELS = { adv: 'story-script-panel', title: 'title-script-panel' };
+        const SS_TITLES = {
+            adv: 'CUSTOM SCRIPT — LEVEL INTRO (AdvScene)',
+            title: 'CUSTOM SCRIPT — TITLE SCENE',
+        };
+
+        const SS_TEMPLATE_TS = [
+            "// Scene Script (TypeScript) — hook or replace this scene.",
+            "// hook mode: onStart/onEnd run around the default scene.",
+            "// replace mode: create() builds the whole scene yourself.",
+            "",
+            "type GameObject = any;",
+            "",
+            "interface Ctx {",
+            "  scene: any;                    // the live Phaser.Scene",
+            "  game: any;                     // the Phaser.Game",
+            "  Phaser: any;                   // the Phaser namespace",
+            "  state: Record<string, any>;    // shared game state (stageId, score, ...)",
+            "  stageId: number;",
+            "  gameObjects: GameObject[];     // every GameObject currently in the scene",
+            "  find(name: string): GameObject | null; // by name: 'logo', 'startBtn', 'bg', 'text', ...",
+            "  overlay(): HTMLDivElement;     // DOM layer above the canvas",
+            "  next(): void;                  // continue the default flow (idempotent)",
+            "  onCleanup(fn: () => void): void;",
+            "}",
+            "",
+            "export default {",
+            "  onStart(ctx: Ctx) {",
+            "    // Hook mode: the scene just built its objects.",
+            "    console.log('objects:', ctx.gameObjects.map((o) => o.name || o.type));",
+            "    const logo = ctx.find('logo');",
+            "    if (logo) ctx.scene.tweens.add({ targets: logo, angle: 360, duration: 1500 });",
+            "  },",
+            "",
+            "  async onEnd(ctx: Ctx) {",
+            "    // Hook mode: the scene is about to hand off. Returning a promise",
+            "    // delays the hand-off; return true to own it (call ctx.next()).",
+            "  },",
+            "",
+            "  create(ctx: Ctx) {",
+            "    // Replace mode only: the scene is empty — build it, then ctx.next().",
+            "    const { scene } = ctx;",
+            "    const w = scene.scale.width, h = scene.scale.height;",
+            "    scene.add.text(w / 2, h / 2, 'MY CUSTOM SCENE', { color: '#fff', fontFamily: 'monospace' }).setOrigin(0.5);",
+            "    scene.input.once('pointerup', () => ctx.next());",
+            "  },",
+            "};",
+        ].join('\n');
+
+        const SS_TEMPLATE_SVELTE = [
+            "<script>",
+            "  // Scene Script (.svelte) — mounted as a DOM overlay above the canvas.",
+            "  // `ctx` is the same context scripts get (scene, gameObjects, next()...).",
+            "  let { ctx } = $props();",
+            "  let objects = $state(ctx.gameObjects.length);",
+            "</scr" + "ipt>",
+            "",
+            '<div class="wrap">',
+            "  <h1>STAGE {ctx.stageId + 1}</h1>",
+            "  <p>{objects} GameObjects in {ctx.scene.scene.key}</p>",
+            "  <button onclick={() => ctx.next()}>START ▶</button>",
+            "</div>",
+            "",
+            "<style>",
+            "  /* the overlay host is pointer-events:none — opt back in for clicks */",
+            "  .wrap { position: absolute; inset: 0; display: flex; flex-direction: column;",
+            "          align-items: center; justify-content: center; gap: 12px; pointer-events: auto;",
+            "          background: rgba(0,0,0,.85); color: #fff; font-family: monospace; text-align: center; }",
+            "  h1 { color: #ffe81f; margin: 0; }",
+            "  button { background: #ff2255; color: #fff; border: 0; padding: 10px 24px;",
+            "           font: bold 16px monospace; cursor: pointer; }",
+            "</style>",
+        ].join('\n');
+
+        function ssSyncToGameData() {
+            if (!gameData) return;
+            const plain = ssEntriesPlain();
+            if (plain) gameData.sceneScripts = plain;
+            else delete gameData.sceneScripts;
+        }
+
+        // Pick up scripts carried by a freshly-loaded game.json.
+        function ssRestoreFromGameData() {
+            const ss = gameData && gameData.sceneScripts;
+            sceneScripts = {
+                title: (ss && ss.title) || null,
+                adv: (ss && ss.adv) || null,
+            };
+        }
+
+        // Plain { title?, adv? } object of the configured entries, or null.
+        function ssEntriesPlain() {
+            const out = {};
+            for (const t of ['title', 'adv']) {
+                if (sceneScripts[t] && sceneScripts[t].sourceType) out[t] = sceneScripts[t];
+            }
+            return Object.keys(out).length ? out : null;
+        }
+
+        // Compile inline TS/Svelte entries to compiledJs (idempotent — cleared
+        // whenever code/lang changes). Returns ssEntriesPlain() afterwards.
+        async function ensureSceneScriptsCompiled() {
+            for (const t of ['title', 'adv']) {
+                const e = sceneScripts[t];
+                if (!e || e.sourceType !== 'inline' || e.compiledJs) continue;
+                if (typeof compileSceneScript === 'undefined') break;
+                try {
+                    e.compiledJs = await compileSceneScript(e.code || '', e.lang || 'js', null);
+                } catch (err) {
+                    alert('Scene script (' + t + ') failed to compile:\n' + err.message +
+                        '\n\nIt will be shipped as source; the game will retry at load time.');
+                }
+            }
+            ssSyncToGameData();
+            return ssEntriesPlain();
+        }
+
+        function ssEntry(target) {
+            if (!sceneScripts[target]) {
+                sceneScripts[target] = {
+                    mode: 'hook', sourceType: 'url', url: '',
+                    code: '', lang: 'ts', compiledJs: null,
+                    gist: { user: (window.SCENE_SCRIPT_DEFAULTS && SCENE_SCRIPT_DEFAULTS.defaultGistUser) || 'easierbycode', id: '', file: '', rev: 'latest' },
+                };
+            }
+            return sceneScripts[target];
+        }
+
+        function ssSetSource(target, src) {
+            if (src === 'off') {
+                sceneScripts[target] = null;
+            } else {
+                ssEntry(target).sourceType = src;
+            }
+            ssSyncToGameData();
+            renderSceneScriptPanel(target);
+        }
+
+        function ssSetStatus(target, msg, color) {
+            const el = document.getElementById('ss-status-' + target);
+            if (el) { el.textContent = msg || ''; el.style.color = color || 'var(--rsub)'; }
+        }
+
+        async function ssCheck(target) {
+            const e = sceneScripts[target];
+            if (!e || e.sourceType !== 'inline') return;
+            if (typeof compileSceneScript === 'undefined') { ssSetStatus(target, 'compiler bridge not loaded', '#f87171'); return; }
+            ssSetStatus(target, 'compiling…', '#f59e0b');
+            try {
+                e.compiledJs = await compileSceneScript(e.code || '', e.lang || 'js', null);
+                ssSetStatus(target, '✓ compiles clean (' + (e.lang || 'js') + ' → js, ' + e.compiledJs.length + ' bytes)', '#84cc16');
+            } catch (err) {
+                e.compiledJs = null;
+                ssSetStatus(target, '✗ ' + err.message, '#f87171');
+            }
+        }
+
+        function ssInsertTemplate(target) {
+            const e = ssEntry(target);
+            if ((e.code || '').trim() && !confirm('Replace the current code with the ' + (e.lang === 'svelte' ? '.svelte' : 'TypeScript') + ' template?')) return;
+            e.code = e.lang === 'svelte' ? SS_TEMPLATE_SVELTE : SS_TEMPLATE_TS;
+            e.compiledJs = null;
+            ssSyncToGameData();
+            renderSceneScriptPanel(target);
+        }
+
+        async function ssLoadGists(target) {
+            const e = ssEntry(target);
+            if (typeof listSceneGists === 'undefined') { ssSetStatus(target, 'gist bridge not loaded', '#f87171'); return; }
+            const user = (document.getElementById('ss-gist-user-' + target).value || '').trim() || 'easierbycode';
+            e.gist.user = user.replace(/^@/, '');
+            ssSetStatus(target, 'loading gists for @' + e.gist.user + '…', '#f59e0b');
+            try {
+                _ssGists[target] = await listSceneGists(e.gist.user);
+                ssSetStatus(target, _ssGists[target].length + ' scene gist(s) found', '#84cc16');
+            } catch (err) {
+                _ssGists[target] = [];
+                ssSetStatus(target, '✗ ' + err.message, '#f87171');
+            }
+            renderSceneScriptPanel(target);
+        }
+
+        function ssPickGist(target, id) {
+            const e = ssEntry(target);
+            const g = _ssGists[target].find(x => x.id === id);
+            if (!g) return;
+            e.gist.id = g.id;
+            e.gist.file = g.sceneFiles[0] || g.files[0] || '';
+            e.gist.rev = 'latest';
+            ssSyncToGameData();
+            renderSceneScriptPanel(target);
+        }
+
+        async function ssSetGistRev(target, kind) {
+            const e = ssEntry(target);
+            if (kind === 'latest') {
+                e.gist.rev = 'latest';
+                ssSyncToGameData();
+                renderSceneScriptPanel(target);
+                return;
+            }
+            // Pin: resolve the gist's current newest revision sha.
+            if (typeof fetchGistFile === 'undefined') { ssSetStatus(target, 'gist bridge not loaded', '#f87171'); return; }
+            ssSetStatus(target, 'resolving current revision…', '#f59e0b');
+            try {
+                const res = await fetchGistFile({ user: e.gist.user, id: e.gist.id, file: e.gist.file, rev: 'latest' });
+                e.gist.rev = res.revision || 'latest';
+                ssSetStatus(target, res.revision ? ('pinned @ ' + res.revision.slice(0, 10)) : 'could not resolve revision', res.revision ? '#84cc16' : '#f87171');
+            } catch (err) {
+                ssSetStatus(target, '✗ ' + err.message, '#f87171');
+            }
+            ssSyncToGameData();
+            renderSceneScriptPanel(target);
+        }
+
+        function ssPill(label, on, onclick) {
+            const p = document.createElement('div');
+            p.className = 'ss-pill' + (on ? ' on' : '');
+            p.textContent = label;
+            p.onclick = onclick;
+            return p;
+        }
+
+        function renderSceneScriptPanel(target) {
+            const host = document.getElementById(SS_PANELS[target]);
+            if (!host) return;
+            host.innerHTML = '';
+            const e = sceneScripts[target];
+
+            const title = document.createElement('div');
+            title.className = 'ss-title';
+            title.textContent = SS_TITLES[target];
+            host.appendChild(title);
+
+            const hint = document.createElement('div');
+            hint.className = 'ss-hint';
+            hint.textContent = 'A script can hook the default scene (start/end) or replace it entirely. It gets every GameObject in the scene via ctx.';
+            host.appendChild(hint);
+
+            // Source pills
+            const srcRow = document.createElement('div');
+            srcRow.className = 'ss-row';
+            const src = e ? e.sourceType : 'off';
+            srcRow.appendChild(ssPill('OFF', src === 'off', () => ssSetSource(target, 'off')));
+            srcRow.appendChild(ssPill('LINK', src === 'url', () => ssSetSource(target, 'url')));
+            srcRow.appendChild(ssPill('CODE', src === 'inline', () => ssSetSource(target, 'inline')));
+            srcRow.appendChild(ssPill('GIST', src === 'gist', () => ssSetSource(target, 'gist')));
+            host.appendChild(srcRow);
+            if (!e) return;
+
+            // Mode pills
+            const modeRow = document.createElement('div');
+            modeRow.className = 'ss-row';
+            const modeLabel = document.createElement('span');
+            modeLabel.className = 'ss-label';
+            modeLabel.textContent = 'MODE:';
+            modeRow.appendChild(modeLabel);
+            modeRow.appendChild(ssPill('HOOK START/END', e.mode !== 'replace', () => { e.mode = 'hook'; ssSyncToGameData(); renderSceneScriptPanel(target); }));
+            modeRow.appendChild(ssPill('REPLACE SCENE', e.mode === 'replace', () => { e.mode = 'replace'; ssSyncToGameData(); renderSceneScriptPanel(target); }));
+            host.appendChild(modeRow);
+
+            if (e.sourceType === 'url') {
+                const row = document.createElement('div');
+                row.className = 'ss-row';
+                const input = document.createElement('input');
+                input.className = 'ss-input';
+                input.style.flex = '1';
+                input.type = 'text';
+                input.placeholder = 'https://…/my-script.js  (.js / .ts / .svelte)';
+                input.value = e.url || '';
+                input.oninput = () => { e.url = input.value.trim(); ssSyncToGameData(); };
+                row.appendChild(input);
+                host.appendChild(row);
+            } else if (e.sourceType === 'inline') {
+                const row = document.createElement('div');
+                row.className = 'ss-row';
+                const langSel = document.createElement('select');
+                langSel.className = 'ss-select';
+                [['ts', 'TypeScript (.ts)'], ['svelte', 'Svelte (.svelte)'], ['js', 'JavaScript (.js)']].forEach(([v, l]) => {
+                    const o = document.createElement('option');
+                    o.value = v; o.textContent = l;
+                    if ((e.lang || 'ts') === v) o.selected = true;
+                    langSel.appendChild(o);
+                });
+                langSel.onchange = () => { e.lang = langSel.value; e.compiledJs = null; ssSyncToGameData(); };
+                row.appendChild(langSel);
+                const tplBtn = document.createElement('button');
+                tplBtn.className = 'ss-btn';
+                tplBtn.textContent = 'INSERT TEMPLATE';
+                tplBtn.onclick = () => ssInsertTemplate(target);
+                row.appendChild(tplBtn);
+                const checkBtn = document.createElement('button');
+                checkBtn.className = 'ss-btn accent';
+                checkBtn.textContent = 'CHECK ✓';
+                checkBtn.onclick = () => ssCheck(target);
+                row.appendChild(checkBtn);
+                host.appendChild(row);
+
+                const ta = document.createElement('textarea');
+                ta.className = 'ss-code';
+                ta.spellcheck = false;
+                ta.value = e.code || '';
+                ta.placeholder = '// Click INSERT TEMPLATE to start from a working ' + (e.lang === 'svelte' ? '.svelte overlay' : 'TypeScript scene script');
+                ta.oninput = () => { e.code = ta.value; e.compiledJs = null; ssSyncToGameData(); };
+                ta.onkeydown = (ev) => {
+                    if (ev.key === 'Tab') {
+                        ev.preventDefault();
+                        const s = ta.selectionStart, en = ta.selectionEnd;
+                        ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en);
+                        ta.selectionStart = ta.selectionEnd = s + 2;
+                        e.code = ta.value; e.compiledJs = null; ssSyncToGameData();
+                    }
+                };
+                host.appendChild(ta);
+            } else if (e.sourceType === 'gist') {
+                const row = document.createElement('div');
+                row.className = 'ss-row';
+                const at = document.createElement('span');
+                at.className = 'ss-label';
+                at.textContent = 'GITHUB USER: @';
+                row.appendChild(at);
+                const user = document.createElement('input');
+                user.className = 'ss-input';
+                user.id = 'ss-gist-user-' + target;
+                user.type = 'text';
+                user.value = e.gist.user || 'easierbycode';
+                user.style.width = '140px';
+                user.onkeydown = (ev) => { if (ev.key === 'Enter') ssLoadGists(target); };
+                row.appendChild(user);
+                const loadBtn = document.createElement('button');
+                loadBtn.className = 'ss-btn accent';
+                loadBtn.textContent = 'LOAD GISTS';
+                loadBtn.onclick = () => ssLoadGists(target);
+                row.appendChild(loadBtn);
+                const note = document.createElement('span');
+                note.className = 'ss-label';
+                note.textContent = 'lists gists with “scene” in a filename';
+                row.appendChild(note);
+                host.appendChild(row);
+
+                if (_ssGists[target].length) {
+                    const list = document.createElement('div');
+                    list.className = 'ss-gist-list';
+                    _ssGists[target].forEach(g => {
+                        const item = document.createElement('div');
+                        item.className = 'ss-gist-item' + (e.gist.id === g.id ? ' sel' : '');
+                        item.innerHTML = '<div>' + g.sceneFiles.join(', ') + '</div>' +
+                            '<div class="ss-gist-desc">' + (g.description || '(no description)') +
+                            ' · updated ' + (g.updatedAt || '').slice(0, 10) + '</div>';
+                        item.onclick = () => ssPickGist(target, g.id);
+                        list.appendChild(item);
+                    });
+                    host.appendChild(list);
+                }
+
+                if (e.gist.id) {
+                    const sel = document.createElement('div');
+                    sel.className = 'ss-row';
+                    const gl = document.createElement('span');
+                    gl.className = 'ss-label';
+                    gl.textContent = 'FILE:';
+                    sel.appendChild(gl);
+                    const picked = _ssGists[target].find(x => x.id === e.gist.id);
+                    const fileSel = document.createElement('select');
+                    fileSel.className = 'ss-select';
+                    const fileNames = picked ? picked.files : [e.gist.file].filter(Boolean);
+                    fileNames.forEach(f => {
+                        const o = document.createElement('option');
+                        o.value = f; o.textContent = f;
+                        if (f === e.gist.file) o.selected = true;
+                        fileSel.appendChild(o);
+                    });
+                    fileSel.onchange = () => { e.gist.file = fileSel.value; ssSyncToGameData(); };
+                    sel.appendChild(fileSel);
+                    const vl = document.createElement('span');
+                    vl.className = 'ss-label';
+                    vl.textContent = 'VERSION:';
+                    sel.appendChild(vl);
+                    sel.appendChild(ssPill('LATEST (pull on play)', e.gist.rev === 'latest', () => ssSetGistRev(target, 'latest')));
+                    sel.appendChild(ssPill(e.gist.rev !== 'latest' ? ('PINNED @ ' + String(e.gist.rev).slice(0, 10)) : 'PIN CURRENT', e.gist.rev !== 'latest', () => ssSetGistRev(target, 'pin')));
+                    host.appendChild(sel);
+                }
+            }
+
+            const status = document.createElement('div');
+            status.className = 'ss-status';
+            status.id = 'ss-status-' + target;
+            host.appendChild(status);
+        }
+
         // ================== KEYBOARD ==================
         document.addEventListener('keydown', e => {
             if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); quickSave(); }
@@ -3568,6 +4041,7 @@
                     enemyData: enemyData || {}, bossData: bossData || {},
                     playerData: playerData || {},
                     storyData: (gameData && gameData.storyData) || null,
+                    sceneScripts: await ensureSceneScriptsCompiled(),
                     width: 8, savedAt: firebase.database.ServerValue.TIMESTAMP
                 };
                 // Save audio URL overrides
@@ -3690,6 +4164,11 @@
                     if (!gameData) gameData = {};
                     gameData.storyData = d.storyData;
                 }
+                sceneScripts = {
+                    title: (d.sceneScripts && d.sceneScripts.title) || null,
+                    adv: (d.sceneScripts && d.sceneScripts.adv) || null,
+                };
+                ssSyncToGameData();
                 if (d.stageKey) currentStageKey = d.stageKey;
                 titleBgDataURL = d.titleBgDataURL || null;
                 logoDataURL = d.logoDataURL || null;
@@ -3778,6 +4257,7 @@
                     const date = val.savedAt ? new Date(val.savedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
                     let badges = '';
                     if (val.storyData) badges += '<span class="save-badge" title="Story">📖</span>';
+                    if (val.sceneScripts) badges += '<span class="save-badge" title="Scene Scripts">📜</span>';
                     if (val.logoDataURL || val.titleBgDataURL) badges += '<span class="save-badge" title="Title Screen">🖼</span>';
                     if (val.atlasImageDataURL) badges += '<span class="save-badge" title="Custom Sprites">🎨</span>';
                     item.innerHTML = `<div><div class="fb-name">${key}</div><div class="fb-detail">${date ? `<span class="fb-date">${date}</span>` : ''}${badges ? `<span style="margin-left:4px">${badges}</span>` : ''}</div></div>`;
@@ -3866,6 +4346,7 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
                     }
                     bossData = gameData.bossData || {};
                     playerData = gameData.playerData || {};
+                    ssRestoreFromGameData();
                     storeBossDataForViewers();
                     populateStagePills();
                     loadCurrentStage();
