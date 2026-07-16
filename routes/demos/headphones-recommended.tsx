@@ -1,7 +1,7 @@
 import { Head } from "fresh/runtime";
 import { define } from "../../utils.ts";
 
-// "Headphones Recommended" — a Phaser 4.1.0 title/idle scene (ported from a
+// "Headphones Recommended" — a Phaser 4.2.1 title/idle scene (ported from a
 // Phaser 3 CodePen). Everything runs client-side: Phaser is loaded as a browser
 // global from the CDN, then the scene module boots itself (see
 // static/demos/headphones-recommended.js). Same self-contained, no-bundle shape
@@ -32,7 +32,7 @@ export default define.page(function HeadphonesRecommended() {
       <Head>
         <script src="/gamepad-compatibility-plugin.js"></script>
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
-        <title>Headphones Recommended — Phaser 4.1.0 demo</title>
+        <title>Headphones Recommended — Phaser 4.2.1 demo</title>
         <style>
           {`
           html, body {
@@ -55,7 +55,7 @@ export default define.page(function HeadphonesRecommended() {
       </Head>
       <div id="game-container"></div>
       <script
-        src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"
+        src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"
         defer
       >
       </script>

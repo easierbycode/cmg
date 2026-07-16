@@ -110,7 +110,7 @@ export default define.page(function GoofyGameSt() {
       <div id="role-badge" class="connecting">connecting…</div>
       <div id="scoreboard"></div>
       <script
-        src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"
+        src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"
         defer
       >
       </script>

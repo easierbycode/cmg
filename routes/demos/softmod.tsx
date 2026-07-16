@@ -1,7 +1,7 @@
 import { Head } from "fresh/runtime";
 import { define } from "../../utils.ts";
 
-// "Soft Mod" — a self-contained Phaser 4.1.0 cinematic that re-imagines the
+// "Soft Mod" — a self-contained Phaser 4.2.1 cinematic that re-imagines the
 // classic original-Xbox MechAssault soft-mod (Penguin Script → Winbond TSOP
 // flash → reboot) as an immersive in-engine sequence. It is the payload of the
 // launcher's *opposite-corner* easter egg: the "normal secret touch" is the
@@ -29,7 +29,7 @@ export default define.page(function Softmod() {
   return (
     <>
       <Head>
-        <title>Soft Mod — Phaser 4.1.0 cinematic</title>
+        <title>Soft Mod — Phaser 4.2.1 cinematic</title>
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
@@ -55,7 +55,7 @@ export default define.page(function Softmod() {
       </Head>
       <div id="game-container"></div>
       <script
-        src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"
+        src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"
         defer
       >
       </script>

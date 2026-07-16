@@ -1,8 +1,8 @@
-// "Headphones Recommended" — a Phaser 4.1.0 title/idle scene.
+// "Headphones Recommended" — a Phaser 4.2.1 title/idle scene.
 //
-// Ported from the original Phaser 3 CodePen to run on Phaser 4.1.0 (loaded as a
+// Ported from the original Phaser 3 CodePen to run on Phaser 4.2.1 (loaded as a
 // browser global from the CDN by routes/demos/headphones-recommended.tsx, same
-// as the goofy-game demo). Phaser 4.1.0 keeps every API this scene uses —
+// as the goofy-game demo). Phaser 4.2.1 keeps every API this scene uses —
 // bitmapText, RetroFont.Parse/TEXT_SET3, the 3.60-style particle
 // emitter, per-sprite local anims (AnimationState.create), getLeftCenter/
 // getRightCenter/getTopCenter and the animationcomplete-<key> events — so the

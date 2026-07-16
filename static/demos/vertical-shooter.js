@@ -1,4 +1,4 @@
-// "Vertical Shooter" — a self-contained Phaser 4.1.0 vertical shoot-'em-up that
+// "Vertical Shooter" — a self-contained Phaser 4.2.1 vertical shoot-'em-up that
 // shows off a toggleable CRT post-processing shader ("TATE Mode").
 //
 // TATE (縦) is the portrait orientation arcade shmups ran in. The CRT shader is

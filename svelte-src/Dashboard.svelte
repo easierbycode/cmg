@@ -30,8 +30,8 @@
   const SEED_DEMOS = [
     { id: 'akuma', name: 'Akuma', title: 'AKUMA', sub: 'Three.js · WASD', size: '— MB', date: 'demo', url: '/demos/akuma' },
     { id: 'goofy-game', name: 'Goofy Game', title: 'GOOFY GAME', sub: 'multiplayer · WS', size: '— MB', date: 'demo', url: '/demos/goofy-game' },
-    { id: 'headphones-recommended', name: 'Headphones Recommended', title: 'HEADPHONES RECOMMENDED', sub: 'Phaser 4.1.0 · idle', size: '— MB', date: 'demo', url: '/demos/headphones-recommended' },
-    { id: 'vertical-shooter', name: 'Vertical Shooter', title: 'VERTICAL SHOOTER', sub: 'Phaser 4.1.0 · TATE CRT', size: '— MB', date: 'demo', url: '/demos/vertical-shooter' },
+    { id: 'headphones-recommended', name: 'Headphones Recommended', title: 'HEADPHONES RECOMMENDED', sub: 'Phaser 4.2.1 · idle', size: '— MB', date: 'demo', url: '/demos/headphones-recommended' },
+    { id: 'vertical-shooter', name: 'Vertical Shooter', title: 'VERTICAL SHOOTER', sub: 'Phaser 4.2.1 · TATE CRT', size: '— MB', date: 'demo', url: '/demos/vertical-shooter' },
   ];
   // Baked-in fallback snapshot of the game list — the offline / pre-manifest
   // seed. At runtime loadManifest() replaces it with the deployed OTA manifest
@@ -5202,7 +5202,7 @@
        onpointercancel={() => softCornerUp('br')} onpointerleave={() => softCornerUp('br')}></div>
 {/if}
 
-<!-- Soft-mod cinematic overlay (self-contained Phaser 4.1.0 scene). Posts
+<!-- Soft-mod cinematic overlay (self-contained Phaser 4.2.1 scene). Posts
      { type: 'softmod-done' } back here when its simulated reboot finishes. -->
 {#if softmodOn}
   <div class="softmod-overlay">

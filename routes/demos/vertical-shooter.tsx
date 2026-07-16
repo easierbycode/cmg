@@ -1,7 +1,7 @@
 import { Head } from "fresh/runtime";
 import { define } from "../../utils.ts";
 
-// "Vertical Shooter" — a Phaser 4.1.0 vertical shmup (TATE) demo whose headline
+// "Vertical Shooter" — a Phaser 4.2.1 vertical shmup (TATE) demo whose headline
 // feature is a toggleable CRT post-processing shader ("TATE Mode"), ported from
 // OpenEmu's tate_shmup_time.glsl to Phaser 4's Filters system. Everything runs
 // client-side: Phaser loads as a browser global from the CDN, then the scene
@@ -40,7 +40,7 @@ export default define.page(function VerticalShooter() {
       <Head>
         <script src="/gamepad-compatibility-plugin.js"></script>
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
-        <title>Vertical Shooter — Phaser 4.1.0 TATE CRT demo</title>
+        <title>Vertical Shooter — Phaser 4.2.1 TATE CRT demo</title>
         <style>
           {`
           html, body {
@@ -63,7 +63,7 @@ export default define.page(function VerticalShooter() {
       </Head>
       <div id="game-container"></div>
       <script
-        src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"
+        src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"
         defer
       >
       </script>

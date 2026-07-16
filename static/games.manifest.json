@@ -1,6 +1,6 @@
 {
-  "version": "97cee34",
-  "generatedAt": "2026-07-08T02:08:12.204Z",
+  "version": "4890364",
+  "generatedAt": "2026-07-16T17:32:31.980Z",
   "games": [
     {
       "id": "games/2028-ai",
@@ -95,7 +95,7 @@
       "id": "headphones-recommended",
       "name": "Headphones Recommended",
       "title": "HEADPHONES RECOMMENDED",
-      "sub": "Phaser 4.1.0 · idle",
+      "sub": "Phaser 4.2.1 · idle",
       "size": "— MB",
       "date": "demo",
       "url": "/demos/headphones-recommended"
@@ -104,7 +104,7 @@
       "id": "vertical-shooter",
       "name": "Vertical Shooter",
       "title": "VERTICAL SHOOTER",
-      "sub": "Phaser 4.1.0 · TATE CRT",
+      "sub": "Phaser 4.2.1 · TATE CRT",
       "size": "— MB",
       "date": "demo",
       "url": "/demos/vertical-shooter"

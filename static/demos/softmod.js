@@ -1,4 +1,4 @@
-// "Soft Mod" — a self-contained Phaser 4.1.0 cinematic re-imagining of the
+// "Soft Mod" — a self-contained Phaser 4.2.1 cinematic re-imagining of the
 // original-Xbox MechAssault soft-mod (Penguin Script → Winbond TSOP flash →
 // reboot). Booted by the launcher's opposite-corner easter egg (top-left +
 // bottom-right tap — the mirror of the normal OSD corner gesture). See
