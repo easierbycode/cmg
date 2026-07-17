@@ -413,6 +413,23 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   -webkit-backdrop-filter: blur(6px) saturate(140%); backdrop-filter: blur(6px) saturate(140%);
 }
 .music-sidebar.on { transform: none; opacity: 1; pointer-events: auto; }
+/* Armed — the launcher auto-mounted the player for a game that scores itself
+   from its analyser feed (startMusicForGame), and nobody has opened the sidebar.
+   It has to stay out of sight WITHOUT leaving the viewport: Chromium (and Gecko,
+   and WebKit) render-throttle a cross-origin iframe that is display:none or
+   fully outside the viewport, and a throttled frame loses requestAnimationFrame
+   — which is the exact loop the player computes and broadcasts its bands from.
+   Parked at translateX(100%) like the closed state above, the music would still
+   play (audio isn't rAF-driven) but every visualiser synced to it would starve
+   and fall back to idle. Two transparent pixels in the corner keep the frame
+   rendered and the feed alive. Opacity is not part of the throttling criteria,
+   so 0 is safe here; a zero AREA would not be. */
+.music-sidebar.armed {
+  transform: none; opacity: 0; pointer-events: none;
+  width: 2px; height: 2px; bottom: auto; overflow: hidden;
+  border-left: 0; box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
 .music-hd {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 12px 12px 16px; border-bottom: 1px solid rgba(140, 255, 110, .18);

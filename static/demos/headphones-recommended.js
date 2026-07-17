@@ -267,6 +267,30 @@ function onMusicPlayerMessage(event) {
 
 globalThis.addEventListener("message", onMusicPlayerMessage);
 
+// Ask the launcher to put a track on. This scene is a music visualiser with no
+// soundtrack of its own — with nothing playing it just sits on idle gold — so by
+// default it requests one rather than making the player go and find the music
+// app in the Guide first. The launcher decides whether that's possible: it only
+// acts if the catalog actually advertises a music app, and it mounts it
+// docked-but-closed (see startMusicForGame in Dashboard.svelte). Games with
+// their own BGM simply never send this, which is what keeps the behaviour scoped
+// to this demo instead of every title.
+//
+// Called twice by design. The boot call is usually rejected — an AudioContext
+// stays suspended until the page has been interacted with — and the launcher
+// leaves the request standing; the pointerdown call is the one that lands,
+// because a click anywhere in this frame propagates user activation up to the
+// top document, which is what the (autoplay-delegated) player frame needs. When
+// the boot call DOES work (the click that launched the game already counted),
+// the second is a no-op: the launcher never restarts a track that's playing.
+// No-op standalone — with no launcher there's no catalog and no player.
+function requestMusicAutostart() {
+  if (globalThis.parent === globalThis) return;
+  try {
+    globalThis.parent.postMessage({ type: "cmg-music-autostart" }, "*");
+  } catch (_e) { /* parent gone / blocked */ }
+}
+
 class Stars {
   constructor({ scene, x = 0, y = 0 }) {
     const rect = new Phaser.Geom.Rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -555,6 +579,11 @@ class GameScene extends Phaser.Scene {
     this.text = this.add
       .bitmapText(x, y / 2, "font", "HEADPHONES RECOMMENDED")
       .setOrigin(0.5);
+
+    // Ask for a track up front, and again on the first tap — that tap is the
+    // user activation the player needs if the boot request was refused.
+    requestMusicAutostart();
+    this.input.once("pointerdown", requestMusicAutostart);
 
     this.input.on("pointerdown", () => {
       // Fullscreen is rejected inside a sandboxed iframe (the CMG launcher

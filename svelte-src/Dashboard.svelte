@@ -92,6 +92,30 @@
   // the launcher can broker its analyser feed to a running game (see
   // onMusicPlayerMessage). Not reactive — only read inside message handlers.
   let currentMusicPlayer = null;
+  // ─── Music autostart ───────────────────────────────────────────────────────
+  // A game that scores itself from the music feed (the Headphones Recommended
+  // demo) posts `cmg-music-autostart` on boot. If the catalog advertises a music
+  // app we mount it docked-but-closed and start a track, so the game's
+  // visualization has something to sync to without the player first hunting
+  // through the Guide for it. Only a game that ASKS gets this — every other
+  // title keeps its own BGM uninterrupted.
+  //
+  // `wanted` stays set after the first attempt because the first one usually
+  // fails: browsers keep an AudioContext suspended until the page has been
+  // interacted with, so a boot-time play() is rejected (the player just parks on
+  // "Tap Play to start"). The game re-asks on its first pointerdown, by which
+  // point the top document has sticky activation and the same request lands.
+  // `playing` latches once the player reports real playback and stops us ever
+  // restarting a track under someone.
+  let musicAutostartWanted = false;
+  let musicAutostartPlaying = false;
+  const MUSIC_LAST_KEY = 'azlegend:last-track';
+  // True while the player is mounted only because a game asked for it and nobody
+  // has opened the sidebar. Drives .music-sidebar.armed, which parks the frame in
+  // the viewport at 2 transparent pixels instead of offscreen — see the CSS for
+  // why offscreen would silently kill the feed this whole feature exists to
+  // provide. Cleared the moment the sidebar is genuinely opened.
+  let musicArmed = $state(false);
   // Opposite-corner easter egg: the "normal secret touch" (bottom-left +
   // top-right) opens the OSD; touching the OPPOSITE corners (top-left +
   // bottom-right) boots the soft-mod cinematic overlay instead.
@@ -1815,6 +1839,11 @@
     musicTitle = app.title || app.name || 'MUSIC';
     musicSrc = url;
     musicOpen = true;
+    // Opening it for real supersedes the armed 2px parking spot. If a game had
+    // already auto-mounted this same app the src is unchanged, so the iframe is
+    // NOT remounted — the track that's playing keeps playing, and the sidebar
+    // just slides over it.
+    musicArmed = false;
   }
   function closeMusic() {
     if (!musicOpen) return;
@@ -3815,6 +3844,75 @@
   // bands driving its on-screen light rig. We relay those bands to the running
   // game frame so a game's own visualization (e.g. the Headphones Recommended
   // demo's stars) can pulse in lock-step with the player's lights.
+  // Remember what's playing so the next autostart resumes it rather than
+  // shuffling. The player itself is stateless across reloads — its `state` only
+  // describes the live session — so the launcher is what gives "last played"
+  // any meaning. Written from every event/state we see, not just autostarted
+  // ones, so a track the player picked by hand is what we come back to.
+  function rememberLastTrack(st) {
+    if (!st || !st.currentAlbumId || !st.currentTrackId) return;
+    try {
+      localStorage.setItem(
+        MUSIC_LAST_KEY,
+        JSON.stringify({ album: st.currentAlbumId, track: st.currentTrackId })
+      );
+    } catch (_) { /* storage disabled/full — autostart just goes random */ }
+  }
+  function lastTrack() {
+    try {
+      const v = JSON.parse(localStorage.getItem(MUSIC_LAST_KEY) || 'null');
+      return (v && v.album && v.track) ? v : null;
+    } catch (_) { return null; }
+  }
+  // Last played if it's still in the library, else random. The library check is
+  // the point: albums come and go (a game can push its own via add-albums), and
+  // a stale id would otherwise resolve to album -1 / track -1 and play nothing.
+  function pickAutostartTrack(st) {
+    const albums = ((st && st.albums) || []).filter((a) => a?.tracks?.length);
+    if (!albums.length) return null;
+    const last = lastTrack();
+    if (last) {
+      const album = albums.find((a) => a.id === last.album);
+      const track = album?.tracks.find((t) => t.id === last.track);
+      if (album && track) return { album: album.id, track: track.id };
+    }
+    const album = albums[Math.floor(Math.random() * albums.length)];
+    const track = album.tracks[Math.floor(Math.random() * album.tracks.length)];
+    return { album: album.id, track: track.id };
+  }
+  function postToMusicPlayer(message) {
+    if (!currentMusicPlayer) return;
+    // targetOrigin '*' — the player is cross-origin and the payload is just
+    // playback commands (an album/track id), nothing sensitive.
+    try { currentMusicPlayer.postMessage(message, '*'); } catch (_) { /* frame gone */ }
+  }
+  // A game asked to be scored. Mount the music app if the catalog has one and
+  // it isn't up yet, then ask what's in its library — the `state` reply is where
+  // the track actually gets picked and played.
+  function startMusicForGame() {
+    if (musicAutostartPlaying) return;
+    const app = musicApps[0];
+    if (!app) return; // no music app installed — nothing to hook into
+    if (!musicSrc) {
+      const url = musicUrl(app);
+      if (!url) return;
+      // Deliberately NOT openMusic(): no sfx.enter() and musicOpen stays false,
+      // so the frame mounts slid-out. It renders (the sidebar is hidden with a
+      // transform, not display:none) which is what keeps its rAF — and so the
+      // frequency feed — alive. The Guide's toggle reads `musicOpen && …`, so it
+      // still correctly shows the sidebar as closed.
+      musicId = app.id;
+      musicTitle = app.title || app.name || 'MUSIC';
+      musicSrc = url;
+      musicOpen = false;
+      musicArmed = true;
+    }
+    musicAutostartWanted = true;
+    // Already handshook (the frame was up before the game asked) — ask straight
+    // away; otherwise the `ready` handler picks this up.
+    if (currentMusicPlayer) postToMusicPlayer({ type: 'music-player:get-state' });
+  }
+
   function onMusicPlayerMessage(e) {
     const d = e?.data;
     if (!d || typeof d.type !== 'string' || d.type.indexOf('music-player:') !== 0) return;
@@ -3825,6 +3923,32 @@
     const command = d.type.slice('music-player:'.length);
     if (command === 'ready' || command === 'register') {
       currentMusicPlayer = mframe.contentWindow;
+      // A game asked for music before the frame finished booting — ask now.
+      if (musicAutostartWanted) postToMusicPlayer({ type: 'music-player:get-state' });
+      return;
+    }
+    if (command === 'event') {
+      // Track changes, play/pause, ended. Whatever is on now is what we resume.
+      rememberLastTrack(d.state);
+      if (d.state && !d.state.paused) musicAutostartPlaying = true;
+      return;
+    }
+    if (command === 'state') {
+      // The get-state reply — the only place autostart picks and plays.
+      rememberLastTrack(d.state);
+      if (!musicAutostartWanted) return;
+      if (d.state && !d.state.paused) {
+        // Something is already playing (the frame was up, or an earlier attempt
+        // landed). Leave it be — never restart a track under the listener.
+        musicAutostartPlaying = true;
+        musicAutostartWanted = false;
+        return;
+      }
+      const pick = pickAutostartTrack(d.state);
+      if (!pick) return; // empty library — nothing to start
+      // An explicit track matters: `play` with no track toggles playback, which
+      // would PAUSE a player that's already going.
+      postToMusicPlayer({ type: 'music-player:play', album: pick.album, track: pick.track });
       return;
     }
     if (command === 'frequency') {
@@ -3865,6 +3989,14 @@
       return;
     }
     if (d.type === 'tg16-first-touch') { chromeDismissed = true; return; }
+    if (d.type === 'cmg-music-autostart') {
+      // A game that scores itself from the music feed wants a track running (see
+      // startMusicForGame). Benign and idempotent from our own frame: worst case
+      // a music app the catalog already advertises starts playing, which is the
+      // whole point, and it can't start one that isn't installed.
+      startMusicForGame();
+      return;
+    }
     if (d.type === 'cmg-cheats') {
       // The running game advertises the boot-time URL-param cheats it honours,
       // which the Guide turns into a Cheats submenu. Benign — worst case it
@@ -5171,7 +5303,7 @@
      music app plays. Mounted while musicSrc is set; the iframe is dropped ~350ms
      after close (in closeMusic) so its audio stops once the panel slides out. -->
 {#if musicSrc}
-  <div class="music-sidebar {musicOpen ? 'on' : ''}" role="dialog" aria-label={musicTitle || 'Music'}>
+  <div class="music-sidebar {musicOpen ? 'on' : ''} {!musicOpen && musicArmed ? 'armed' : ''}" role="dialog" aria-label={musicTitle || 'Music'}>
     <div class="music-hd">
       <span class="music-dot" aria-hidden="true">♪</span>
       <span class="music-title">{musicTitle || 'MUSIC'}</span>
