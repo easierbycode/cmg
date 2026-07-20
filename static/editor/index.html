@@ -4473,7 +4473,7 @@ function GAME3D_RUNTIME(DATA) {
             if (type === 'logo') return _extractFrameDataURL('logo.gif');
             if (type === 'subTitle') return _extractFrameDataURL('subTitle.gif');
             if (type === 'titleStartText') return _extractFrameDataURL('titleStartText.gif');
-            if (type === 'title_bg') return 'assets/img/title_bg.jpg';
+            if (type === 'title_bg') return gameAssetUrl('assets/img/title_bg.jpg');
             return null;
         }
 

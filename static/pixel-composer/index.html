@@ -217,6 +217,20 @@
 
       function svc(msg) { $('svcState').textContent = msg; }
 
+      // The engine is a separate <script>. If it fails to load, every later
+      // Engine.* deref throws a bare "Cannot read properties of undefined"
+      // while the page still paints and the footer keeps claiming SERVICE
+      // READY — which is what made the 404 at the no-slash URL so opaque.
+      // Say so instead. Mirrors the requester-side guard the editor already
+      // does for pc-client.js.
+      if (!Engine) {
+        svc('SERVICE OFFLINE — ENGINE FAILED TO LOAD');
+        $('results').innerHTML = '<div class="empty">ENGINE FAILED TO LOAD — ' +
+          'pixel-composer.js DID NOT LOAD, SO NOTHING CAN BE VOXELIZED. ' +
+          'RELOAD THE PAGE (CTRL+SHIFT+R); IF IT PERSISTS THE SCRIPT IS 404ING.</div>';
+        return;
+      }
+
       function currentOptions() {
         return {
           mode: $('optMode').value,
