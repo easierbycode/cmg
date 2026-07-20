@@ -3156,10 +3156,13 @@
             const setStatus = (m) => { if (statusEl) statusEl.innerHTML = '<span style="color:#7dd3fc">' + m + '</span>'; };
 
             setStatus('3D export: packing atlas…');
-            const cv = document.createElement('canvas');
-            cv.width = atlasImage.naturalWidth; cv.height = atlasImage.naturalHeight;
-            cv.getContext('2d').drawImage(atlasImage, 0, 0);
-            const atlasDataURL = cv.toDataURL('image/png');
+            // Repack rather than shipping atlasImage as-is: uploaded sprites live
+            // in extraSprites and swaps in replacedFrames until the atlas is
+            // saved, so the raw atlas has none of a game's custom art. Without
+            // this the 3D runtime's frameCanvas() misses every custom enemy and
+            // drawSprite3D silently no-ops — enemies render as bare shadows.
+            const packedAtlas = buildAtlasWithReplacements();
+            const atlasDataURL = packedAtlas.canvas.toDataURL('image/png');
 
             setStatus('3D export: reading stage backgrounds…');
             const backgrounds = {};
@@ -3195,7 +3198,7 @@
             return {
                 name: rawName,
                 recipe: buildRuntimeRecipe(),
-                atlas: { frames: atlasData.frames, imageDataURL: atlasDataURL },
+                atlas: { frames: packedAtlas.frames, imageDataURL: atlasDataURL },
                 uiAtlas: uiAtlas,
                 backgrounds: backgrounds,
                 sounds: sounds,
