@@ -7,6 +7,12 @@
       "runtimeArgs": ["task", "dev"],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "2019-es7",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": ["/c", "npx", "serve", "--no-clipboard", "-l", "8127", "C:/CODE/2019-es7"],
+      "port": 8127
     }
   ]
 }

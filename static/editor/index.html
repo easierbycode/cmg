@@ -13,6 +13,10 @@
          use; the Voxelize button degrades gracefully if this 404s, e.g. in
          the Cordova-packaged build). -->
     <script src="/pixel-composer/pc-client.js" defer></script>
+    <!-- Voxel 3D export runtime (Phaser 4.2.1 dual-mode game). Serialized into
+         SAVE AS VOXEL 3D exports via .toString(); the menu option degrades
+         gracefully if this 404s. -->
+    <script src="voxel3d-runtime.js" defer></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
@@ -801,6 +805,7 @@
         <button class="menu-row" onclick="exportCurrentLevelJSON();closeMenu()"><span class="mono-badge">EX</span>EXPORT JSON</button>
         <button class="menu-row" onclick="saveAs3D();closeMenu()"><span class="mono-badge">3D</span>SAVE AS 3D</button>
         <button class="menu-row" onclick="play3D();closeMenu()"><span class="mono-badge">P3</span>PLAY 3D</button>
+        <button class="menu-row" onclick="saveAsVoxel3D();closeMenu()" title="Voxelize every atlas frame (Pixel Composer, pitch/yaw 10) and publish a Phaser 4.2.1 dual-mode (2D shooter / 3D super scaler) build at a URL"><span class="mono-badge">V3</span>SAVE AS VOXEL 3D</button>
         <div class="menu-label">GAME SAVE (CLOUD)</div>
         <input id="firebase-level-name" type="text" placeholder="MY GAME NAME" class="menu-input" style="margin-bottom:0">
         <button class="menu-row" onclick="saveToFirebase()"><span class="mono-badge">SG</span>SAVE GAME</button>
@@ -3249,6 +3254,226 @@
             const url = URL.createObjectURL(new Blob([build3DHTML(data)], { type: 'text/html' }));
             if (win && !win.closed) { win.location = url; win.focus(); }
             else window.open(url, '_blank');
+        }
+
+        // ================== SAVE AS VOXEL 3D (PHASER 4.2 MESH2D) ==================
+        // Like SAVE AS 3D, but every atlas frame is first voxelized through the
+        // Pixel Composer engine (pitch/yaw 10 instead of the 30/30 defaults) and
+        // the runtime is VOXEL3D_RUNTIME (voxel3d-runtime.js): a Phaser 4.2.1
+        // WebGL game playable as a 2D vertical shooter AND a 3D super scaler.
+        // The build is POSTed to /api/games/voxel so it gets a real URL
+        // (/games/voxel-<slug>/); when publishing is unavailable (hosted deploy,
+        // offline) it falls back to a blob download like saveAs3D.
+
+        const VOXEL3D_OPTS = { mode: 'extrude', depth: 6, yaw: 10, pitch: 10, alphaThreshold: 8 };
+        const VOXEL3D_ATLAS_W = 4096;      // voxel frames are ~pixelSize× bigger
+        const VOXEL3D_MAX_ATLAS_H = 7900;  // stay under common WebGL texture caps
+
+        // The engine ships inside /pixel-composer/ but is only iframe-loaded by
+        // pc-client; for whole-atlas jobs load it in-process (no 64-frame/24MB
+        // bridge caps, and progress callbacks work).
+        function ensurePixelComposerEngine() {
+            if (window.PixelComposerEngine) return Promise.resolve(true);
+            return new Promise((resolve) => {
+                const s = document.createElement('script');
+                s.src = '/pixel-composer/pixel-composer.js';
+                s.onload = () => resolve(!!window.PixelComposerEngine);
+                s.onerror = () => resolve(false);
+                document.head.appendChild(s);
+            });
+        }
+
+        // Closed-form voxel render size (mirrors renderView's corner projection)
+        // so pixelSize can be chosen before doing any expensive rendering.
+        function voxelFrameSize(w, h, u, opts) {
+            const yaw = Math.abs(opts.yaw * Math.PI / 180), pitch = opts.pitch * Math.PI / 180;
+            const d = opts.depth;
+            const cw = Math.ceil(u * (w * Math.abs(Math.cos(yaw)) + d * Math.abs(Math.sin(yaw)))) + 4;
+            const ch = Math.ceil(u * (w * Math.abs(Math.sin(yaw)) * Math.sin(pitch) + h * Math.cos(pitch) + d * Math.abs(Math.cos(yaw)) * Math.sin(pitch))) + 4;
+            return { w: Math.max(1, cw), h: Math.max(1, ch) };
+        }
+        function estimateVoxelAtlasHeight(frameList, u) {
+            // Same shelf packing as buildAtlasWithReplacements, on predicted sizes.
+            const P = 4;
+            const sized = frameList.map(f => voxelFrameSize(f.w, f.h, u, VOXEL3D_OPTS))
+                .sort((a, b) => b.h - a.h);
+            let cx = P, cy = P, rh = 0, fh = 0;
+            for (const s of sized) {
+                if (cx + s.w + P > VOXEL3D_ATLAS_W) { cy += rh + P; cx = P; rh = 0; }
+                cx += s.w + P;
+                rh = Math.max(rh, s.h); fh = Math.max(fh, cy + s.h + P);
+            }
+            return fh;
+        }
+
+        // Voxelize every frame of a packed atlas → new packed atlas whose frames
+        // keep their ORIGINAL keys (so recipe texture lookups work untouched)
+        // plus sourceSize = the pre-voxel dimensions for scale compensation.
+        async function buildVoxelAtlas(packedAtlas, setStatus) {
+            const keys = Object.keys(packedAtlas.frames);
+            const dims = keys.map(k => ({ w: packedAtlas.frames[k].frame.w, h: packedAtlas.frames[k].frame.h }));
+            let pixelSize = 4; // the /pixel-composer default
+            while (pixelSize > 1 && estimateVoxelAtlasHeight(dims, pixelSize) > VOXEL3D_MAX_ATLAS_H) pixelSize--;
+            const opts = { ...VOXEL3D_OPTS, pixelSize };
+            const sprites = [];
+            let done = 0, failed = 0;
+            for (const key of keys) {
+                const f = packedAtlas.frames[key].frame;
+                const src = document.createElement('canvas');
+                src.width = f.w; src.height = f.h;
+                src.getContext('2d').drawImage(packedAtlas.canvas, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+                let voxCv = null;
+                try {
+                    if (f.w <= PixelComposerEngine.MAX_DIM && f.h <= PixelComposerEngine.MAX_DIM) {
+                        const res = await PixelComposerEngine.voxelizeFrame(
+                            { name: key, dataURL: src.toDataURL('image/png') }, opts);
+                        const im = new Image();
+                        im.src = res.dataURL;
+                        await new Promise(r => { im.onload = r; im.onerror = r; });
+                        if (im.width) {
+                            voxCv = document.createElement('canvas');
+                            voxCv.width = im.width; voxCv.height = im.height;
+                            voxCv.getContext('2d').drawImage(im, 0, 0);
+                        }
+                    }
+                } catch (e) { /* falls through to the original frame */ }
+                if (!voxCv) { voxCv = src; failed++; }
+                sprites.push({ key, canvas: voxCv, w: voxCv.width, h: voxCv.height, srcW: f.w, srcH: f.h });
+                done++;
+                if (done % 8 === 0 || done === keys.length) {
+                    setStatus('Voxel 3D: voxelizing frames ' + done + '/' + keys.length + '…');
+                    await new Promise(r => setTimeout(r, 0)); // let the UI repaint
+                }
+            }
+            // Shelf-pack (same idiom as buildAtlasWithReplacements, wider sheet).
+            sprites.sort((a, b) => b.h - a.h);
+            const P = 4;
+            let cx = P, cy = P, rh = 0, fh = 0;
+            const pos = {};
+            sprites.forEach(s => {
+                if (cx + s.w + P > VOXEL3D_ATLAS_W) { cy += rh + P; cx = P; rh = 0; }
+                pos[s.key] = { x: cx, y: cy }; cx += s.w + P;
+                rh = Math.max(rh, s.h); fh = Math.max(fh, cy + s.h + P);
+            });
+            const canvas = document.createElement('canvas');
+            canvas.width = VOXEL3D_ATLAS_W; canvas.height = fh;
+            const nc = canvas.getContext('2d');
+            const newFrames = {};
+            sprites.forEach(s => {
+                const p = pos[s.key];
+                nc.drawImage(s.canvas, p.x, p.y);
+                newFrames[s.key] = {
+                    frame: { x: p.x, y: p.y, w: s.w, h: s.h }, rotated: false, trimmed: false,
+                    spriteSourceSize: { x: 0, y: 0, w: s.w, h: s.h },
+                    sourceSize: { w: s.srcW, h: s.srcH },
+                };
+            });
+            return {
+                frames: newFrames,
+                imageDataURL: canvas.toDataURL('image/png'),
+                meta: { ...opts },
+                failed,
+            };
+        }
+
+        async function buildVoxel3DData() {
+            const base = await build3DData();
+            if (!base) return null;
+            if (!(await ensurePixelComposerEngine())) {
+                alert('Pixel Composer engine unavailable (/pixel-composer/pixel-composer.js failed to load)');
+                return null;
+            }
+            const statusEl = document.getElementById('status');
+            const setStatus = (m) => { if (statusEl) statusEl.innerHTML = '<span style="color:#7dd3fc">' + m + '</span>'; };
+            // Re-run the packer for frame canvases — build3DData only keeps the
+            // flattened PNG, and this sees exactly the same frames it exported.
+            const packed = buildAtlasWithReplacements();
+            const vox = await buildVoxelAtlas(packed, setStatus);
+            base.atlas = { frames: vox.frames, imageDataURL: vox.imageDataURL };
+            base.voxelMeta = vox.meta;
+            setStatus('Voxel 3D: atlas voxelized (' + Object.keys(vox.frames).length + ' frames' +
+                (vox.failed ? ', ' + vox.failed + ' kept as source art' : '') + ')');
+            return base;
+        }
+
+        // Inline Phaser 4.2.1 so the export is self-contained (works from
+        // file:// too); the CDN tag is only the fallback when the local vendored
+        // build cannot be read.
+        async function fetchPhaserSourceForVoxel() {
+            try {
+                const r = await fetch('/games/2028-ai/lib/phaser.min.js');
+                if (r.ok) {
+                    const t = await r.text();
+                    if (t.length > 100000) return t;
+                }
+            } catch (e) { /* fall through */ }
+            return null;
+        }
+
+        function buildVoxel3DHTML(data, phaserSrc) {
+            const json = JSON.stringify(data).replace(/</g, '\\u003c');
+            const SC = '<' + 'script>';
+            const SE = '</' + 'script>';
+            const title = String(data.name).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+            const phaserTag = phaserSrc
+                ? SC + phaserSrc + SE
+                : '<script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"><' + '/script>';
+            return [
+                '<!DOCTYPE html>',
+                '<html lang="en">',
+                '<head>',
+                '<meta charset="UTF-8">',
+                '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">',
+                '<title>' + title + ' — Voxel 3D</title>',
+                '<style>html,body{margin:0;padding:0;background:#000;height:100%;overflow:hidden}body{display:flex;align-items:center;justify-content:center}canvas{image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none}</style>',
+                '</head>',
+                '<body>',
+                phaserTag,
+                SC + 'window.VOXEL3D_DATA=' + json + ';' + SE,
+                SC + 'window.VOXEL3D_RUNTIME=' + VOXEL3D_RUNTIME.toString() + ';VOXEL3D_RUNTIME(window.VOXEL3D_DATA);' + SE,
+                '</body>',
+                '</html>',
+            ].join('\n');
+        }
+
+        async function saveAsVoxel3D() {
+            if (typeof window.VOXEL3D_RUNTIME !== 'function') {
+                alert('Voxel 3D runtime unavailable (voxel3d-runtime.js failed to load)');
+                return null;
+            }
+            const statusEl = document.getElementById('status');
+            const setStatus = (m) => { if (statusEl) statusEl.innerHTML = '<span style="color:#7dd3fc">' + m + '</span>'; };
+            const data = await buildVoxel3DData();
+            if (!data) return null;
+            setStatus('Voxel 3D: bundling Phaser 4.2.1…');
+            const phaserSrc = await fetchPhaserSourceForVoxel();
+            const html = buildVoxel3DHTML(data, phaserSrc);
+            const slug = String(data.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'game';
+            setStatus('Voxel 3D: publishing…');
+            try {
+                const resp = await fetch('/api/games/voxel', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ name: data.name, html }),
+                });
+                const out = await resp.json().catch(() => ({}));
+                if (resp.ok && out.ok && out.url) {
+                    const abs = new URL(out.url, location.origin).href;
+                    setStatus('Voxel 3D: published → <a href="' + out.url + '" target="_blank" style="color:#7dd3fc">' + abs + '</a>');
+                    flash('VOXEL 3D PUBLISHED — ' + abs);
+                    window.open(out.url, '_blank');
+                    return out;
+                }
+                throw new Error(out.error || ('publish failed (HTTP ' + resp.status + ')'));
+            } catch (e) {
+                // No writable server (hosted deploy / offline) — download instead.
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+                a.download = slug + '-voxel3d.html';
+                a.click();
+                setStatus('Voxel 3D: publish unavailable (' + ((e && e.message) || e) + ') — downloaded instead');
+                return null;
+            }
         }
 
 // GAME3D_RUNTIME — self-contained super-scaler (Burning Force style) runtime for

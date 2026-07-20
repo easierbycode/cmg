@@ -23,6 +23,10 @@ dist/
 # writes build/<slug>/{www,cordova,electron,dist} here per exported level).
 /build/
 
+# Locally-added + editor-published games (GAMES_DIR: /api/games/add-*,
+# /api/games/voxel) — runtime content, never committed.
+/games/
+
 # PSX ROM library — local-only. Fresh deploys keep these out so the dashboard
 # falls back to BYOD (Bring Your Own Disc). Drop files here for a self-
 # contained Mac binary via `deno task build:mac`.
