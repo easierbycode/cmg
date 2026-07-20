@@ -1135,7 +1135,13 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
     } else if (dd.kind === 'eshot') {
       drawWorldSprite(anim(o.tex, o.animT, 0.15), o.wx, o.alt, o.z, { scale: 1.1 });
     } else if (dd.kind === 'pshot') {
-      drawWorldSprite(anim(o.tex, o.animT, 0.3), o.wx, o.alt, o.z, { scale: o.big ? 1.3 : 0.9, rotate: viewMode === '3d' ? -Math.PI / 2 : 0 });
+      // Player shots must point toward the top of the screen (the way they
+      // travel) in BOTH views. The source shot art is a horizontal bolt (its
+      // mass sits on the right), so rotate it -90deg to stand it upright — the
+      // same -90deg the canvas super-scaler used, now applied in 2D too where
+      // it previously stayed flat and read as "facing right".
+      drawShadow(o.wx, o.z, o.big ? 18 : 12);
+      drawWorldSprite(anim(o.tex, o.animT, 0.3), o.wx, o.alt, o.z, { scale: o.big ? 1.3 : 0.9, rotate: -Math.PI / 2 });
     } else if (dd.kind === 'item') {
       const pf = ITEM_FRAMES[o.name];
       if (pf && pf.length) drawWorldSprite(anim(pf, o.animT, 0.08), o.wx, o.alt, o.z, { scale: 1.15 });
