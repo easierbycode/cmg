@@ -89,14 +89,17 @@ dashboard's game iframe — web, kiosk, and desktop builds alike):
 - `window.__CMG_LAUNCHER__ === true` and `window.__CMG__.launcher === true`
 
 Opening the same URL directly in a browser tab leaves all of these unset, so the
-standalone page keeps its chrome. The stamp is applied twice, idempotently:
-server-side into game HTML served for locally-added games and the evil-invaders
-proxy ([`lib/launcher-inject.ts`](lib/launcher-inject.ts)), and client-side into
-every same-origin game frame on load (`injectLauncherMarkerIntoFrame` in
-[`svelte-src/Dashboard.svelte`](svelte-src/Dashboard.svelte)) — which also
-covers the built-in static games and `/demos/*` routes. Cross-origin games can't
-be stamped from the launcher; they should self-detect with `if (self !== top)`
-(see [`static/demos/akuma.js`](static/demos/akuma.js)).
+standalone page keeps its chrome. The stamp is applied twice, idempotently: a
+middleware in [`main.ts`](main.ts) injects the marker
+([`lib/launcher-inject.ts`](lib/launcher-inject.ts)) into every `/games/*` and
+`/demos/*` HTML response — built-in static games, locally-added `GAMES_DIR`
+games, per-game Fresh routes, and the evil-invaders proxy alike, including when
+a packaged launcher loads them cross-origin from the deploy — and the dashboard
+also stamps same-origin game frames on load (`injectLauncherMarkerIntoFrame` in
+[`svelte-src/Dashboard.svelte`](svelte-src/Dashboard.svelte)). Games hosted on
+other origins entirely (e.g. easierbycode.com) can't be stamped by the
+launcher; they should self-detect with `if (self !== top)` (see
+[`static/demos/akuma.js`](static/demos/akuma.js)).
 
 ## Importing an OpenEmu game library
 

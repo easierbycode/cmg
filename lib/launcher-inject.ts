@@ -21,7 +21,7 @@
 // launcher side for same-origin frames in svelte-src/Dashboard.svelte
 // (injectLauncherMarkerIntoFrame) — both are idempotent.
 
-export const LAUNCHER_MARKER = `\n<script>(function(){
+export const LAUNCHER_MARKER = `\n<script id="cmg-launcher-marker">(function(){
   try {
     if (window.parent === window) return; /* standalone tab: keep the game's own chrome */
     window.__CMG_LAUNCHER__ = true;
@@ -37,8 +37,11 @@ export const LAUNCHER_MARKER = `\n<script>(function(){
 
 // Insert the marker right after <head> so it runs before the game's own
 // scripts. Fallback anchors mirror the upstream injector: after <!doctype>,
-// after <html>, else prepended to fragment-only documents.
+// after <html>, else prepended to fragment-only documents. Idempotent: a
+// document that already carries the marker (e.g. stamped by both the
+// middleware in main.ts and a route-level injector) is returned unchanged.
 export function injectLauncherMarker(html: string): string {
+  if (html.includes('id="cmg-launcher-marker"')) return html;
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + LAUNCHER_MARKER);
   }

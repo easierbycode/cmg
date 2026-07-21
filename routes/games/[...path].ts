@@ -8,7 +8,6 @@ import { define } from "../../utils.ts";
 import { contentType } from "jsr:@std/media-types@^1";
 import { extname, join, normalize } from "jsr:@std/path@^1.1.2";
 import { GAMES_DIR, isSafeId } from "../../lib/games-store.ts";
-import { injectLauncherMarker } from "../../lib/launcher-inject.ts";
 
 function guessType(filePath: string): string {
   const ext = extname(filePath);
@@ -68,21 +67,8 @@ export const handler = define.handlers({
       throw e;
     }
     const data = await Deno.readFile(filePath);
-    const ct = guessType(filePath);
-
-    // Stamp the launcher-detection marker into every HTML page the game serves
-    // (not just index.html — some games navigate between pages) so an embedded
-    // game can hide its own chrome; see lib/launcher-inject.ts for the
-    // contract this mirrors from codemonkey-games-launcher.
-    if (ct.startsWith("text/html")) {
-      const html = injectLauncherMarker(new TextDecoder().decode(data));
-      return new Response(html, {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
-    }
-
     return new Response(data, {
-      headers: { "content-type": ct },
+      headers: { "content-type": guessType(filePath) },
     });
   },
 });

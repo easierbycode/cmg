@@ -3782,13 +3782,15 @@
   // game frame: window.__CMG_LAUNCHER__ / window.__CMG__ globals, the
   // data-cmg-launcher attribute, and the "inLauncher" class on <html> and
   // <body>. Games hide their own standalone chrome with CSS like
-  // `.inLauncher #info { display:none !important; }`. This client-side stamp
-  // covers frames the server-side injector never sees — built-in static games
-  // served by staticFiles() and the /demos/* routes — while GAMES_DIR games
-  // and the evil-invaders proxy also get it injected server-side before their
-  // own scripts run. Both paths are idempotent, as is a game's own
-  // self-detection (e.g. static/demos/akuma.js). Cross-origin frames can't be
-  // reached from here; those rely on their host serving the marker.
+  // `.inLauncher #info { display:none !important; }`. The primary stamp is
+  // server-side: a middleware in main.ts injects the marker into every
+  // /games/* and /demos/* HTML response, which also covers packaged launchers
+  // that load built-ins from the deploy origin (cross-origin frames this
+  // function can't reach). This client-side stamp is the belt-and-braces pass
+  // for same-origin frames whose HTML skipped the middleware (e.g. a game
+  // page cached before the marker shipped). All paths are idempotent, as is
+  // a game's own self-detection (e.g. static/demos/akuma.js). Truly external
+  // cross-origin games rely on their host serving the marker.
   function injectLauncherMarkerIntoFrame(e) {
     const iframe = e?.currentTarget || document.getElementById('gameframe');
     if (!iframe || !frameIsSameOrigin(iframe)) return;

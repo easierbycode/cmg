@@ -43,6 +43,11 @@ Deno.test("bare fragment: marker is prepended", () => {
   assert.equal(out, LAUNCHER_MARKER + "<canvas></canvas>");
 });
 
+Deno.test("idempotent: already-stamped HTML is returned unchanged", () => {
+  const once = injectLauncherMarker("<html><head></head></html>");
+  assert.equal(injectLauncherMarker(once), once);
+});
+
 Deno.test("marker only activates when embedded", () => {
   // The stamp must be gated on window.parent !== window so a direct visit to
   // /games/<id>/ keeps the game's standalone chrome.
