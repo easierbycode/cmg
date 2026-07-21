@@ -3376,6 +3376,45 @@
             };
         }
 
+        // Each stage plays its boss theme from stage start (the 2019-es7 audio
+        // model — no separate ambient track), keyed boss_<name>_bgm by stage.
+        const VOXEL_BGM_BY_STAGE = ['boss_bison_bgm', 'boss_barlog_bgm', 'boss_sagat_bgm', 'boss_vega_bgm', 'boss_fang_bgm'];
+
+        // Resolve a BGM key to a playable source for the export. Small sources
+        // (editor uploads in IndexedDB, or the ~2MB default assets) are bundled
+        // as data-URLs so the game is self-contained; a custom BGM already
+        // hosted at a remote URL (customAudioURLs — often tens of MB) is left
+        // by reference so the export doesn't balloon. Returns a URL string.
+        async function resolveVoxelBgm(key) {
+            try {
+                const blob = await getCustomAudio(key);
+                if (blob) return await blobToDataURL3D(blob);
+            } catch (e) { /* no IndexedDB upload for this key */ }
+            if (audioURLs && audioURLs[key]) return audioURLs[key];
+            const path = AUDIO_PATHS[key];
+            if (path) {
+                const blob = await readGameBlob3D(path);
+                if (blob) return await blobToDataURL3D(blob);
+            }
+            return null;
+        }
+
+        async function buildVoxelBgm(recipe, setStatus) {
+            let maxStage = 0;
+            for (const k in recipe) {
+                const m = /^stage(\d+)$/.exec(k);
+                if (m && recipe[k] && recipe[k].enemylist) maxStage = Math.max(maxStage, +m[1]);
+            }
+            const stages = {};
+            for (let s = 0; s <= maxStage; s++) {
+                if (setStatus) setStatus('Voxel 3D: bundling BGM (stage ' + (s + 1) + '/' + (maxStage + 1) + ')…');
+                const key = VOXEL_BGM_BY_STAGE[Math.min(s, VOXEL_BGM_BY_STAGE.length - 1)];
+                const src = await resolveVoxelBgm(key);
+                if (src) stages[s] = src;
+            }
+            return { stages: stages };
+        }
+
         async function buildVoxel3DData() {
             const base = await build3DData();
             if (!base) return null;
@@ -3391,6 +3430,8 @@
             const vox = await buildVoxelAtlas(packed, setStatus);
             base.atlas = { frames: vox.frames, imageDataURL: vox.imageDataURL };
             base.voxelMeta = vox.meta;
+            // Per-stage BGM (bundled data-URLs / referenced remote URLs)
+            base.bgm = await buildVoxelBgm(base.recipe, setStatus);
             setStatus('Voxel 3D: atlas voxelized (' + Object.keys(vox.frames).length + ' frames' +
                 (vox.failed ? ', ' + vox.failed + ' kept as source art' : '') + ')');
             return base;

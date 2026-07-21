@@ -131,6 +131,32 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
     try { a.currentTime = 0; a.play().catch(function () {}); } catch (e) { /* ignore */ }
   }
 
+  // Looping BGM. Each stage plays its boss theme from stage start (the 2019-es7
+  // model has no separate ambient track). Sources are data-URLs (small default
+  // assets bundled by the exporter) or remote CDN URLs (large custom BGM left
+  // by reference); either plays through a single looping HTMLAudioElement. This
+  // is view-independent, so music plays in both the 2D and 3D/EX views. First
+  // playback rides the start gesture (Enter/tap), satisfying autoplay policy.
+  const bgmSources = (DATA.bgm && DATA.bgm.stages) || {};
+  let bgmAudio = null, bgmSrc = null;
+  function stopBgm() {
+    if (bgmAudio) { try { bgmAudio.pause(); } catch (e) { /* ignore */ } }
+    bgmAudio = null; bgmSrc = null;
+  }
+  function playBgm(src) {
+    if (!src) { stopBgm(); return; }
+    if (bgmSrc === src && bgmAudio && !bgmAudio.paused) return;
+    stopBgm();
+    try {
+      bgmAudio = new Audio(src);
+      bgmAudio.loop = true;
+      bgmAudio.volume = 0.4;
+      bgmAudio.play().catch(function () { /* retried on next stage/gesture */ });
+      bgmSrc = src;
+    } catch (e) { /* ignore */ }
+  }
+  function stageBgm() { playBgm(bgmSources[state.stageId] || bgmSources[0] || null); }
+
   // ================== VIEW MODE ==================
   let viewMode = (function () {
     const m = /[?&]mode=(2d|3d)/i.exec(location.search || '');
@@ -212,6 +238,7 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
     waves = sd && sd.enemylist ? sd.enemylist.slice().reverse() : [];
     banner = { kind: 'stage', n: state.stageId + 1, timer: 170 };
     play('g_stage_voice_' + state.stageId);
+    stageBgm();
     state.mode = 'game';
   }
 
@@ -251,33 +278,133 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
       wx: 0, alt: 40, z: ZMAX, targetZ: 360,
       hp: bd.hp === 'infinity' ? Infinity : (bd.hp || 100), maxHp: bd.hp || 100,
       score: bd.score || 0, cagage: bd.spgage || 0,
-      interval: bd.interval || 100, fireCnt: 0,
-      animT: 0, attackT: 0, entered: false, gokiFlg: !!gokiFlg, dying: 0,
+      animT: 0, entered: false, gokiFlg: !!gokiFlg, dying: 0,
+      phase: null, phaseT: 0, animKey: 'idle', fireT: 0, homeZ: 360, warpX: 0,
       w: 90, h: 90, sized: false, flash: 0,
     };
   }
-  function bossBulletDef() {
-    const bd = boss && boss.def && boss.def.bulletData;
-    if (bd && bd.texture && bd.texture.length) return bd;
-    const ed = R.enemyData || {};
-    for (const k in ed) {
-      if (ed[k] && ed[k].bulletData && ed[k].bulletData.texture) return ed[k].bulletData;
+  // Projectile definitions. The 2019-es7 level model keeps enemy bullets in
+  // `projectileData` and boss bullets in `projectileDataA`/`projectileDataB`
+  // (older 2019-turbo data used `bulletData`). Read all three so both eras fire.
+  function enemyProjDef(e) {
+    const d = e && e.def;
+    return (d && (d.projectileData || d.bulletData)) || fallbackProjDef();
+  }
+  function bossProjDef(which) {
+    const d = boss && boss.def;
+    if (d) {
+      const a = d.projectileDataA || d.bulletData || d.projectileData;
+      const b = d.projectileDataB || a;
+      const pick = which === 'B' ? b : a;
+      if (pick && pick.texture && pick.texture.length) return pick;
     }
-    return null;
+    return fallbackProjDef();
+  }
+  let _fallbackProj = undefined;
+  function fallbackProjDef() {
+    if (_fallbackProj !== undefined) return _fallbackProj;
+    const ed = R.enemyData || {}, bd = R.bossData || {};
+    const scan = (o) => o && (o.projectileData || o.projectileDataA || o.bulletData);
+    for (const k in ed) { const p = scan(ed[k]); if (p && p.texture && p.texture.length) return (_fallbackProj = p); }
+    for (const k in bd) { const p = scan(bd[k]); if (p && p.texture && p.texture.length) return (_fallbackProj = p); }
+    return (_fallbackProj = null);
   }
 
-  function fireEnemyShot(e, spread) {
-    const bd = e === boss ? bossBulletDef() : (e.def && e.def.bulletData);
-    if (!bd || !bd.texture || !bd.texture.length) return;
-    const sp = Math.max(4, (bd.speed || 1) * 6);
-    const dz = -e.z, dx = (player.wx + (spread || 0) * 60) - e.wx, da = PLAYER_ALT - e.alt;
-    const len = Math.sqrt(dz * dz + dx * dx + da * da) || 1;
+  // Low-level spawn: one bullet from (wx,alt,z) with velocity (vx,vz,va).
+  function spawnBullet(pdef, wx, alt, z, vx, vz, va) {
+    if (!pdef || !pdef.texture || !pdef.texture.length) return;
     enemyShots.push({
-      tex: bd.texture, wx: e.wx, alt: e.alt + 10, z: e.z,
-      vx: dx / len * sp, vz: dz / len * sp, va: da / len * sp,
-      damage: bd.damage || 1, animT: 0, w: 18, h: 18,
+      tex: pdef.texture, wx: wx, alt: alt, z: z,
+      vx: vx, vz: vz, va: va, damage: pdef.damage || 1, animT: 0, w: 18, h: 18,
     });
+  }
+  // Aim a shot from (wx,alt,z) at the player plane, offset by `spreadWx` world
+  // units. vz is always toward the camera (negative), so bullets close in.
+  function aimAtPlayer(pdef, wx, alt, z, sp, spreadWx) {
+    const dz = -z, dx = (player.wx + (spreadWx || 0)) - wx, da = PLAYER_ALT - alt;
+    const len = Math.sqrt(dz * dz + dx * dx + da * da) || 1;
+    spawnBullet(pdef, wx, alt, z, dx / len * sp, dz / len * sp, da / len * sp);
+  }
+
+  // Enemy fire: a single shot on the enemy's own interval (as in the 2D game),
+  // lightly aimed so it's dodgeable by sliding off the enemy's column.
+  function fireEnemyShot(e) {
+    const pdef = enemyProjDef(e);
+    if (!pdef) return;
+    const sp = Math.max(4, (pdef.speed || 1) * 6);
+    aimAtPlayer(pdef, e.wx, e.alt + 10, e.z, sp, (player.wx - e.wx) * -0.5);
     play('se_shoot');
+  }
+
+  // Boss patterns (super-scaler reinterpretations of the 2019-es7 boss modules):
+  // an aimed column-rake with projA, and a wide spray with projB. Bullet counts
+  // are kept sane for the rail view (the 2D game's radial bursts were up to 72).
+  function bossFireAimed(n, spreadWx) {
+    const pdef = bossProjDef('A');
+    if (!pdef) return;
+    const sp = Math.max(4, (pdef.speed || 1) * 6);
+    for (let i = 0; i < n; i++) {
+      const off = n > 1 ? (i / (n - 1) - 0.5) * spreadWx : 0;
+      aimAtPlayer(pdef, boss.wx, boss.alt + 12, boss.z, sp, off);
+    }
+    play('se_shoot');
+  }
+  function bossFireSpray(n) {
+    const pdef = bossProjDef('B');
+    if (!pdef) return;
+    const sp = Math.max(3, (pdef.speed || 1) * 5);
+    for (let i = 0; i < n; i++) {
+      const ang = (i / (n - 1) - 0.5) * Math.PI * 0.9; // fan across the lane
+      spawnBullet(pdef, boss.wx, boss.alt + 12, boss.z,
+        Math.sin(ang) * sp, -Math.abs(Math.cos(ang)) * sp - 1, (PLAYER_ALT - boss.alt) * 0.02 * sp);
+    }
+    play('se_shoot');
+  }
+  // Boss "AI": each cycle rolls a random attack bucket (as the 2019-es7 bosses
+  // do via a per-cycle seed) — warp/reposition, an aimed column rake (projA), a
+  // lane-wide spray (projB), or a dive down the player's column — then drops to
+  // idle before rolling again. Movement + the shoot/attack/warp/idle anim are
+  // both driven here, so the boss reads as attacking in either view.
+  function rollBossPhase() {
+    const seed = Math.random();
+    boss.fireT = 0;
+    if (seed < 0.14) { boss.phase = 'warp'; boss.phaseT = 55; boss.animKey = 'warp'; boss.warpX = (Math.random() * 2 - 1) * 170; }
+    else if (seed < 0.48) { boss.phase = 'rake'; boss.phaseT = 150; boss.animKey = 'shoot'; }
+    else if (seed < 0.76) { boss.phase = 'spray'; boss.phaseT = 130; boss.animKey = 'shoot'; }
+    else { boss.phase = 'dive'; boss.phaseT = 150; boss.animKey = 'attack'; }
+  }
+  function updateBossAI(d) {
+    if (boss.homeZ == null) boss.homeZ = boss.targetZ;
+    if (boss.phase == null) rollBossPhase();
+    boss.phaseT -= d;
+    boss.fireT += d;
+    const approach = (tz, ta, twx, k) => {
+      boss.z += (tz - boss.z) * k * d;
+      boss.alt += (ta - boss.alt) * k * d;
+      if (twx != null) boss.wx += (twx - boss.wx) * k * d;
+    };
+    if (boss.phase === 'warp') {
+      boss.wx += (boss.warpX - boss.wx) * 0.25 * d;
+      approach(boss.homeZ, 40, null, 0.08);
+    } else if (boss.phase === 'rake') {
+      boss.wx = Math.sin(boss.animT * 0.02) * 150;
+      approach(boss.homeZ, 44, null, 0.06);
+      if (boss.fireT >= 22) { boss.fireT = 0; bossFireAimed(2, 40); }
+    } else if (boss.phase === 'spray') {
+      approach(boss.homeZ - 30, 40, 0, 0.06);
+      if (boss.fireT >= 34) { boss.fireT = 0; bossFireSpray(7); }
+    } else if (boss.phase === 'dive') {
+      if (boss.phaseT > 60) approach(150, 20, player.wx, 0.05);
+      else approach(boss.homeZ, 42, null, 0.05);
+      if (boss.fireT >= 28) { boss.fireT = 0; bossFireAimed(1, 0); }
+    } else { // idle
+      boss.wx = Math.sin(boss.animT * 0.012) * 120;
+      approach(boss.homeZ, 34 + Math.sin(boss.animT * 0.03) * 12, null, 0.05);
+    }
+    if (boss.phaseT <= 0) {
+      if (boss.phase === 'idle') rollBossPhase();
+      else { boss.phase = 'idle'; boss.animKey = 'idle'; boss.phaseT = 34; }
+    }
   }
 
   function playerShoot() {
@@ -415,7 +542,7 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
       updateFx(d);
       if (clearTimer > 300) {
         state.stageId++;
-        if (state.stageId > MAX_STAGE) { state.mode = 'ending'; titleFrame = 0; }
+        if (state.stageId > MAX_STAGE) { state.mode = 'ending'; titleFrame = 0; stopBgm(); }
         else startStageRun();
       }
       return;
@@ -476,7 +603,7 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
       if (caRequested) { caFire(); }
     } else {
       player.deadT += d;
-      if (player.deadT > 120) { state.mode = 'gameover'; gameOverTimer = 0; state.maxCombo = Math.max(state.maxCombo, state.combo); }
+      if (player.deadT > 120) { state.mode = 'gameover'; gameOverTimer = 0; state.maxCombo = Math.max(state.maxCombo, state.combo); stopBgm(); }
     }
     caRequested = false;
     camX = player.wx * 0.62;
@@ -506,7 +633,7 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
       }
       if (e.interval > 0 && e.z < ZMAX * 0.85) {
         e.fireCnt += d;
-        if (e.fireCnt >= e.interval) { e.fireCnt = 0; fireEnemyShot(e, 0); }
+        if (e.fireCnt >= e.interval) { e.fireCnt = 0; fireEnemyShot(e); }
       }
       if (e.z <= -60) { enemies.splice(i, 1); continue; }
       if (!player.dead && e.z < 46 && e.z > -30) {
@@ -527,18 +654,10 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
         boss.z -= 9 * d;
         if (boss.z <= boss.targetZ) { boss.z = boss.targetZ; boss.entered = true; bossTimerOn = true; bossTimer = 99; bossTimerMs = 0; }
       } else if (!boss.dying) {
-        boss.wx = Math.sin(boss.animT * 0.012) * 130;
-        boss.alt = 34 + Math.sin(boss.animT * 0.03) * 14;
-        boss.z = boss.targetZ + Math.sin(boss.animT * 0.007) * 60;
-        boss.fireCnt += d;
-        if (boss.fireCnt >= boss.interval) {
-          boss.fireCnt = 0;
-          boss.attackT = 40;
-          fireEnemyShot(boss, 0); fireEnemyShot(boss, -1); fireEnemyShot(boss, 1);
-        }
-        if (boss.attackT > 0) boss.attackT -= d;
-        if (!player.dead && boss.z < 50) {
-          if (Math.abs(boss.wx - player.wx) < (boss.w + 34) / 2) damagePlayer(1);
+        updateBossAI(d);
+        if (!player.dead && boss.z < 60) {
+          if (Math.abs(boss.wx - player.wx) < (boss.w + 34) / 2 &&
+              Math.abs(boss.alt - player.alt) < boss.h / 2 + 24) damagePlayer(1);
         }
       }
     }
@@ -641,7 +760,7 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
     if (confirmEdge) { confirmEdge = false; return true; }
     return false;
   }
-  function toTitle() { state.mode = 'title'; titleFrame = 0; }
+  function toTitle() { state.mode = 'title'; titleFrame = 0; stopBgm(); }
 
   // ================== ASSET PRELOAD (plain Images from data URLs) ==================
   function loadImage(src) {
@@ -1129,9 +1248,11 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
       drawWorldSprite(anim(o.def.texture, o.animT, 0.1), o.wx, o.alt, o.z, o.flash > 0 ? { flash: true } : null);
     } else if (dd.kind === 'boss') {
       drawShadow(o.wx, o.z, o.w / SPR, { alpha: o.dying ? 0.5 : 1 });
-      const frameList = o.attackT > 0 && o.def.anim.attack && o.def.anim.attack.length ? o.def.anim.attack : o.def.anim.idle;
+      const anims = o.def.anim || {};
+      const ak = o.animKey || 'idle';
+      const frameList = (anims[ak] && anims[ak].length ? anims[ak] : anims.idle) || anims.idle;
       const op = o.flash > 0 ? { flash: true } : (o.dying ? { alpha: Math.max(0.25, 1 - o.dying / 180) } : null);
-      drawWorldSprite(anim(frameList, o.animT, 0.08), o.wx, o.alt, o.z, op);
+      drawWorldSprite(anim(frameList, o.animT, ak === 'shoot' ? 0.14 : 0.08), o.wx, o.alt, o.z, op);
     } else if (dd.kind === 'eshot') {
       drawWorldSprite(anim(o.tex, o.animT, 0.15), o.wx, o.alt, o.z, { scale: 1.1 });
     } else if (dd.kind === 'pshot') {
@@ -1326,7 +1447,8 @@ window.VOXEL3D_RUNTIME = function VOXEL3D_RUNTIME(DATA) {
 
   // ================== TEST HOOKS ==================
   window.__VOXEL3D__ = {
-    getState: function () { return { mode: state.mode, viewMode: viewMode, stageId: state.stageId, score: state.score, cagage: state.cagage, combo: state.combo, enemies: enemies ? enemies.length : 0, items: items ? items.length : 0, eshots: enemyShots ? enemyShots.length : 0, boss: boss ? { name: boss.name, hp: boss.hp, entered: boss.entered } : null, playerHp: player ? player.hp : 0, shootMode: player ? player.shootMode : null, waveCount: waveCount, waves: waves ? waves.length : 0, phaser: !!game, renderer: game && game.renderer ? game.renderer.type : -1, mesh2d: groundMeshOk }; },
+    getState: function () { return { mode: state.mode, viewMode: viewMode, stageId: state.stageId, score: state.score, cagage: state.cagage, combo: state.combo, enemies: enemies ? enemies.length : 0, items: items ? items.length : 0, eshots: enemyShots ? enemyShots.length : 0, boss: boss ? { name: boss.name, hp: boss.hp, entered: boss.entered, phase: boss.phase, wx: Math.round(boss.wx), z: Math.round(boss.z), alt: Math.round(boss.alt), animKey: boss.animKey } : null, playerHp: player ? player.hp : 0, shootMode: player ? player.shootMode : null, waveCount: waveCount, waves: waves ? waves.length : 0, phaser: !!game, renderer: game && game.renderer ? game.renderer.type : -1, mesh2d: groundMeshOk }; },
+    bgm: function () { return { stageIdx: state.stageId, src: bgmSrc ? String(bgmSrc).slice(0, 60) : null, hasAudio: !!bgmAudio, paused: bgmAudio ? bgmAudio.paused : null, stagesAvailable: Object.keys(bgmSources) }; },
     start: function () { confirmEdge = true; },
     god: function (on) { godMode = !!on; },
     skipToBoss: function () { if (state.mode === 'game') { waves = []; waveCount = 0; } },
