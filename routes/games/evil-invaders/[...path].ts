@@ -1,4 +1,5 @@
 import { define } from "../../../utils.ts";
+import { injectLauncherMarker } from "../../../lib/launcher-inject.ts";
 
 // Same-origin reverse proxy for the externally-hosted "Evil Invaders" game.
 //
@@ -82,6 +83,22 @@ export const handler = define.handlers({
     const headers = new Headers();
     for (const [k, v] of upstream.headers) {
       if (!STRIP_HEADERS.has(k.toLowerCase())) headers.set(k, v);
+    }
+
+    // HTML pages get the launcher-detection marker stamped in (see
+    // lib/launcher-inject.ts) so the game can hide its standalone chrome when
+    // embedded. Only full 200 responses — a 206 Range slice isn't a parseable
+    // document. Buffering here is fine: it's the one small HTML file; the big
+    // assets below keep streaming.
+    const upstreamType = (upstream.headers.get("content-type") || "")
+      .toLowerCase();
+    if (upstream.status === 200 && upstreamType.includes("text/html")) {
+      const html = injectLauncherMarker(await upstream.text());
+      return new Response(html, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers,
+      });
     }
 
     return new Response(upstream.body, {

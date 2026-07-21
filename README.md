@@ -65,6 +65,39 @@ middleware in [`main.ts`](main.ts), so the cross-origin fetch from a launcher on
 `localhost` works. Regenerate it locally with `deno task games:manifest` (it
 also runs as the first step of `deno task build`).
 
+## Launcher detection — hiding a game's own chrome
+
+Games often carry their own standalone chrome (a header, attribution, an
+instructions panel) that is redundant inside the launcher. CMG stamps the same
+detection contract as
+[codemonkey-games-launcher](https://github.com/easierbycode/codemonkey-games-launcher)
+onto every game document it runs, so a game can hide that chrome with plain CSS:
+
+```html
+<style>
+.inLauncher #info {
+  display: none !important;
+}
+</style>
+```
+
+Signals available when the game runs inside the launcher UI (embedded in the
+dashboard's game iframe — web, kiosk, and desktop builds alike):
+
+- class `inLauncher` on `<html>` and `<body>`
+- `<html data-cmg-launcher="1">`
+- `window.__CMG_LAUNCHER__ === true` and `window.__CMG__.launcher === true`
+
+Opening the same URL directly in a browser tab leaves all of these unset, so the
+standalone page keeps its chrome. The stamp is applied twice, idempotently:
+server-side into game HTML served for locally-added games and the evil-invaders
+proxy ([`lib/launcher-inject.ts`](lib/launcher-inject.ts)), and client-side into
+every same-origin game frame on load (`injectLauncherMarkerIntoFrame` in
+[`svelte-src/Dashboard.svelte`](svelte-src/Dashboard.svelte)) — which also
+covers the built-in static games and `/demos/*` routes. Cross-origin games can't
+be stamped from the launcher; they should self-detect with `if (self !== top)`
+(see [`static/demos/akuma.js`](static/demos/akuma.js)).
+
 ## Importing an OpenEmu game library
 
 `deno task openemu:import` copies every game from OpenEmu's library

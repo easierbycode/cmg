@@ -3777,6 +3777,35 @@
     } catch (_) { /* cross-origin frame — can't inject; it must postMessage instead */ }
   }
 
+  // Stamp the launcher-detection contract (ported from
+  // codemonkey-games-launcher; see lib/launcher-inject.ts) into a same-origin
+  // game frame: window.__CMG_LAUNCHER__ / window.__CMG__ globals, the
+  // data-cmg-launcher attribute, and the "inLauncher" class on <html> and
+  // <body>. Games hide their own standalone chrome with CSS like
+  // `.inLauncher #info { display:none !important; }`. This client-side stamp
+  // covers frames the server-side injector never sees — built-in static games
+  // served by staticFiles() and the /demos/* routes — while GAMES_DIR games
+  // and the evil-invaders proxy also get it injected server-side before their
+  // own scripts run. Both paths are idempotent, as is a game's own
+  // self-detection (e.g. static/demos/akuma.js). Cross-origin frames can't be
+  // reached from here; those rely on their host serving the marker.
+  function injectLauncherMarkerIntoFrame(e) {
+    const iframe = e?.currentTarget || document.getElementById('gameframe');
+    if (!iframe || !frameIsSameOrigin(iframe)) return;
+    try {
+      const w = iframe.contentWindow;
+      if (!w) return;
+      w.__CMG_LAUNCHER__ = true;
+      if (!w.__CMG__) {
+        try { w.__CMG__ = Object.freeze({ launcher: true, name: 'cmg' }); } catch (_) { /* ignore */ }
+      }
+      const doc = w.document;
+      doc.documentElement.setAttribute('data-cmg-launcher', '1');
+      doc.documentElement.classList.add('inLauncher');
+      if (doc.body) doc.body.classList.add('inLauncher');
+    } catch (_) { /* cross-origin frame — can't stamp from here */ }
+  }
+
   // The level editor frame gets no .osd-corner overlay zones (they'd swallow
   // taps on its toolbar corners — see editorFrameActive), so the two-finger
   // corner gestures are detected from INSIDE the frame instead: passive
@@ -5291,7 +5320,7 @@
       src={gameSrc}
       title="game"
       allow="autoplay; fullscreen; gamepad; xr-spatial-tracking"
-      onload={(e) => { injectOsdKeyForwarder(e); injectEditorCornerGesture(e); applyTwinStick(); applyTouchControls(); applyGameTheme(); }}
+      onload={(e) => { injectLauncherMarkerIntoFrame(e); injectOsdKeyForwarder(e); injectEditorCornerGesture(e); applyTwinStick(); applyTouchControls(); applyGameTheme(); }}
     ></iframe>
   </div>
 {/if}
