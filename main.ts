@@ -1,5 +1,6 @@
 import { App, staticFiles } from "fresh";
 import { define, type State } from "./utils.ts";
+import { injectLauncherMarker } from "./lib/launcher-inject.ts";
 
 export const app = new App<State>();
 
@@ -7,6 +8,31 @@ app.use(async (ctx) => {
   const res = await ctx.next();
   res.headers.set("Access-Control-Allow-Origin", "*");
   return res;
+});
+
+// Stamp the launcher-detection marker (lib/launcher-inject.ts) into every
+// game/demo HTML response, wherever it comes from: staticFiles() built-ins,
+// the GAMES_DIR catch-all, per-game Fresh routes, and the evil-invaders
+// proxy. Registered ahead of staticFiles() so it wraps those responses too.
+// Gated to /games/* and /demos/* so the dashboard shell, editor, and players
+// stay untouched. The marker script only activates when the page is actually
+// embedded (window.parent !== window), so this also covers packaged launchers
+// that resolve built-in games/demos against the deploy origin — cross-origin
+// frames the client-side stamp in Dashboard.svelte can't reach. Validator
+// headers are dropped along with content-length: a 304 against a
+// pre-injection cached copy would otherwise keep serving unstamped HTML.
+app.use(async (ctx) => {
+  const res = await ctx.next();
+  if (ctx.req.method !== "GET" || res.status !== 200) return res;
+  if (!/^\/(games|demos)(\/|$)/.test(new URL(ctx.req.url).pathname)) return res;
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("text/html")) return res;
+  const html = injectLauncherMarker(await res.text());
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  headers.delete("etag");
+  headers.delete("last-modified");
+  return new Response(html, { status: res.status, headers });
 });
 
 app.use(staticFiles());
