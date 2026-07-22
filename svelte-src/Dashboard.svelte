@@ -3790,10 +3790,19 @@
   // for same-origin frames whose HTML skipped the middleware (e.g. a game
   // page cached before the marker shipped). All paths are idempotent, as is
   // a game's own self-detection (e.g. static/demos/akuma.js). Truly external
-  // cross-origin games rely on their host serving the marker.
+  // cross-origin games rely on their host serving the marker, or on the
+  // cmg-in-launcher message below: an externally hosted build that can't be
+  // stamped from here (pacman-halloween-2025's streamUrl copy, which hides its
+  // logo off .inLauncher) adds the class itself when told.
   function injectLauncherMarkerIntoFrame(e) {
     const iframe = e?.currentTarget || document.getElementById('gameframe');
-    if (!iframe || !frameIsSameOrigin(iframe)) return;
+    if (!iframe) return;
+    if (!frameIsSameOrigin(iframe)) {
+      try {
+        iframe.contentWindow?.postMessage({ type: 'cmg-in-launcher', value: true }, '*');
+      } catch (_) { /* ignore */ }
+      return;
+    }
     try {
       const w = iframe.contentWindow;
       if (!w) return;
