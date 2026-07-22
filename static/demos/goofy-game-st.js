@@ -7,7 +7,10 @@
 //
 //   * player — one row per client (globe angle/radius, facing, anim state,
 //     banked coins). We upsert ours a few times a second via `update_player`;
-//     every other row is rendered as an interpolated remote Goofy.
+//     every other row is rendered as an interpolated remote player. P1 (the
+//     lowest live id) plays Goofy; every additional player is dressed in a
+//     character from the ENEMIES roster, hashed from their identity so all
+//     clients agree.
 //   * brick  — sparse "this brick was hit" rows. The letter layout is
 //     computed deterministically on every client (identical math + constants
 //     + fixed 800x800 world), so a brick is addressed by a stable
@@ -29,8 +32,38 @@
 // The choice is remembered in localStorage. Defaults: SpacetimeDB Maincloud +
 // module "cmg-goofy-game".
 
-const ASSET_BASE =
-  'https://raw.githubusercontent.com/easierbycode/monkey-kombat/main/assets';
+// All art is committed locally under static/demos/goofy-game-st/ (the Goofy /
+// mario atlases were pulled from easierbycode/monkey-kombat, the enemy sheets
+// from assets.codepen.io/4364), so the demo loads no cross-origin assets.
+const ASSET_BASE = '/demos/goofy-game-st';
+
+// Enemy skins — the character roster from the "Mar.io sandbox" CodePen
+// (raw-assets/codepen ENEMIES array). Each sheet is two 32x32 walk frames,
+// served from static/demos/goofy-game-st/enemies/. P1 wears the classic Goofy;
+// every additional player who joins is assigned one of these instead, picked
+// by hashing their identity so all clients agree on who wears what.
+const ENEMIES = [
+  'blue-horn-girl',
+  'crab',
+  'creeper',
+  'crewmate',
+  'donkey-kong',
+  'dr-mario',
+  'excitebike',
+  'goomba-blue',
+  'helmet',
+  'hello-kitty',
+  'krusty',
+  'mnm',
+  'ryu',
+  'shy-guy',
+  'snake',
+  'virus',
+];
+const ENEMY_FRAME_SIZE = 32;
+const ENEMY_WALK_FRAME_RATE = 6; // matches the CodePen AnimatedSprite default
+const enemyKey = (name) => `enemy-${name}`;
+const enemyWalkAnim = (name) => `enemy-${name}-walk`;
 
 const GLOBE_KEY = 'mario-globe';
 const GOOFY_KEY = 'goofy-walk';
@@ -48,6 +81,49 @@ const FIREWORK_ANIM = 'mario-firework-spin';
 
 const GLOBE_SCALE = 0.45;
 const GOOFY_SCALE = 0.6;
+// Goofy's walk frames are 40px tall at 0.6 scale (~24px displayed); the 32px
+// enemy frames wear 0.75 so every character stands the same height.
+const ENEMY_SCALE = 0.75;
+
+// A "skin" bundles everything the shared goofy simulation needs to draw a
+// character: walk/jump textures + the walk loop + its display scale. Enemies
+// have no dedicated jump sheet, so they freeze on their first walk frame
+// mid-air.
+const GOOFY_SKIN = {
+  id: 'goofy',
+  walkKey: GOOFY_KEY,
+  walkFrame: 'atlas_s0',
+  walkAnim: GOOFY_WALK_ANIM,
+  jumpKey: GOOFY_JUMP_KEY,
+  jumpFrame: 'atlas_s0',
+  scale: GOOFY_SCALE,
+};
+
+function enemySkin(name) {
+  return {
+    id: name,
+    walkKey: enemyKey(name),
+    walkFrame: 0,
+    walkAnim: enemyWalkAnim(name),
+    jumpKey: enemyKey(name),
+    jumpFrame: 0,
+    scale: ENEMY_SCALE,
+  };
+}
+
+// Role 0 (lowest live id — P1) plays Goofy; every additional player gets an
+// enemy picked by FNV-1a hashing their identity. Deterministic, so each
+// client independently assigns the same character to the same player.
+function skinForPlayer(id, roleIndex) {
+  if (roleIndex === 0) return GOOFY_SKIN;
+  const s = String(id);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return enemySkin(ENEMIES[(h >>> 0) % ENEMIES.length]);
+}
 
 const ANGULAR_SPEED_RAD_PER_SEC = 1.1;
 const GLOBE_ROTATION_FACTOR = 0.25;
@@ -126,6 +202,10 @@ const TABLE_PK = { player: 'identity', brick: 'key', coin: 'id', world: 'id' };
 function idKey(v) {
   if (v == null) return '';
   if (typeof v === 'string' || typeof v === 'number') return String(v);
+  // Identity sometimes arrives positionally as a one-element product array
+  // (e.g. our own row echoed back as ["0x…"]); unwrap it so it compares equal
+  // to the handshake identity, or we'd render ourselves as a ghost peer.
+  if (Array.isArray(v) && v.length === 1) return idKey(v[0]);
   if (typeof v === 'object') {
     return v.__identity__ ?? v.__identity ?? v.Identity ?? v.identity ?? v.hex ?? JSON.stringify(v);
   }
@@ -409,6 +489,12 @@ class GoofySpacetimeScene extends Phaser.Scene {
     this.load.atlas(BLOCK_KEY, `${ASSET_BASE}/mario-block.png`, `${ASSET_BASE}/mario-block.json`);
     this.load.atlas(COIN_KEY, `${ASSET_BASE}/coin.png`, `${ASSET_BASE}/coin.json`);
     this.load.atlas(FIREWORK_KEY, `${ASSET_BASE}/mario-firework.png`, `${ASSET_BASE}/mario-firework.json`);
+    for (const name of ENEMIES) {
+      this.load.spritesheet(enemyKey(name), `${ASSET_BASE}/enemies/${name}.png`, {
+        frameWidth: ENEMY_FRAME_SIZE,
+        frameHeight: ENEMY_FRAME_SIZE,
+      });
+    }
   }
 
   create() {
@@ -548,12 +634,9 @@ class GoofySpacetimeScene extends Phaser.Scene {
       r.coins = rec.coins | 0;
       r.lastSeen = this.time.now;
       const walking = r.state === STATE_WALKING;
-      if (walking && r.sprite.texture.key !== GOOFY_KEY) {
-        r.sprite.setTexture(GOOFY_KEY, 'atlas_s0');
-        r.sprite.play(GOOFY_WALK_ANIM);
-      } else if (!walking && r.sprite.texture.key !== GOOFY_JUMP_KEY) {
-        r.sprite.anims.stop();
-        r.sprite.setTexture(GOOFY_JUMP_KEY, 'atlas_s0');
+      if (walking !== r.shownWalking) {
+        r.shownWalking = walking;
+        this.poseSprite(r);
       }
     } else {
       this.removeRemote(pk);
@@ -637,6 +720,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
     sprite.play(GOOFY_WALK_ANIM);
     return {
       sprite,
+      skin: GOOFY_SKIN,
       angle: -Math.PI / 2,
       direction: 1,
       state: STATE_WALKING,
@@ -659,15 +743,38 @@ class GoofySpacetimeScene extends Phaser.Scene {
     sprite.play(GOOFY_WALK_ANIM);
     return {
       sprite,
+      skin: GOOFY_SKIN,
       angle: -Math.PI / 2,
       targetAngle: -Math.PI / 2,
       radius: this.globeRadius,
       targetRadius: this.globeRadius,
       direction: 1,
       state: STATE_WALKING,
+      shownWalking: true,
       coins: 0,
       lastSeen: this.time.now,
     };
+  }
+
+  // Point a goofy's sprite at its skin's texture for the pose it is in.
+  // Enemy skins reuse the walk sheet for jumps (frozen frame), so pose can't
+  // be inferred from the texture key — callers track it via g.state.
+  poseSprite(g) {
+    if (g.state === STATE_WALKING) {
+      g.sprite.setTexture(g.skin.walkKey, g.skin.walkFrame);
+      g.sprite.play(g.skin.walkAnim);
+    } else {
+      g.sprite.anims.stop();
+      g.sprite.setTexture(g.skin.jumpKey, g.skin.jumpFrame);
+    }
+  }
+
+  // Swap a goofy (local or remote) into a new skin, keeping its current pose.
+  applySkin(g, skin) {
+    if (!g || g.skin.id === skin.id) return;
+    g.skin = skin;
+    g.sprite.setScale(skin.scale);
+    this.poseSprite(g);
   }
 
   makeCoinSprite() {
@@ -753,6 +860,16 @@ class GoofySpacetimeScene extends Phaser.Scene {
         key: FIREWORK_ANIM,
         frames: this.anims.generateFrameNames(FIREWORK_KEY, { prefix: 'atlas_s', start: 0, end: 1 }),
         frameRate: 10,
+        repeat: -1,
+      });
+    }
+    for (const name of ENEMIES) {
+      const key = enemyWalkAnim(name);
+      if (this.anims.exists(key)) continue;
+      this.anims.create({
+        key,
+        frames: this.anims.generateFrameNumbers(enemyKey(name), {}),
+        frameRate: ENEMY_WALK_FRAME_RATE,
         repeat: -1,
       });
     }
@@ -965,8 +1082,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
     if (g.state !== STATE_WALKING || this.advancing) return;
     g.state = STATE_JUMPING;
     g.jumpElapsed = 0;
-    g.sprite.anims.stop();
-    g.sprite.setTexture(GOOFY_JUMP_KEY, 'atlas_s0');
+    this.poseSprite(g);
 
     if (g === this.local) {
       for (const c of this.collidables) {
@@ -979,8 +1095,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
     g.state = STATE_WALKING;
     g.jumpRadius = this.globeRadius;
     g.direction *= -1;
-    g.sprite.setTexture(GOOFY_KEY, 'atlas_s0');
-    g.sprite.play(GOOFY_WALK_ANIM);
+    this.poseSprite(g);
   }
 
   update(_, deltaMs) {
@@ -1216,8 +1331,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
 
   launchGoofyFromBlock(c, g) {
     g.state = STATE_LAUNCHING;
-    g.sprite.anims.stop();
-    g.sprite.setTexture(GOOFY_JUMP_KEY, 'atlas_s0');
+    this.poseSprite(g);
     g.sprite.setFlipX(false);
 
     const cx = this.globe.x;
@@ -1227,8 +1341,8 @@ class GoofySpacetimeScene extends Phaser.Scene {
       targets: g.sprite,
       x: c.worldX,
       y: c.worldY,
-      scaleX: GOOFY_SCALE * 0.12,
-      scaleY: GOOFY_SCALE * 0.12,
+      scaleX: g.skin.scale * 0.12,
+      scaleY: g.skin.scale * 0.12,
       duration: LAUNCH_SUCK_MS,
       ease: 'Quad.In',
       onComplete: () => {
@@ -1258,7 +1372,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
     // coins spill out the bottom onto the globe.
     this.ejectCoinsFromBlock(c, g);
 
-    g.sprite.setScale(GOOFY_SCALE);
+    g.sprite.setScale(g.skin.scale);
     g.sprite.setVisible(true);
     g.sprite.setFlipY(true);
 
@@ -1309,8 +1423,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
     g.angle = targetAngle;
     g.jumpRadius = this.globeRadius;
     g.state = STATE_WALKING;
-    g.sprite.setTexture(GOOFY_KEY, 'atlas_s0');
-    g.sprite.play(GOOFY_WALK_ANIM);
+    this.poseSprite(g);
     this.positionGoofy(g);
   }
 
@@ -1382,8 +1495,12 @@ class GoofySpacetimeScene extends Phaser.Scene {
     }
   }
 
-  // Derive roles from the sorted set of live ids (lowest = P1, untinted),
-  // tint each goofy accordingly, and refresh the scoreboard.
+  // Derive roles from the sorted set of live ids (lowest = P1), dress each
+  // player for their role — P1 is Goofy, additional players wear their
+  // identity-hashed enemy skin — and refresh the scoreboard. The cycling role
+  // tint still colours the scoreboard swatches (and is broadcast as our
+  // `color`), but sprites keep their own palettes: enemy characters are
+  // already visually distinct, and tinting their pixel art just muddies it.
   refreshRoles() {
     const meId = this.myIdKey || '~self';
     const ids = [meId, ...this.remotes.keys()].sort();
@@ -1392,8 +1509,10 @@ class GoofySpacetimeScene extends Phaser.Scene {
     ids.forEach((id, i) => {
       const isMe = id === meId;
       const tint = i === 0 ? null : hsvToColor((t + i * 0.17) % 1, 1, 1);
-      const sprite = isMe ? this.local.sprite : this.remotes.get(id)?.sprite;
-      if (sprite) { if (tint == null) sprite.clearTint(); else sprite.setTint(tint); }
+      const g = isMe ? this.local : this.remotes.get(id);
+      // Don't reskin mid-launch — the launch tweens own the sprite's scale
+      // and visibility; the next refresh after landing catches it up.
+      if (g && g.state !== STATE_LAUNCHING) this.applySkin(g, skinForPlayer(id, i));
       if (isMe) { this._myRole = `P${i + 1}`; this._myTint = tint; }
       const myCoins = this.online && this.serverCoins != null ? this.serverCoins : this.local.coins;
       rows.push({

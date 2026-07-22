@@ -17,6 +17,19 @@ is streamed to every client:
 Client: [`static/demos/goofy-game-st.js`](../../static/demos/goofy-game-st.js).
 Route: [`routes/demos/goofy-game-st.tsx`](../../routes/demos/goofy-game-st.tsx).
 
+## Characters
+
+P1 (the lowest live id) plays Goofy. Every additional player is randomly
+assigned a character from the `ENEMIES` roster — the 16 sprites from the
+"Mar.io sandbox" CodePen (`raw-assets/codepen`): blue-horn-girl, crab, creeper,
+crewmate, donkey-kong, dr-mario, excitebike, goomba-blue, helmet, hello-kitty,
+krusty, mnm, ryu, shy-guy, snake and virus. The pick hashes the player's
+identity, so every client independently dresses the same player in the same
+character. All art — the Goofy/mario atlases and the enemy sheets — is
+committed under
+[`static/demos/goofy-game-st/`](../../static/demos/goofy-game-st/), so the
+demo loads no cross-origin assets.
+
 ## Publishing the module
 
 The client talks to SpacetimeDB directly over its JSON WebSocket subprotocol
