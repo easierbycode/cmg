@@ -816,7 +816,15 @@ class GoofySpacetimeScene extends Phaser.Scene {
     if (this.online && coin.remote) {
       if (coin.claimPending) return;
       coin.claimPending = true;
-      this.stdb.callReducer('collect_coin', [coin.id]);
+      // coin.id is the primary key as normalised by idKey() — i.e. a *string*
+      // ("5"), since idKey stringifies every id so it can key the coins Map.
+      // But the collect_coin reducer's u64 param deserialises from a JSON
+      // *number*: passing the string errors the reducer server-side ("invalid
+      // type: string \"5\", expected u64"), the coin row is never deleted, and
+      // claimPending latches so the touch silently does nothing forever. Coerce
+      // back to a number. (Coin ids are small auto_inc values, well within
+      // Number's safe-integer range.)
+      this.stdb.callReducer('collect_coin', [Number(coin.id)]);
     } else {
       // Solo (or a coin we spawned locally): bank immediately.
       this.removeCoin(coin.id);
