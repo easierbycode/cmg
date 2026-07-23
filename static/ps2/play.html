@@ -133,9 +133,23 @@
           } catch (_) {}
         }
 
+        // The dashboard opens this player as a TOP-LEVEL navigation (COOP+COEP
+        // are scoped to /ps2/*; an iframe can't cross-origin-isolate unless
+        // the dashboard did too). Detect which mode we're in: embedded keeps
+        // the postMessage/OSD contract, top-level gets its own exit paths.
+        var topLevel = (function () {
+          try { return window.parent === window; } catch (_) { return true; }
+        })();
+
+        function exitToDashboard() {
+          if (history.length > 1) history.back();
+          else location.href = "/";
+        }
+
         // The ` / ~ key (Backquote) mirrors the SELECT + Down gamepad chord so
         // the in-game OSD (which holds Exit Game) is reachable from a keyboard
-        // when no pad is seen. The dashboard listens for tg16-toggle-controls.
+        // when no pad is seen. The dashboard listens for tg16-toggle-controls;
+        // top-level (no dashboard OSD) it exits straight back, as does Escape.
         window.addEventListener("keydown", function (e) {
           if (
             e.code === "Backquote" || e.key === "`" || e.key === "~" ||
@@ -143,9 +157,33 @@
           ) {
             e.preventDefault();
             e.stopImmediatePropagation();
-            postParent("tg16-toggle-controls");
+            if (topLevel) exitToDashboard();
+            else postParent("tg16-toggle-controls");
+          } else if (topLevel && e.code === "Escape") {
+            e.preventDefault();
+            exitToDashboard();
           }
         }, true);
+
+        // Top-level gamepad exit: hold SELECT + START for ~0.7s.
+        if (topLevel) {
+          var chordSince = 0;
+          setInterval(function () {
+            var pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+            var chord = false;
+            for (var i = 0; i < pads.length; i++) {
+              var p = pads[i];
+              if (!p || !p.connected || !p.buttons) continue;
+              if (p.buttons[8] && p.buttons[8].pressed && p.buttons[9] && p.buttons[9].pressed) {
+                chord = true;
+                break;
+              }
+            }
+            if (!chord) { chordSince = 0; return; }
+            if (!chordSince) { chordSince = Date.now(); return; }
+            if (Date.now() - chordSince > 700) exitToDashboard();
+          }, 120);
+        }
 
         // First touch tells the parent to drop transient chrome (parity with
         // the PSX/TG16 players).
@@ -285,11 +323,32 @@
           return;
         }
 
-        if (byod) {
-          // BYOD — the dashboard (same-origin parent) delivers the picked disc
-          // File via postMessage so it lives in this realm. PS2 disc formats are
-          // single-file (iso/cso/chd/isz/bin/elf), so there's no cue+bin zip
-          // bundling like the PSX path needs.
+        if (byod && topLevel) {
+          // BYOD, top-level — the dashboard parked the picked disc File in
+          // IndexedDB before navigating here (a top-level page has no parent
+          // to postMessage a File from). Collect and clear it.
+          var open = indexedDB.open("cmg-ps2-byod", 1);
+          open.onupgradeneeded = function () { open.result.createObjectStore("files"); };
+          open.onerror = function () { fail("BYOD failed: IndexedDB unavailable."); };
+          open.onsuccess = function () {
+            var db = open.result;
+            var tx = db.transaction("files", "readwrite");
+            var store = tx.objectStore("files");
+            var get = store.get("disc");
+            get.onsuccess = function () {
+              var file = get.result;
+              store.delete("disc");
+              if (!file) { fail("BYOD failed: no disc file was handed off."); return; }
+              boot(file, file.name || "disc.iso");
+            };
+            get.onerror = function () { fail("BYOD failed: could not read the disc file."); };
+            tx.oncomplete = function () { db.close(); };
+          };
+        } else if (byod) {
+          // BYOD, embedded — the dashboard (same-origin parent) delivers the
+          // picked disc File via postMessage so it lives in this realm. PS2
+          // disc formats are single-file (iso/cso/chd/isz/bin/elf), so there's
+          // no cue+bin zip bundling like the PSX path needs.
           var booted = false;
           window.addEventListener("message", function (ev) {
             if (booted) return;

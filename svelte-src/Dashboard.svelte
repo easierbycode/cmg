@@ -16,6 +16,7 @@
 
   const TG16_ID = '__tg16__';
   const PSX_ID  = '__psx__';
+  const PS2_ID  = '__ps2__';
   const SATURN_ID = '__saturn__';
   const NES_ID = '__nes__';
   const DEMOS_ID = '__demos__';
@@ -52,6 +53,7 @@
     { id: ARCADE_ID,                                               name: 'Arcade',              title: 'ARCADE',              sub: 'MAME // submenu', icon: null,                                   size: '— MB',    date: 'MAME',    submenu: true },
     { id: NES_ID,                                                  name: 'Nintendo',            title: 'NINTENDO',            sub: 'NES // submenu',  icon: null,                                   size: '— MB',    date: 'NES',     submenu: true },
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
+    { id: PS2_ID,                                                  name: 'PlayStation 2',       title: 'PLAYSTATION 2',       sub: 'PS2 // submenu',  icon: null,                                   size: '— MB',    date: 'PS2',     submenu: true },
     { id: SATURN_ID,                                               name: 'Sega Saturn',         title: 'SEGA SATURN',         sub: 'SS // submenu',   icon: null,                                   size: '— MB',    date: 'SS',      submenu: true },
     { id: TG16_ID,                                                 name: 'TurboGrafx-16',       title: 'TURBOGRAFX-16',       sub: 'PCE // submenu',  icon: null,                                   size: '— MB',    date: 'PCE',     submenu: true },
   ];
@@ -71,7 +73,7 @@
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
 
-  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'saturn' | 'demos' | 'cmgnet' | 'addgame' | 'settings' | 'oeimport' | 'ctrlsync'
+  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'ps2' | 'saturn' | 'demos' | 'cmgnet' | 'addgame' | 'settings' | 'oeimport' | 'ctrlsync'
   let menuSel = $state(1);           // start on Games
   let gameSel = $state(0);
   let clockStr = $state('--:--:--');
@@ -139,6 +141,12 @@
   let psxByodError = $state('');
   let psxFileInput = $state(null);
   let psxByodBtnEl = $state(null);
+  let ps2Games = $state([]);
+  let ps2Sel = $state(0);
+  let ps2RowEls = $state([]);
+  let ps2ByodError = $state('');
+  let ps2FileInput = $state(null);
+  let ps2ByodBtnEl = $state(null);
   let saturnGames = $state([]);
   let saturnSel = $state(0);
   let saturnRowEls = $state([]);
@@ -1108,6 +1116,12 @@
   });
 
   $effect(() => {
+    if (screen !== 'ps2') return;
+    const el = ps2RowEls[ps2Sel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  $effect(() => {
     if (screen !== 'saturn') return;
     const el = saturnRowEls[saturnSel];
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -1174,6 +1188,11 @@
   });
 
   $effect(() => {
+    if (screen !== 'ps2' || ps2Games.length !== 0) return;
+    queueMicrotask(() => { try { ps2ByodBtnEl?.focus(); } catch (_) {} });
+  });
+
+  $effect(() => {
     if (screen !== 'saturn' || saturnGames.length !== 0) return;
     queueMicrotask(() => { try { saturnByodBtnEl?.focus(); } catch (_) {} });
   });
@@ -1183,6 +1202,7 @@
   let currentArcade = $derived(arcadeGames[arcadeSel]);
   let onArcadeByobRow = $derived(arcadeSel >= arcadeGames.length);
   let currentPsx = $derived(psxGames[psxSel]);
+  let currentPs2 = $derived(ps2Games[ps2Sel]);
   let currentSaturn = $derived(saturnGames[saturnSel]);
   // undefined when nesSel is on the pinned BYOC row (index === nesGames.length).
   let currentNes = $derived(nesGames[nesSel]);
@@ -1207,6 +1227,11 @@
     psxGames.length === 0
       ? '00 / 00'
       : String(psxSel + 1).padStart(2, '0') + ' / ' + String(psxGames.length).padStart(2, '0')
+  );
+  let ps2CounterText = $derived(
+    ps2Games.length === 0
+      ? '00 / 00'
+      : String(ps2Sel + 1).padStart(2, '0') + ' / ' + String(ps2Games.length).padStart(2, '0')
   );
   let saturnCounterText = $derived(
     saturnGames.length === 0
@@ -1303,7 +1328,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
+    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
     else if (screen === 'oeimport' || screen === 'ctrlsync') screen = 'settings';
     else screen = 'dashboard';
   }
@@ -1472,6 +1497,7 @@
     loadArcadeList();
     loadTg16List();
     loadPsxList();
+    loadPs2List();
     loadSaturnList();
     loadNesList();
   }
@@ -1521,6 +1547,11 @@
     if (id === PSX_ID) {
       sfx.enter();
       screen = 'psx';
+      return;
+    }
+    if (id === PS2_ID) {
+      sfx.enter();
+      screen = 'ps2';
       return;
     }
     if (id === SATURN_ID) {
@@ -1667,6 +1698,17 @@
     chromeDismissed = false;
     gameSrc = '/psx/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function launchPs2(file) {
+    if (!file) return;
+    sfx.enter();
+    // Top-level navigation, not the game iframe: Play! needs
+    // crossOriginIsolated (SharedArrayBuffer), which only /ps2/* responses
+    // carry (COOP+COEP — see main.ts). An iframe can only isolate when the
+    // embedding page is isolated too, and a site-wide COEP would break every
+    // other embedded game. Backquote / SELECT+START in the player goes back.
+    location.href = '/ps2/play.html?rom=' + encodeURIComponent(file);
   }
 
   function launchSaturn(file) {
@@ -2623,6 +2665,18 @@
     }
   }
 
+  async function loadPs2List() {
+    try {
+      const r = await fetch('/PlayStation2/manifest.json');
+      if (!r.ok) return;
+      const list = await r.json();
+      ps2Games = Array.isArray(list) ? list : [];
+      if (ps2Sel >= ps2Games.length) ps2Sel = 0;
+    } catch (_e) {
+      ps2Games = [];
+    }
+  }
+
   async function loadSaturnList() {
     try {
       const r = await fetch('/SegaSaturn/manifest.json');
@@ -2860,6 +2914,54 @@
     // context is anchored to a user-visible element. Falls back to the input.
     try { psxByodBtnEl?.click(); return; } catch (_) {}
     try { psxFileInput?.click(); } catch (_) {}
+  }
+
+  // PS2 BYOD — Play! boots single-file images (iso/cso/chd/isz/bin/elf), so
+  // unlike the PSX/Saturn disc path there is nothing to bundle: the file is
+  // handed to /ps2/play.html as-is via the byod message handshake, and its
+  // lazy-slicing DiscImageDevice streams multi-GB discs without buffering.
+  async function handlePs2ByodFiles(files) {
+    ps2ByodError = '';
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+    const main = list.find((f) => /\.(iso|cso|chd|isz|bin|elf)$/i.test(f.name));
+    if (!main) {
+      ps2ByodError = 'Pick a .iso, .cso, .chd, .isz, .bin, or .elf file.';
+      return;
+    }
+    // The PS2 player is a top-level navigation (see launchPs2), so the File
+    // can't ride a postMessage handshake like the PSX iframe path — park it
+    // in IndexedDB (Files are structured-cloneable) for play.html to collect.
+    try {
+      await new Promise((resolve, reject) => {
+        const open = indexedDB.open('cmg-ps2-byod', 1);
+        open.onupgradeneeded = () => { open.result.createObjectStore('files'); };
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction('files', 'readwrite');
+          tx.objectStore('files').put(main, 'disc');
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => { db.close(); reject(tx.error); };
+        };
+      });
+    } catch (e) {
+      ps2ByodError = 'BYOD handoff failed: ' + (e && e.message ? e.message : e);
+      return;
+    }
+    sfx.enter();
+    location.href = '/ps2/play.html?byod=1';
+  }
+
+  function onPs2ByodChange(ev) {
+    const input = ev.currentTarget;
+    handlePs2ByodFiles(input.files);
+    setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
+  }
+
+  function openPs2ByodPicker() {
+    try { ps2ByodBtnEl?.click(); return; } catch (_) {}
+    try { ps2FileInput?.click(); } catch (_) {}
   }
 
   // Saturn BYOD — a copy of the PSX path (Saturn shares PSX's disc formats, so
@@ -3264,6 +3366,7 @@
     else if (screen === 'arcade') arcadeSel = Math.max(arcadeSel - 1, 0);
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Sel - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxSel - 1, 0);
+    else if (screen === 'ps2') ps2Sel = Math.max(ps2Sel - 1, 0);
     else if (screen === 'saturn') saturnSel = Math.max(saturnSel - 1, 0);
     else if (screen === 'nes') nesSel = Math.max(nesSel - 1, 0);
     else if (screen === 'demos') demosSel = Math.max(demosSel - 1, 0);
@@ -3280,6 +3383,7 @@
     else if (screen === 'arcade') arcadeSel = Math.min(arcadeSel + 1, arcadeGames.length);
     else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
     else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
+    else if (screen === 'ps2') ps2Sel = Math.min(ps2Sel + 1, Math.max(ps2Games.length - 1, 0));
     else if (screen === 'saturn') saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0));
     else if (screen === 'nes') nesSel = Math.min(nesSel + 1, nesGames.length);
     else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
@@ -3296,6 +3400,7 @@
     else if (screen === 'arcade') arcadeSel = 0;
     else if (screen === 'tg16') tg16Sel = 0;
     else if (screen === 'psx') psxSel = 0;
+    else if (screen === 'ps2') ps2Sel = 0;
     else if (screen === 'saturn') saturnSel = 0;
     else if (screen === 'nes') nesSel = 0;
     else if (screen === 'demos') demosSel = 0;
@@ -3312,6 +3417,7 @@
     else if (screen === 'arcade') arcadeSel = arcadeGames.length;
     else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
     else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
+    else if (screen === 'ps2') ps2Sel = Math.max(ps2Games.length - 1, 0);
     else if (screen === 'saturn') saturnSel = Math.max(saturnGames.length - 1, 0);
     else if (screen === 'nes') nesSel = nesGames.length;
     else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
@@ -3335,6 +3441,10 @@
       if (psxGames.length === 0) openByodPicker();
       else launchPsx(psxGames[psxSel]?.file);
     }
+    else if (screen === 'ps2') {
+      if (ps2Games.length === 0) openPs2ByodPicker();
+      else launchPs2(ps2Games[ps2Sel]?.file);
+    }
     else if (screen === 'saturn') {
       if (saturnGames.length === 0) openSaturnByodPicker();
       else launchSaturn(saturnGames[saturnSel]?.file);
@@ -3356,7 +3466,7 @@
     // only gamepad close path off-game, since the Guide (which owns the in-game
     // toggle) isn't reachable without a game. Closes the topmost overlay first.
     else if (musicOpen) closeMusic();
-    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
+    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
   }
   // CMG Network only: pull the latest build from GitHub for the selected game,
   // when one is installed and an update was detected.
@@ -3685,6 +3795,14 @@
       else if (e.key === 'Enter' || e.key === ' ') {
         if (psxGames.length === 0) openByodPicker();
         else launchPsx(psxGames[psxSel]?.file);
+      }
+      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+    } else if (screen === 'ps2') {
+      if (e.key === 'ArrowDown') { ps2Sel = Math.min(ps2Sel + 1, Math.max(ps2Games.length - 1, 0)); sfx.nav(); }
+      else if (e.key === 'ArrowUp') { ps2Sel = Math.max(ps2Sel - 1, 0); sfx.nav(); }
+      else if (e.key === 'Enter' || e.key === ' ') {
+        if (ps2Games.length === 0) openPs2ByodPicker();
+        else launchPs2(ps2Games[ps2Sel]?.file);
       }
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'saturn') {
@@ -4214,6 +4332,7 @@
     loadArcadeList();
     loadTg16List();
     loadPsxList();
+    loadPs2List();
     loadSaturnList();
     loadNesList();
     registerCmgSw();
@@ -4670,6 +4789,83 @@
                 class="game-row {i === psxSel ? 'sel' : ''}"
                 onmouseenter={() => { if (i !== psxSel) { psxSel = i; sfx.nav(); } }}
                 onclick={() => launchPsx(g.file)}
+              >
+                <div class="game-icon">
+                  <div class="glass">
+                    <span class="ph">{initial(g.name)}</span>
+                  </div>
+                </div>
+                <div class="game-bar">
+                  <span class="name">{g.name.toUpperCase()}</span>
+                  <span class="sub">{g.size}</span>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="games-screen {screen === 'ps2' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // ps2</span>
+        <span>play!</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{currentPs2 ? currentPs2.name : '—'}</b></div>
+          <div><span class="k">size</span><b>{currentPs2 ? currentPs2.size : '—'}</b></div>
+          <div><span class="k">type</span><b>PS2 / DISC</b></div>
+          <div><span class="k">date</span><b>{currentPs2 ? currentPs2.date : '—'}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">PLAYSTATION 2</div>
+          <div class="counter">{ps2CounterText}</div>
+        </div>
+        <div class="games-list">
+          {#if ps2Games.length === 0}
+            <div class="byod">
+              <div class="byod-title">BYOD — Bring Your Own Disc</div>
+              <div class="byod-sub">No PS2 images in <code>static/PlayStation2/</code>. Pick a disc image from disk:</div>
+              <input
+                type="file"
+                bind:this={ps2FileInput}
+                accept=".iso,.cso,.chd,.isz,.bin,.elf,application/octet-stream"
+                onchange={onPs2ByodChange}
+                class="byod-input"
+              />
+              <button
+                type="button"
+                class="byod-btn"
+                bind:this={ps2ByodBtnEl}
+                onclick={() => { try { ps2FileInput?.click(); } catch (_) {} }}
+              >
+                <span class="byod-btn-icon">⬆</span>
+                <span>Choose disc image…</span>
+              </button>
+              <div class="byod-hint">
+                .iso · .cso · .chd · .isz load directly (streamed, so DVD-size images are fine).<br>
+                .elf boots AthenaEnv / homebrew.
+              </div>
+              {#if ps2ByodError}
+                <div class="byod-err">{ps2ByodError}</div>
+              {/if}
+            </div>
+          {:else}
+            {#each ps2Games as g, i (g.file)}
+              <div
+                bind:this={ps2RowEls[i]}
+                class="game-row {i === ps2Sel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== ps2Sel) { ps2Sel = i; sfx.nav(); } }}
+                onclick={() => launchPs2(g.file)}
               >
                 <div class="game-icon">
                   <div class="glass">
@@ -5274,7 +5470,7 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
+  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -5306,7 +5502,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'ps2' ? (ps2Games.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
   </div>
 </div>
 

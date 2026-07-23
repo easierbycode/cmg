@@ -1,16 +1,9 @@
 [
   {
-    "file": "athena.elf",
-    "name": "athena",
-    "url": "/PlayStation2/athena.elf",
-    "size": "5.2 MB",
-    "date": "06.01.26"
-  },
-  {
-    "file": "athenaryu.iso",
-    "name": "athenaryu",
-    "url": "/PlayStation2/athenaryu.iso",
-    "size": "5.5 MB",
-    "date": "06.01.26"
+    "file": "shmup-party-ps2.iso",
+    "name": "shmup-party-ps2",
+    "url": "/PlayStation2/shmup-party-ps2.iso",
+    "size": "5.8 MB",
+    "date": "07.23.26"
   }
 ]
