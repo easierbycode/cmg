@@ -156,6 +156,11 @@ const LAUNCH_FLIGHT_MS = 1400;
 const NET_SEND_MS = 80;          // ~12 Hz update_player reducer rate.
 const REMOTE_LERP = 0.35;        // Visual smoothing for incoming peer state.
 const REMOTE_STALE_MS = 6000;    // Drop a peer we've stopped hearing from.
+// Cap on in-flight reducer calls we track for failure correlation. A call whose
+// acknowledgement never arrives (send() drops frames on a closed socket) would
+// otherwise linger forever, and update_player alone enqueues ~12/sec. We only
+// care about correlating for about a second, so evicting the oldest is safe.
+const MAX_PENDING_REDUCERS = 64;
 
 // Coin constants.
 const COINS_PER_POP = 4;         // Coins a player banks each time they pop a block.
@@ -165,6 +170,12 @@ const COIN_COLLECT_PX = 16;      // A walking goofy collects a coin within this 
 const ORBIT_MIN_SPEED = 0.08;    // rad/s — slow drift around the globe.
 const ORBIT_MAX_SPEED = 0.22;
 const MAX_EJECT_COINS = 10;      // Cap the burst so a big stash doesn't spawn hundreds of coins.
+// How long a claimed coin waits for the server to delete its row before we let
+// it be picked up again. Backstop for a collect whose result never comes back
+// at all (socket dropped mid-call, update lost) — the explicit failure path
+// unlatches sooner. Worst case an early release costs one duplicate
+// collect_coin, which the server rejects harmlessly; the score is its own.
+const COIN_CLAIM_TIMEOUT_MS = 1000;
 
 // SpacetimeDB target. Query params override, then localStorage, then defaults.
 const DEFAULT_STDB_URI = 'wss://maincloud.spacetimedb.com';
@@ -223,6 +234,7 @@ class StdbClient {
     this.handlers = handlers;
     this.ws = null;
     this.reqId = 1;
+    this.pendingReducers = new Map(); // request_id → reducer name, until it settles
     this.identity = null;
     this.myIdKey = '';
     this.connected = false;
@@ -272,15 +284,59 @@ class StdbClient {
     try { this.ws.send(JSON.stringify(obj)); } catch (_) { /* drop */ }
   }
 
+  // Returns the request_id the call went out under, so callers can correlate
+  // the eventual TransactionUpdate back to whatever they optimistically did
+  // locally (see the scene's pendingCollects).
   callReducer(name, args) {
+    const requestId = this.reqId++;
+    this.pendingReducers.set(requestId, name);
+    while (this.pendingReducers.size > MAX_PENDING_REDUCERS) {
+      this.pendingReducers.delete(this.pendingReducers.keys().next().value);
+    }
     this.send({
       CallReducer: {
         reducer: name,
         args: JSON.stringify(args),
-        request_id: this.reqId++,
+        request_id: requestId,
         flags: 0,
       },
     });
+    return requestId;
+  }
+
+  // Settle one of our in-flight calls. `failure` is null when it committed, or
+  // a short description of why it didn't.
+  //
+  // Correlation is by request_id, with one important exception: a call rejected
+  // while *deserialising its arguments* comes back with request_id 0 and args
+  // "[]", because the server never got far enough to echo them. That is exactly
+  // the shape of the u64-as-string bug, so it's the case we can least afford to
+  // miss — fall back to the oldest in-flight call of the same reducer name
+  // (Map preserves insertion order). With several of one name in flight that
+  // can settle the wrong one, but it only costs a redundant retry, and the
+  // caller's own timeout still backstops the rest.
+  settleReducer(reqId, name, failure) {
+    let id = this.pendingReducers.has(reqId) ? reqId : null;
+    if (id === null) {
+      if (!failure || !name) return;
+      for (const [k, v] of this.pendingReducers) {
+        if (v === name) { id = k; break; }
+      }
+      if (id === null) return;
+    }
+    this.pendingReducers.delete(id);
+    if (failure) this.handlers.onReducerFailed?.(name || 'reducer', id, failure);
+  }
+
+  // Describe a non-Committed status: `{ Failed: "msg" }`, `{ OutOfEnergy: {} }`,
+  // or something a future protocol version adds.
+  failureText(status) {
+    if (!status || typeof status !== 'object') return 'unknown status';
+    const failed = status.Failed ?? status.failed;
+    if (typeof failed === 'string') return failed;
+    if (failed) return JSON.stringify(failed);
+    if (status.OutOfEnergy || status.out_of_energy) return 'out of energy';
+    return Object.keys(status)[0] || 'unknown status';
   }
 
   onMessage(data) {
@@ -301,13 +357,29 @@ class StdbClient {
       return;
     }
     if (msg.TransactionUpdate) {
-      const st = msg.TransactionUpdate.status;
+      const tx = msg.TransactionUpdate;
+      const st = tx.status;
       const committed = st && (st.Committed || st.committed);
+      const call = tx.reducer_call || tx.reducerCall;
       if (committed) this.applyUpdate(committed);
+      // Only settle our own calls — a peer's transaction must never unlatch
+      // something this client is optimistically holding.
+      const caller = tx.caller_identity ?? tx.callerIdentity;
+      if (this.myIdKey && caller && idKey(caller) !== this.myIdKey) return;
+      // A non-Committed status (Failed / OutOfEnergy) is the *only* signal that
+      // our call didn't land — nothing else arrives, no rows change. Dropping
+      // it silently is what let a failed collect_coin strand a coin forever.
+      this.settleReducer(
+        call?.request_id ?? call?.requestId,
+        call?.reducer_name ?? call?.reducerName,
+        committed ? null : this.failureText(st),
+      );
       return;
     }
     if (msg.TransactionUpdateLight) {
-      this.applyUpdate(msg.TransactionUpdateLight.update);
+      const light = msg.TransactionUpdateLight;
+      this.applyUpdate(light.update);
+      this.settleReducer(light.request_id ?? light.requestId, null, null);
       return;
     }
     // SubscribeApplied / SubscribeMultiApplied carry an initial row set too.
@@ -523,6 +595,9 @@ class GoofySpacetimeScene extends Phaser.Scene {
     this.remotes = new Map();
     this.coins = new Map();
     this._localCoinSeq = 0;
+    // In-flight collect_coin calls: reducer request_id → coin id. Lets a failed
+    // call unlatch the coin it optimistically claimed.
+    this.pendingCollects = new Map();
 
     this._scoreKey = '';
     this.online = false;
@@ -586,6 +661,7 @@ class GoofySpacetimeScene extends Phaser.Scene {
       onError: () => { this.online = false; setBadge('offline · solo', 'full'); },
       onUpsert: (t, pk, rec) => this.onRowUpsert(t, pk, rec),
       onDelete: (t, pk, rec) => this.onRowDelete(t, pk, rec),
+      onReducerFailed: (name, reqId, err) => this.onReducerFailed(name, reqId, err),
     });
     try {
       this.stdb.connect();
@@ -681,7 +757,14 @@ class GoofySpacetimeScene extends Phaser.Scene {
   }
 
   applyCoinRow(pk, rec) {
-    if (this.coins.has(pk)) return;
+    const existing = this.coins.get(pk);
+    if (existing) {
+      // The server just re-announced a row we thought we'd claimed, so the
+      // claim plainly didn't take (a resubscribe, or a failed collect whose
+      // status we never saw). Unlatch rather than leave it uncollectable.
+      this.releaseClaim(existing, 'row re-announced by the server');
+      return;
+    }
     const sradius = num(rec.sradius, this.globeRadius);
     this.coins.set(pk, {
       id: pk,
@@ -693,13 +776,47 @@ class GoofySpacetimeScene extends Phaser.Scene {
       settleT: 0,
       settling: true,
       claimPending: false,
+      claimReqId: null,
+      claimTimer: null,
       remote: true,
     });
   }
 
   removeCoin(pk) {
     const c = this.coins.get(pk);
-    if (c) { c.sprite.destroy(); this.coins.delete(pk); }
+    if (c) { this.forgetClaim(c); c.sprite.destroy(); this.coins.delete(pk); }
+  }
+
+  // Drop a coin's claim bookkeeping (retry timer, request correlation) without
+  // touching claimPending — used both when a claim succeeds and when it's
+  // released for retry.
+  forgetClaim(coin) {
+    if (coin.claimTimer) { coin.claimTimer.remove(false); coin.claimTimer = null; }
+    if (coin.claimReqId != null) { this.pendingCollects.delete(coin.claimReqId); coin.claimReqId = null; }
+  }
+
+  // Let a coin be picked up again after a collect that never landed. The guard
+  // matters: a claim that *did* land has already had its coin destroyed and
+  // replaced in the map, and must not be resurrected here.
+  releaseClaim(coin, why) {
+    if (!coin || !coin.claimPending) return;
+    if (this.coins.get(coin.id) !== coin) return;
+    this.forgetClaim(coin);
+    coin.claimPending = false;
+    console.warn(`[goofy-st] collect_coin ${why} — coin ${coin.id} released for retry`);
+  }
+
+  // A reducer we called came back non-Committed. For a collect that means the
+  // coin is still out there on the globe, so unlatch it; anything else is just
+  // worth surfacing, since these failures are otherwise completely invisible.
+  onReducerFailed(name, reqId, err) {
+    const coinId = this.pendingCollects.get(reqId);
+    if (coinId == null) {
+      console.warn(`[goofy-st] reducer ${name} failed: ${err}`);
+      return;
+    }
+    this.pendingCollects.delete(reqId);
+    this.releaseClaim(this.coins.get(coinId), `failed (${err})`);
   }
 
   applyWorldRow(rec) {
@@ -807,6 +924,8 @@ class GoofySpacetimeScene extends Phaser.Scene {
         settleT: 0,
         settling: true,
         claimPending: false,
+        claimReqId: null,
+        claimTimer: null,
         remote: false,
       });
     }
@@ -824,7 +943,14 @@ class GoofySpacetimeScene extends Phaser.Scene {
       // claimPending latches so the touch silently does nothing forever. Coerce
       // back to a number. (Coin ids are small auto_inc values, well within
       // Number's safe-integer range.)
-      this.stdb.callReducer('collect_coin', [Number(coin.id)]);
+      coin.claimReqId = this.stdb.callReducer('collect_coin', [Number(coin.id)]);
+      this.pendingCollects.set(coin.claimReqId, coin.id);
+      // The claim is only ever cleared by the server deleting the row. If that
+      // delete never comes, this releases the coin so the next touch retries.
+      coin.claimTimer = this.time.delayedCall(COIN_CLAIM_TIMEOUT_MS, () => {
+        coin.claimTimer = null;
+        this.releaseClaim(coin, 'got no response in time');
+      });
     } else {
       // Solo (or a coin we spawned locally): bank immediately.
       this.removeCoin(coin.id);
