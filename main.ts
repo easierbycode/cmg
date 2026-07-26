@@ -10,6 +10,23 @@ app.use(async (ctx) => {
   return res;
 });
 
+// Cross-origin isolation for the PS2 player only. Play! (static/ps2/) runs
+// the emulated EE/IOP on pthreads and needs SharedArrayBuffer, which
+// browsers gate on crossOriginIsolated — the document must arrive with
+// COOP + COEP. Scoped to /ps2/* because a site-wide COEP would break every
+// other embedded game/demo (their cross-origin subresources lack CORP
+// headers). The dashboard therefore opens the PS2 player as a top-level
+// navigation rather than a game iframe: an iframe only isolates when the
+// embedding page is isolated too.
+app.use(async (ctx) => {
+  const res = await ctx.next();
+  if (new URL(ctx.req.url).pathname.startsWith("/ps2/")) {
+    res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    res.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+  }
+  return res;
+});
+
 // Stamp the launcher-detection marker (lib/launcher-inject.ts) into every
 // game/demo HTML response, wherever it comes from: staticFiles() built-ins,
 // the GAMES_DIR catch-all, per-game Fresh routes, and the evil-invaders

@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from "vite";
 import { fresh } from "@fresh/plugin-vite";
-import { WebSocketServer, type WebSocket } from "ws";
+import { type WebSocket, WebSocketServer } from "ws";
 
 // Dev-only relay for the Goofy multiplayer demo. The production handler lives
 // at routes/api/ws-goofy.ts and uses Deno.upgradeWebSocket on Deno Deploy.
@@ -27,10 +27,14 @@ function goofyDevWs(): Plugin {
             const str = data.toString();
             for (const peer of clients) {
               if (peer === ws || peer.readyState !== peer.OPEN) continue;
-              try { peer.send(str); } catch { /* drop */ }
+              try {
+                peer.send(str);
+              } catch { /* drop */ }
             }
           });
-          const cleanup = () => { clients.delete(ws); };
+          const cleanup = () => {
+            clients.delete(ws);
+          };
           ws.on("close", cleanup);
           ws.on("error", cleanup);
         });
@@ -39,8 +43,27 @@ function goofyDevWs(): Plugin {
   };
 }
 
+// Dev parity for the PS2 player's cross-origin isolation. In production the
+// /ps2/* COOP+COEP headers come from the main.ts middleware, but Vite serves
+// static files itself in dev, bypassing the Fresh app — without this shim
+// Play! has no SharedArrayBuffer under `deno task dev`.
+function ps2IsolationHeaders(): Plugin {
+  return {
+    name: "ps2-isolation-headers",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url && req.url.startsWith("/ps2/")) {
+          res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+          res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [fresh(), goofyDevWs()],
+  plugins: [fresh(), goofyDevWs(), ps2IsolationHeaders()],
   server: {
     // Allow ngrok tunnels (and any other host) to reach the dev server.
     // Dev-only — production builds aren't served by Vite.
