@@ -1,9 +1,17 @@
 [
   {
+    "file": "shmup-party-ps2.web",
+    "name": "Sh'M Up Party",
+    "url": "/games/shmup-party-ps2/play/",
+    "size": "web build - 1-4 players",
+    "date": "07.27.26",
+    "kind": "web"
+  },
+  {
     "file": "shmup-party-ps2.iso",
     "name": "shmup-party-ps2",
     "url": "/PlayStation2/shmup-party-ps2.iso",
     "size": "5.8 MB",
-    "date": "07.23.26"
+    "date": "07.26.26"
   }
 ]

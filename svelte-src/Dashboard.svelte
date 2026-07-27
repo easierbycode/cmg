@@ -1700,9 +1700,27 @@
     setTimeout(() => { gameOn = true; }, 30);
   }
 
-  function launchPs2(file) {
-    if (!file) return;
+  function launchPs2(g) {
+    // Accepts a manifest row; a bare filename still works for older callers.
+    const row = typeof g === 'string' ? { file: g } : g;
+    if (!row || (!row.file && !row.url)) return;
     sfx.enter();
+    // A "web" row is a browser build of a PS2 title — launch it in the normal
+    // game iframe. Same-origin (served from static/games/), so the launcher's
+    // gamepad normalisation, twin-stick mapping and OSD injection all apply,
+    // none of which reach a top-level Play! navigation.
+    if (row.kind === 'web' && row.url) {
+      const id = row.file || row.url;
+      chromeDismissed = false;
+      initTwinStick(id, row);
+      initTouchControls(id, row);
+      osdLevelEditor = null;
+      gameSrc = row.url;
+      setTimeout(() => { gameOn = true; }, 30);
+      return;
+    }
+    const file = row.file;
+    if (!file) return;
     // Top-level navigation, not the game iframe: Play! needs
     // crossOriginIsolated (SharedArrayBuffer), which only /ps2/* responses
     // carry (COOP+COEP — see main.ts). An iframe can only isolate when the
@@ -3443,7 +3461,7 @@
     }
     else if (screen === 'ps2') {
       if (ps2Games.length === 0) openPs2ByodPicker();
-      else launchPs2(ps2Games[ps2Sel]?.file);
+      else launchPs2(ps2Games[ps2Sel]);
     }
     else if (screen === 'saturn') {
       if (saturnGames.length === 0) openSaturnByodPicker();
@@ -3802,7 +3820,7 @@
       else if (e.key === 'ArrowUp') { ps2Sel = Math.max(ps2Sel - 1, 0); sfx.nav(); }
       else if (e.key === 'Enter' || e.key === ' ') {
         if (ps2Games.length === 0) openPs2ByodPicker();
-        else launchPs2(ps2Games[ps2Sel]?.file);
+        else launchPs2(ps2Games[ps2Sel]);
       }
       else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
     } else if (screen === 'saturn') {
@@ -4874,7 +4892,7 @@
                 bind:this={ps2RowEls[i]}
                 class="game-row {i === ps2Sel ? 'sel' : ''}"
                 onmouseenter={() => { if (i !== ps2Sel) { ps2Sel = i; sfx.nav(); } }}
-                onclick={() => launchPs2(g.file)}
+                onclick={() => launchPs2(g)}
               >
                 <div class="game-icon">
                   <div class="glass">
