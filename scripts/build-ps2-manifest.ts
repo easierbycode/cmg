@@ -11,6 +11,8 @@ interface Ps2Rom {
   url: string;
   size: string;
   date: string;
+  /** "web" rows launch a browser build in the game iframe instead of Play! */
+  kind?: "web";
 }
 
 // Formats Play! accepts (single-file): ISO, CSO, CHD, ISZ, BIN, ELF.
@@ -46,6 +48,20 @@ try {
   console.error(
     `[ps2-manifest] could not read ${dirUrl.pathname}: ${(e as Error).message}`,
   );
+}
+
+// Web-build rows, from an optional data/ps2-web.json sidecar. These are PS2
+// titles that ship a browser build alongside the disc: the dashboard launches
+// them in the ordinary game iframe rather than through Play!. Kept in a
+// sidecar so this generator stays free to clobber the manifest on every build.
+const webListUrl = new URL("../data/ps2-web.json", import.meta.url);
+try {
+  const web = JSON.parse(await Deno.readTextFile(webListUrl)) as Ps2Rom[];
+  for (const row of web) games.push({ ...row, kind: "web" });
+} catch (e) {
+  if (!(e instanceof Deno.errors.NotFound)) {
+    console.error(`[ps2-manifest] bad ${webListUrl.pathname}: ${(e as Error).message}`);
+  }
 }
 
 games.sort((a, b) => a.name.localeCompare(b.name));
