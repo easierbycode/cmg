@@ -1,3 +1,3 @@
-source: easierbycode/shmup-party-ps2@2cc0174e909a39bf324af3bb66d04323ebbdedee
+source: easierbycode/shmup-party-ps2@1a4c41fdb50cbb6132690e139e859cf77bec0980
 built with: BASE_PATH=/games/shmup-party-ps2/ npm run build
 copied: dist/play + dist/assets

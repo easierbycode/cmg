@@ -9,6 +9,8 @@
 _fresh/
 # Compiled Svelte dashboard bundle (built by scripts/build-dashboard.ts)
 static/dashboard.bundle.js
+# Build identity stamp (written by scripts/compile-launcher.ts)
+static/app-version.json
 # npm + other dependencies
 node_modules/
 vendor/

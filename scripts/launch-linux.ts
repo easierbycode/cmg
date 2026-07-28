@@ -16,6 +16,9 @@
 // SteamOS / Steam Deck). Each candidate is launched and given a short grace
 // period; if it exits immediately with an error, the next candidate is tried.
 
+// launcher-env must evaluate before the server bundle: it points the game
+// store at a writable directory (GAMES_DIR is computed at module load).
+import "./launcher-env.ts";
 import server from "../_fresh/server.js";
 import { serveEmbeddedWasmAsset } from "./serve-embedded-assets.ts";
 

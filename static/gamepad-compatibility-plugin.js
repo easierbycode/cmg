@@ -12,7 +12,10 @@
 
   const SNES_PAD_RE =
     /SNES Controller|Nintendo.*SNES|Vendor:\s*057e\s+Product:\s*2017|057e.*2017/i;
-  const XBOX_PAD_RE = /Xbox|XInput|Microsoft|Legion Go/i;
+  // "Legion" (not just "Legion Go") — Lenovo Legion built-in pads identify as
+  // Xbox 360 controllers on some stacks and as "Legion Controller" on others;
+  // "X-Box" is the Linux xpad driver's spelling.
+  const XBOX_PAD_RE = /Xbox|X-Box|XInput|Microsoft|Legion/i;
   // Chrome on Android gets pad-layout tweaks of its own (see snesButtons).
   const IS_ANDROID = /Android/i.test(
     (root.navigator && root.navigator.userAgent) || "",

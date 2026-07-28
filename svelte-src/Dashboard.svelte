@@ -69,6 +69,15 @@
   // Origin the active manifest came from; in-repo game `url`s resolve against it
   // ('' = same-origin / relative — the seed and same-origin fallback case).
   let manifestOrigin = $state('');
+  // Game `url`s this origin can serve itself (from the embedded/same-origin
+  // manifest). When a game is available locally it launches same-origin even if
+  // the deploy manifest won: gamepad-support.js can only synthesize mapped
+  // keyboard events into a same-origin frame, so loading an embedded game from
+  // the deploy silently disconnected the pad from it. Games only the deploy
+  // knows about still resolve against manifestOrigin (the OTA case). Demos are
+  // deliberately excluded — they resolve against the manifest origin so
+  // multiplayer stays co-origin with the deploy's /api/ws-goofy relay.
+  let localGameUrls = new Set();
   // Reactive Demos list (Games → Demos) — seeded, then replaced by the
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
@@ -203,6 +212,11 @@
   let installInfo = $state(null);
   let installStatus = $state('');
   let installBusy = $state(false);
+  // App self-update — probed once at mount from /api/app-update. Shown on any
+  // local launcher; applying needs the AppImage runtime (info.canApply).
+  let appUpdateInfo = $state(null);
+  let appUpdateStatus = $state('');
+  let appUpdateBusy = $state(false);
   let SETTINGS_ITEMS = $derived([
     {
       id: 'theme',
@@ -211,6 +225,19 @@
     },
     { id: 'oeimport', label: 'IMPORT OPENEMU LIBRARY', sub: 'pick games to copy from OpenEmu' },
     { id: 'ctrlsync', label: 'CONTROLLER SYNC', sub: 'CMG ⇄ emulator profiles · beta' },
+    // Only on a local launcher (hidden on the hosted web app). Checks GitHub
+    // releases and, under the AppImage runtime, swaps the new build in place.
+    ...((appUpdateInfo && appUpdateInfo.local)
+      ? [{
+          id: 'appupdate',
+          label: appUpdateInfo.updateAvailable ? 'UPDATE CMG ↻' : 'UPDATE CMG',
+          sub: appUpdateStatus ||
+            (appUpdateInfo.updateAvailable
+              ? ('update available: ' + (appUpdateInfo.latest?.tag || 'new release') +
+                 (appUpdateInfo.canApply ? '' : ' — get it from /app.AppImage'))
+              : ('up to date · ' + (appUpdateInfo.running?.version || 'dev build'))),
+        }]
+      : []),
     // Only on a local desktop launcher (not the hosted web app, not touch).
     // Builds a native binary of the launcher with Deno Desktop on demand.
     ...((installInfo && installInfo.local && !isTouch)
@@ -1408,6 +1435,44 @@
       syncState = 'idle';
     } else if (it.id === 'install') {
       startInstall();
+    } else if (it.id === 'appupdate') {
+      startAppUpdate();
+    }
+  }
+
+  // Apply the latest released AppImage over the running one ($APPIMAGE swap,
+  // done by /api/app-update). Takes effect on the next start.
+  async function startAppUpdate() {
+    if (appUpdateBusy) return;
+    if (!appUpdateInfo?.updateAvailable) {
+      // Re-check on demand so the row doubles as a "check now" button.
+      appUpdateStatus = 'Checking for updates…';
+      try {
+        const r = await fetch('/api/app-update');
+        if (r.ok) appUpdateInfo = await r.json();
+      } catch (_e) { /* keep whatever we knew */ }
+      appUpdateStatus = '';
+      if (!appUpdateInfo?.updateAvailable) return;
+    }
+    if (!appUpdateInfo.canApply) {
+      appUpdateStatus = 'Not running from an AppImage — download /app.AppImage manually.';
+      return;
+    }
+    appUpdateBusy = true;
+    appUpdateStatus = 'Downloading update — this can take a few minutes…';
+    try {
+      const resp = await fetch('/api/app-update', { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.ok) {
+        appUpdateStatus = 'Updated to ' + (data.version || 'latest') + ' — restart CMG to apply.';
+        appUpdateInfo = { ...appUpdateInfo, updateAvailable: false };
+      } else {
+        appUpdateStatus = 'Failed: ' + (data.error || ('HTTP ' + resp.status));
+      }
+    } catch (e) {
+      appUpdateStatus = 'Error: ' + (e && e.message ? e.message : e);
+    } finally {
+      appUpdateBusy = false;
     }
   }
 
@@ -1614,7 +1679,11 @@
       ? sanitizeLevelEditor(item.levelEditor, id)
       : null;
     if (item && item.url) {
-      gameSrc = manifestOrigin ? new URL(item.url, manifestOrigin).href : item.url;
+      // Same-origin whenever this origin embeds the game (mapped-key dispatch
+      // needs it — see localGameUrls); the deploy origin covers OTA-only games.
+      gameSrc = (manifestOrigin && !localGameUrls.has(item.url))
+        ? new URL(item.url, manifestOrigin).href
+        : item.url;
     } else {
       gameSrc = 'https://easierbycode.com/' + id;
     }
@@ -1760,11 +1829,20 @@
     return sub && sub !== 'root' ? sub + '/index.html' : 'index.html';
   }
 
+  // A game only counts as installed when the completeness marker is present.
+  // The marker is written strictly AFTER every file has been cached, so an
+  // install interrupted mid-unzip (app closed, tab killed) can never present as
+  // playable — a partial cache with index.html but missing assets used to pass
+  // the entry-file check and then boot to a black screen forever. Installs from
+  // before the marker existed re-download once and heal themselves.
+  const cmgnetCompleteKey = (id) => '/cmg-net/' + id + '/.cmg-complete';
   async function cmgnetIsCached(game) {
     if (!game) return false;
     try {
       const cache = await caches.open(CMG_CACHE);
-      return !!(await cache.match('/cmg-net/' + game.id + '/' + cmgnetEntry(game)));
+      const entry = await cache.match('/cmg-net/' + game.id + '/' + cmgnetEntry(game));
+      const complete = await cache.match(cmgnetCompleteKey(game.id));
+      return !!(entry && complete);
     } catch (_e) {
       return false;
     }
@@ -1808,8 +1886,22 @@
     cmgnetStatus[id] = { downloading: true, pct: 0, cached: false, error: '', updateAvailable: false };
     try {
       const JSZip = await loadJsZip();
-      const res = await fetch(game.downloadUrl, { mode: 'cors' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      let res = null;
+      try {
+        res = await fetch(game.downloadUrl, { mode: 'cors' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+      } catch (primaryErr) {
+        // Zips committed to this repo (raw.githubusercontent.com/easierbycode/
+        // cmg/<branch>/static/…) are also embedded in the launcher binary and
+        // served same-origin with static/ mounted at the root — so an offline
+        // launcher can still install from its own copy.
+        const m = String(game.downloadUrl).match(
+          /^https:\/\/raw\.githubusercontent\.com\/easierbycode\/cmg\/[^/]+\/static\/(.+)$/,
+        );
+        if (!m) throw primaryErr;
+        res = await fetch('/' + m[1]);
+        if (!res.ok) throw primaryErr;
+      }
       // Stream the body so we can show real download progress (0–80%).
       const total = Number(res.headers.get('content-length')) || 0;
       const reader = res.body.getReader();
@@ -1825,6 +1917,9 @@
       // Unzip + cache each file under /cmg-net/<id>/… (80–100%).
       const zip = await JSZip.loadAsync(new Blob(chunks));
       const cache = await caches.open(CMG_CACHE);
+      // Invalidate first: if this (re)install dies mid-unzip, the game must
+      // read as NOT installed rather than as a stale/partial mix.
+      try { await cache.delete(cmgnetCompleteKey(id)); } catch (_e) { /* ignore */ }
       const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
       // Collapse the GitHub codeload zipball wrapper. A branch zipball wraps
       // every file in "<repo>-<branch>/"; stripping it lets a catalog entry use
@@ -1862,6 +1957,19 @@
         i++;
         cmgnetStatus[id] = { downloading: true, pct: 80 + Math.round((i / names.length) * 20), cached: false, error: '' };
       }
+      // Every file landed — only now does the install count (see cmgnetIsCached).
+      await cache.put(
+        cmgnetCompleteKey(id),
+        new Response('1', { headers: { 'Content-Type': 'text/plain' } }),
+      );
+      // Record what this install came from. loadCmgnetList compares it to the
+      // live catalog, so editing a game's downloadUrl or bumping its `date` in
+      // codemonkey.json remotely triggers a re-download on every launcher —
+      // the update lever for zip-backed games with no repo sha to track.
+      await cache.put(
+        cmgnetSrcKey(id),
+        new Response(cmgnetSrcStamp(game), { headers: { 'Content-Type': 'text/plain' } }),
+      );
       // This title is about to leave the (cached-filtered) CMG Network list. If
       // it sat above the cursor, decrement so the cursor stays on the same game
       // instead of having a different row slide silently under it.
@@ -1933,18 +2041,43 @@
       ? sanitizeLevelEditor(game.levelEditor, game.id)
       : null;
     if (cmgnetStatus[game.id]?.cached) {
-      // Already downloaded — served from Cache Storage by cmg-sw.js.
-      playCmgnet(game);
+      if (cmgnetStatus[game.id]?.updateAvailable && !cmgnetStatus[game.id]?.downloading) {
+        // A newer build is known to exist (boot-time check against the game
+        // repo) — refresh before playing so remote updates reach the player
+        // without a manual UPDATE press. Falls back to streaming if the
+        // re-download dies mid-flight (the purge already emptied the cache).
+        cmgnetUpdate(game).then(() => {
+          if (cmgnetStatus[game.id]?.cached) playCmgnet(game);
+          else if (game.streamUrl) {
+            gameSrc = game.streamUrl;
+            setTimeout(() => { gameOn = true; }, 30);
+          }
+        });
+      } else {
+        // Already downloaded — served from Cache Storage by cmg-sw.js.
+        playCmgnet(game);
+        // Background: learn about a newer build in time for the next launch.
+        if (game.source === 'github') cmgnetCheckUpdate(game);
+      }
+    } else if (game.downloadUrl) {
+      // Download first (progress shows on the row), then play from cache.
+      // The cached copy is served same-origin (/cmg-net/…), which is what lets
+      // gamepad-support.js synthesize mapped keyboard events into the frame —
+      // a streamed cross-origin frame can never receive them, which left
+      // keyboard-driven games (Abobo, PAC-MAN) ignoring the pad entirely.
+      // Streaming is only the fallback when the download fails.
+      cmgnetDownload(game).then(() => {
+        if (cmgnetStatus[game.id]?.cached) playCmgnet(game);
+        else if (game.streamUrl) {
+          gameSrc = game.streamUrl;
+          setTimeout(() => { gameOn = true; }, 30);
+        }
+      });
     } else if (game.streamUrl) {
-      // First play with a hosted build: stream it now and cache the zip in the
-      // background so the next launch runs offline.
+      // No downloadable build — stream the hosted one (gamepad reaches it only
+      // via the Gamepad API, not synthesized keys).
       gameSrc = game.streamUrl;
       setTimeout(() => { gameOn = true; }, 30);
-      cmgnetDownload(game);
-    } else {
-      // No hosted stream — download the build locally first (progress shows on
-      // the row), then play it from cache.
-      cmgnetDownload(game).then(() => { if (cmgnetStatus[game.id]?.cached) playCmgnet(game); });
     }
   }
 
@@ -2292,7 +2425,15 @@
     for (const g of games) {
       if (await cmgnetIsCached(g)) {
         const installedSha = await cmgnetReadSha(g.id);
-        cmgnetStatus[g.id] = { downloading: false, pct: 100, cached: true, error: '', installedSha };
+        // Catalog-driven refresh: if the entry's downloadUrl or date changed
+        // since this copy was installed, flag it — launchCmgnet auto-applies
+        // flagged updates before playing.
+        const src = await cmgnetReadSrc(g.id);
+        const srcChanged = !!src && src !== cmgnetSrcStamp(g);
+        cmgnetStatus[g.id] = {
+          downloading: false, pct: 100, cached: true, error: '', installedSha,
+          updateAvailable: srcChanged,
+        };
       }
     }
     // Then ask GitHub (in the background, non-blocking) whether a newer build
@@ -2340,6 +2481,16 @@
     return null;
   }
   const cmgnetShaKey = (id) => '/cmg-net/' + id + '/.cmg-sha';
+  // Install-source stamp (downloadUrl + catalog date) — see cmgnetDownload.
+  const cmgnetSrcKey = (id) => '/cmg-net/' + id + '/.cmg-src';
+  const cmgnetSrcStamp = (game) => String(game?.downloadUrl || '') + '\n' + String(game?.date || '');
+  async function cmgnetReadSrc(id) {
+    try {
+      const cache = await caches.open(CMG_CACHE);
+      const r = await cache.match(cmgnetSrcKey(id));
+      return r ? await r.text() : null;
+    } catch (_e) { return null; }
+  }
   async function cmgnetReadSha(id) {
     try {
       const cache = await caches.open(CMG_CACHE);
@@ -2380,7 +2531,13 @@
     // Only flag an update when we know what's installed AND it differs. A missing
     // baseline (installed before sha tracking) stays INSTALLED to avoid false
     // "update available" prompts.
-    cmgnetStatus[id] = { ...cmgnetStatus[id], latestSha: latest, updateAvailable: !!installed && installed !== latest };
+    cmgnetStatus[id] = {
+      ...cmgnetStatus[id],
+      latestSha: latest,
+      // OR, don't overwrite: a catalog-driven flag (loadCmgnetList's source
+      // stamp comparison) must survive a "repo unchanged" answer.
+      updateAvailable: !!cmgnetStatus[id]?.updateAvailable || (!!installed && installed !== latest),
+    };
   }
   async function cmgnetUpdate(game) {
     if (!game) return;
@@ -2635,6 +2792,14 @@
       }
     }
     manifestOrigin = res.base;
+    // When the deploy manifest won, also learn which games THIS origin embeds,
+    // so launchGame can keep those same-origin (see localGameUrls above).
+    if (res.base) {
+      try {
+        const local = await tryFetch('');
+        localGameUrls = new Set(local.games.filter((g) => g && g.url).map((g) => g.url));
+      } catch (_e) { localGameUrls = new Set(); }
+    }
     // Write the backing $state; GAMES is a $derived that appends installedCmgnet
     // and SUBMENUS. (Assigning GAMES directly would only set a transient derived
     // override that the next cmgnetStatus change discards — reverting to seed.)
@@ -4338,6 +4503,13 @@
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (j) installInfo = j; })
       .catch(() => { /* keep Install hidden */ });
+
+    // Probe app self-update state (running build vs latest GitHub release).
+    // Best-effort — a failure just hides the Update row.
+    fetch('/api/app-update')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j) appUpdateInfo = j; })
+      .catch(() => { /* keep Update hidden */ });
 
     sfx.boot();
     document.addEventListener('click', unlockAudio, { once: true });

@@ -146,7 +146,10 @@ class GamepadManager {
   }
 
   isXboxController(controller) {
-    return /Xbox|XInput|Microsoft|Legion Go/i.test((controller && controller.id) || "");
+    // "Legion" (not just "Legion Go") — Lenovo Legion built-in pads identify as
+    // Xbox 360 controllers on some stacks and as "Legion Controller" on others;
+    // "X-Box" is the Linux xpad driver's spelling.
+    return /Xbox|X-Box|XInput|Microsoft|Legion/i.test((controller && controller.id) || "");
   }
 
   controllerPriority(controller) {

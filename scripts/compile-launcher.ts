@@ -74,6 +74,38 @@ async function prepareWasmData(files: string[]): Promise<void> {
   }
 }
 
+// Stamp the build's identity into static/app-version.json so the compiled
+// binary knows what it is at runtime. /api/app-update compares this against
+// the latest GitHub release to decide whether a self-update is available.
+// Written before `deno compile` so `--include static` embeds it; gitignored.
+function gitOut(args: string[]): string {
+  try {
+    const r = new Deno.Command("git", {
+      args,
+      stdout: "piped",
+      stderr: "null",
+    }).outputSync();
+    return r.success ? new TextDecoder().decode(r.stdout).trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+async function stampVersion(): Promise<void> {
+  const commit = gitOut(["rev-parse", "--short", "HEAD"]);
+  const tag = gitOut(["describe", "--tags", "--exact-match"]);
+  const stamp = {
+    version: tag || (commit ? `git-${commit}` : "unknown"),
+    commit: commit || null,
+    builtAt: new Date().toISOString(),
+  };
+  await Deno.writeTextFile(
+    "static/app-version.json",
+    JSON.stringify(stamp, null, 2) + "\n",
+  );
+  console.log(`[compile-launcher] stamped ${stamp.version} (${stamp.builtAt})`);
+}
+
 async function main() {
   const name = Deno.args[0] ?? "";
   const target = TARGETS[name];
@@ -82,6 +114,7 @@ async function main() {
     Deno.exit(2);
   }
 
+  await stampVersion();
   const wasmFiles = await collectWasmFiles();
   await prepareWasmData(wasmFiles);
 
