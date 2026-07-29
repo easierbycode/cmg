@@ -122,7 +122,18 @@ function buildCandidates(): Candidate[] {
 }
 
 function kioskArgs(flatpak: boolean): string[] {
-  const args = ["--kiosk", "--no-first-run", "--no-default-browser-check"];
+  const args = [
+    "--kiosk",
+    "--no-first-run",
+    "--no-default-browser-check",
+    // Google-branded Chrome builds that can't self-update (Flatpak Chrome on
+    // immutable distros like Bazzite/SteamOS) pop Chromium's "Can't update
+    // Chrome / Reinstall Chrome" bubble over the kiosk once the binary is
+    // more than 8 weeks old (kOutdatedBuildAge in Chromium's
+    // upgrade_detector_impl.cc). Disabling the detector's feature flag
+    // suppresses it; browsers without the feature ignore the unknown name.
+    "--disable-features=OutdatedBuildDetector",
+  ];
   // A custom --user-data-dir usually isn't writable inside a Flatpak sandbox;
   // let Flatpak Chrome use its own profile instead.
   if (!flatpak) args.push(`--user-data-dir=${profileDir}`);

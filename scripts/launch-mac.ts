@@ -56,6 +56,10 @@ const chrome = new Deno.Command(CHROME, {
     `--user-data-dir=${profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
+    // Suppress Chrome's "Can't update Chrome / Reinstall Chrome" bubble when
+    // the installed Chrome is >8 weeks stale — see kioskArgs() in
+    // scripts/launch-linux.ts for the full story.
+    "--disable-features=OutdatedBuildDetector",
     URL,
   ],
   stdout: verbose ? "inherit" : "null",
