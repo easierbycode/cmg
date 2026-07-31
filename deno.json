@@ -26,6 +26,9 @@
     "arcade:core": "deno run -A scripts/vendor-arcade-core.ts",
     "arcade:configs": "deno run -A scripts/convert-mame-configs.ts",
     "arcade:bundle": "deno task arcade:core && deno task arcade:configs",
+    "record": "deno run -A tools/game-recorder/main.ts",
+    "record:post": "deno run -A tools/game-recorder/post.ts",
+    "record:slides": "deno run -A tools/game-recorder/slides/main.ts",
     "test:e2e": "deno test -A tests/e2e/",
     "start": "deno serve -A _fresh/server.js",
     "update": "deno run -A -r jsr:@fresh/update ."
@@ -46,6 +49,7 @@
   },
   "exclude": [
     "**/_fresh/*",
+    "out/**",
     "static/dashboard.bundle.js",
     "svelte-src/**",
     "tools/build-level/**",
@@ -64,6 +68,10 @@
     "esbuild-svelte": "npm:esbuild-svelte@^0.9.0",
     "@astral/astral": "jsr:@astral/astral@^0.5.6",
     "@std/assert": "jsr:@std/assert@^1.0.0",
+    "@std/path": "jsr:@std/path@^1.0.0",
+    "@std/fs": "jsr:@std/fs@^1.0.0",
+    "@std/encoding": "jsr:@std/encoding@^1.0.0",
+    "@std/cli": "jsr:@std/cli@^1.0.0",
     "@std/http": "jsr:@std/http@^1.1.0",
     "ws": "npm:ws@^8.18.0",
     "@types/ws": "npm:@types/ws@^8.5.10"

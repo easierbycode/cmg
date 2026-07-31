@@ -65,6 +65,25 @@ middleware in [`main.ts`](main.ts), so the cross-origin fetch from a launcher on
 `localhost` works. Regenerate it locally with `deno task games:manifest` (it
 also runs as the first step of `deno task build`).
 
+## Recording games for social
+
+`tools/game-recorder` records any catalog game from a headless browser and
+posts it to Instagram Reels / TikTok:
+
+```sh
+deno task record --list
+deno task record --game games/2028-ai
+deno task record --game akuma --post instagram,tiktok --caption "..." --dry-run
+```
+
+The catalog comes from `data/games.json` / `data/demos.json`, so a game
+added to CMG is recordable immediately. Capture is deterministic — the page
+clock is replaced and the game is stepped one exact frame at a time — so no
+frames drop and the same game always produces the same file. Per-game
+capture hints (`startWhen`, `stopWhen`, `durationMs`, …) go in an optional
+`recorder` key on the catalog entry. See
+[`tools/game-recorder/README.md`](tools/game-recorder/README.md).
+
 ## Launcher detection — hiding a game's own chrome
 
 Games often carry their own standalone chrome (a header, attribution, an

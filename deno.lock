@@ -17,6 +17,7 @@
     "jsr:@std/async@1": "1.4.0",
     "jsr:@std/bytes@^1.0.2": "1.0.6",
     "jsr:@std/bytes@^1.0.6": "1.0.6",
+    "jsr:@std/cli@1": "1.0.30",
     "jsr:@std/cli@^1.0.29": "1.0.30",
     "jsr:@std/dotenv@~0.225.5": "0.225.6",
     "jsr:@std/encoding@1": "1.0.10",
@@ -202,6 +203,7 @@
     "@std/fs@1.0.23": {
       "integrity": "3ecbae4ce4fee03b180fa710caff36bb5adb66631c46a6460aaad49515565a37",
       "dependencies": [
+        "jsr:@std/internal",
         "jsr:@std/path@^1.1.4"
       ]
     },
@@ -211,7 +213,7 @@
     "@std/http@1.1.0": {
       "integrity": "265cd9a589fea924c5bb0bbed8bebb4bb2fa19129f760bd014e78dbd7a365a51",
       "dependencies": [
-        "jsr:@std/cli",
+        "jsr:@std/cli@^1.0.29",
         "jsr:@std/encoding@^1.0.10",
         "jsr:@std/fmt@^1.0.10",
         "jsr:@std/fs@^1.0.23",
@@ -1619,7 +1621,11 @@
       "jsr:@fresh/core@^2.3.3",
       "jsr:@fresh/plugin-vite@^1.1.2",
       "jsr:@std/assert@1",
+      "jsr:@std/cli@1",
+      "jsr:@std/encoding@1",
+      "jsr:@std/fs@1",
       "jsr:@std/http@^1.1.0",
+      "jsr:@std/path@1",
       "npm:@preact/signals@^2.9.0",
       "npm:@types/babel__core@^7.20.5",
       "npm:@types/ws@^8.5.10",

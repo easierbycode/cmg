@@ -57,3 +57,6 @@ static/bios/
 # without committing bulky/runtime-local artifacts.
 static/arcade/emularity/engine/
 static/arcade/cfg/
+
+# game-recorder output (videos, covers, frame dumps)
+out/
