@@ -60,7 +60,10 @@
 
   // Submenu tiles (Demos / PlayStation / TurboGrafx-16) are fixed client
   // features, not OTA games — the manifest carries only real games — so we take
-  // them from the seed and re-append them after each manifest load.
+  // them from the seed and prepend them to the rendered list (see GAMES below).
+  // Their order here IS their on-screen order; where they sit relative to the
+  // real games is decided by the GAMES $derived, not by their position in
+  // SEED_GAMES (the two filters below partition the seed into disjoint lists).
   const SUBMENUS = SEED_GAMES.filter((g) => g.submenu);
   // Reactive base game list (the real OTA games, no submenus): starts as the
   // baked seed, then replaced at runtime by the fetched manifest (see
@@ -318,10 +321,12 @@
         };
       })
   );
-  // The rendered Games list: OTA games, then graduated network installs, then
-  // locally-added games, then the fixed console/e-shop submenus (kept last).
+  // The rendered Games list: the fixed console/e-shop submenus lead (they are
+  // the way into every emulator library and the store, so they get the top of
+  // the list rather than a scroll to the bottom), then OTA games, then
+  // graduated network installs, then locally-added games.
   // Reassigning manifestGames or installing/uninstalling re-derives this.
-  let GAMES = $derived([...manifestGames, ...installedCmgnet, ...localGames, ...SUBMENUS]);
+  let GAMES = $derived([...SUBMENUS, ...manifestGames, ...installedCmgnet, ...localGames]);
 
   // Add Game screen rows (method picker + contextual inputs + action). A flat
   // selectable list nav/actA/render all index into, like oeRows. Every row is
@@ -2800,9 +2805,10 @@
         localGameUrls = new Set(local.games.filter((g) => g && g.url).map((g) => g.url));
       } catch (_e) { localGameUrls = new Set(); }
     }
-    // Write the backing $state; GAMES is a $derived that appends installedCmgnet
-    // and SUBMENUS. (Assigning GAMES directly would only set a transient derived
-    // override that the next cmgnetStatus change discards — reverting to seed.)
+    // Write the backing $state; GAMES is a $derived that prepends SUBMENUS and
+    // appends installedCmgnet. (Assigning GAMES directly would only set a
+    // transient derived override that the next cmgnetStatus change discards —
+    // reverting to seed.)
     manifestGames = res.games;
     if (res.demos.length) DEMOS = res.demos;
     if (gameSel >= GAMES.length) gameSel = 0;
@@ -4759,15 +4765,30 @@
               onmouseenter={() => { if (i !== gameSel) { gameSel = i; sfx.nav(); } }}
               onclick={() => launchGame(g.id)}
             >
-              <div class="game-icon">
-                <div class="glass">
-                  {#if g.icon}
-                    <img src={g.icon} alt={g.name} onerror={(e) => onIconError(e, g.name)} />
-                  {:else}
-                    <span class="ph">{initial(g.name)}</span>
-                  {/if}
+              {#if g.submenu}
+                <!-- Category rows get a folder-of-discs instead of the single
+                     glass disc, so "a collection of games" reads at a glance and
+                     the leading submenu block is visually distinct from the game
+                     rows under it. Purely decorative — the row's title carries
+                     the name — hence aria-hidden. -->
+                <div class="submenu-icon" aria-hidden="true">
+                  <span class="submenu-art">
+                    <span class="folder"></span>
+                    <span class="sub-disc sub-disc-back"></span>
+                    <span class="sub-disc sub-disc-front"></span>
+                  </span>
                 </div>
-              </div>
+              {:else}
+                <div class="game-icon">
+                  <div class="glass">
+                    {#if g.icon}
+                      <img src={g.icon} alt={g.name} onerror={(e) => onIconError(e, g.name)} />
+                    {:else}
+                      <span class="ph">{initial(g.name)}</span>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
               <div class="game-bar">
                 <span class="name">{g.title}{g.submenu ? ' ›' : ''}</span>
                 {#if g.__cmgnet && cmgnetStatus[g.id]?.updateAvailable}

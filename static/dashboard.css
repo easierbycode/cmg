@@ -283,6 +283,56 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .game-icon .glass img { width: 88%; height: 88%; object-fit: contain; filter: drop-shadow(0 0 6px rgba(120, 255, 90, .55)); }
 .game-icon .glass .ph { color: #bdf48c; font-weight: 800; font-size: clamp(16px, 2.2vmin, 22px); text-shadow: 0 0 10px rgba(120, 255, 90, .7); letter-spacing: .05em; }
 
+/* Submenu / category tiles (Demos, CMG Network, PlayStation, …): a small folder
+   holding a couple of game discs — signalling "a collection of games" rather
+   than one game. Same footprint, green palette, and glow as .game-icon; the
+   selected row swaps the glow/edge to yellow exactly like .game-row.sel .game-icon
+   (disc/folder fills stay green, only the halo turns yellow). Class names are
+   .sub-disc/.folder rather than .disc because .disc is already the spinning
+   emulator-loading disc. */
+.submenu-icon {
+  width: 7.4vmin; height: 7.4vmin; max-width: 72px; max-height: 72px; min-width: 54px; min-height: 54px;
+  flex-shrink: 0; position: relative;
+  filter: drop-shadow(0 0 16px rgba(120, 255, 90, .5));
+}
+/* The square box every percentage below is measured against. It exists as its
+   own element so a theme that reshapes the tile — theme-nintendo turns it into
+   a wide card thumbnail — re-anchors this one box and leaves the folder/disc
+   geometry intact; positioned directly off .submenu-icon the pieces would
+   stretch with the tile's aspect ratio into an unrecognisable smear. */
+.submenu-art { position: absolute; inset: 0; }
+.submenu-art .folder {
+  position: absolute; left: 7%; right: 7%; top: 32%; bottom: 7%; z-index: 1;
+  border-radius: 14%; border: 1px solid var(--tile-edge);
+  background: linear-gradient(165deg, #0c4420, #061a0b);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, .55);
+}
+/* No folder tab: at this geometry the back disc's circle covers all four of its
+   corners, so it only ghosts through the conic gradient's transparent sectors —
+   dead weight that the theme blocks below would each have to restate. The discs
+   rising out of the folder body already read as "a collection of games". */
+.submenu-art .sub-disc {
+  position: absolute; width: 44%; height: 44%; border-radius: 50%; z-index: 2;
+  border: 1px solid rgba(140, 255, 110, .7);
+  box-shadow: 0 0 6px rgba(120, 255, 90, .5), inset 0 0 6px rgba(0, 0, 0, .55);
+  background:
+    radial-gradient(circle at 50% 50%, #061a0b 24%, transparent 25%),
+    conic-gradient(from 30deg, rgba(140, 255, 90, .85), rgba(60, 180, 80, .3), rgba(140, 255, 90, .85) 60%, rgba(60, 180, 80, .3), rgba(140, 255, 90, .85));
+}
+.submenu-art .sub-disc-back { left: 11%; top: 7%; }
+.submenu-art .sub-disc-front { right: 9%; top: 17%; }
+.submenu-art::after { /* folder front flap — tucks the discs into the folder */
+  content: ''; position: absolute; left: 7%; right: 7%; bottom: 7%; height: 40%; z-index: 3;
+  border-radius: 0 0 14% 14%; border: 1px solid var(--tile-edge); border-top: 1.5px solid rgba(170, 255, 130, .85);
+  background: linear-gradient(180deg, #1b6e34, #0a3318);
+  box-shadow: inset 0 2px 0 rgba(180, 255, 140, .22);
+}
+.game-row.sel .submenu-icon { filter: drop-shadow(0 0 22px rgba(255, 240, 90, .7)); }
+.game-row.sel .submenu-art .sub-disc { border-color: rgba(255, 240, 90, .9); box-shadow: 0 0 8px rgba(255, 240, 90, .5), inset 0 0 6px rgba(0, 0, 0, .5); }
+.game-row.sel .submenu-art .folder,
+.game-row.sel .submenu-art::after { border-color: rgba(255, 240, 90, .85); }
+.game-row.sel .submenu-art::after { border-top-color: #fff36a; }
+
 .game-bar {
   flex: 1; height: 100%;
   background: linear-gradient(180deg, rgba(70, 180, 90, .08), rgba(20, 60, 30, .55) 50%, rgba(20, 60, 30, .55) 50%, rgba(70, 180, 90, .05));
@@ -793,6 +843,49 @@ body.theme-nintendo .game-icon .glass .ph { color: #fff; font-size: clamp(20px, 
 body.theme-nintendo .game-row.sel .game-icon,
 body.theme-nintendo .game-row.sel .game-icon .glass { box-shadow: none; }
 
+/* Submenu tiles have to become the same card thumbnail as .game-icon above —
+   the row is a vertical card here, so a 7.4vmin green disc-sized tile would sit
+   as a floating square on a transparent header while every neighbouring card
+   shows a full-bleed cover. The tile takes the thumbnail's box + red stripe and
+   the folder art is re-anchored to a centred square inside it (see .submenu-art),
+   recoloured from CRT green to the launcher's navy/cabinet-gray palette. */
+body.theme-nintendo .submenu-icon {
+  width: 100%; max-width: none; height: 18vmin; max-height: 180px; min-height: 120px;
+  background: #05080c;
+  filter: none;
+}
+body.theme-nintendo .submenu-icon::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 14px;
+  background: var(--nintendo-red, #e4000f);
+}
+body.theme-nintendo .submenu-art {
+  inset: auto; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  height: 74%; aspect-ratio: 1;
+}
+body.theme-nintendo .submenu-art .folder { background: linear-gradient(165deg, #1f2a3c, #0f1622); }
+body.theme-nintendo .submenu-art .sub-disc {
+  border-color: rgba(213, 213, 216, .75);
+  box-shadow: 0 0 6px rgba(0, 0, 0, .5), inset 0 0 6px rgba(0, 0, 0, .55);
+  background:
+    radial-gradient(circle at 50% 50%, #0f1622 24%, transparent 25%),
+    conic-gradient(from 30deg, rgba(233, 236, 241, .9), rgba(139, 160, 194, .35), rgba(233, 236, 241, .9) 60%, rgba(139, 160, 194, .35), rgba(233, 236, 241, .9));
+}
+body.theme-nintendo .submenu-art::after { /* cabinet-plastic front flap */
+  background: linear-gradient(180deg, #d5d5d8, #88848b);
+  border-top-color: rgba(255, 255, 255, .9);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .35);
+}
+/* Selection is the card's blue ring in this theme (the row handles it), so the
+   tile drops the yellow halo entirely and only picks up the blue edge. */
+body.theme-nintendo .game-row.sel .submenu-icon { filter: none; }
+body.theme-nintendo .game-row.sel .submenu-art .sub-disc {
+  border-color: rgba(73, 194, 255, .85);
+  box-shadow: 0 0 8px rgba(73, 194, 255, .35), inset 0 0 6px rgba(0, 0, 0, .5);
+}
+body.theme-nintendo .game-row.sel .submenu-art .folder,
+body.theme-nintendo .game-row.sel .submenu-art::after { border-color: rgba(73, 194, 255, .7); }
+body.theme-nintendo .game-row.sel .submenu-art::after { border-top-color: #49c2ff; }
+
 /* Card footer: name on top, source label bottom-left, PLAY pill bottom-right */
 body.theme-nintendo .game-bar {
   clip-path: none;
@@ -955,6 +1048,32 @@ body.theme-xbox360 .game-icon {
 }
 body.theme-xbox360 .game-icon .glass { background: #07160b; box-shadow: inset 0 0 12px rgba(124, 255, 79, .4), 0 0 0 2px rgba(150, 255, 110, .75); }
 body.theme-xbox360 .game-icon .glass .ph { color: #c9f7a0; text-shadow: 0 0 10px rgba(124, 255, 79, .7); }
+/* Submenu tiles keep their shape here (this theme only recolours the row) — but
+   the base rules hardcode the default theme's CRT green and its yellow selected
+   halo, and this palette is one unified blade green with a lit-green selection,
+   so both states are restated in #7CFF4F / #d9ffa6. */
+body.theme-xbox360 .submenu-icon { filter: drop-shadow(0 0 16px rgba(124, 255, 79, .5)); }
+body.theme-xbox360 .submenu-art .folder { background: linear-gradient(165deg, #0d5124, #07160b); }
+body.theme-xbox360 .submenu-art .sub-disc {
+  border-color: rgba(150, 255, 110, .7);
+  box-shadow: 0 0 6px rgba(124, 255, 79, .5), inset 0 0 6px rgba(0, 0, 0, .55);
+  background:
+    radial-gradient(circle at 50% 50%, #07160b 24%, transparent 25%),
+    conic-gradient(from 30deg, rgba(124, 255, 79, .85), rgba(30, 110, 45, .3), rgba(124, 255, 79, .85) 60%, rgba(30, 110, 45, .3), rgba(124, 255, 79, .85));
+}
+body.theme-xbox360 .submenu-art::after { /* glossy blade-green front flap */
+  background: linear-gradient(180deg, #1f8a35, #0b4a1c);
+  border-top-color: rgba(217, 255, 166, .9);
+  box-shadow: inset 0 2px 0 rgba(200, 255, 170, .28);
+}
+body.theme-xbox360 .game-row.sel .submenu-icon { filter: drop-shadow(0 0 22px rgba(124, 255, 79, .7)); }
+body.theme-xbox360 .game-row.sel .submenu-art .sub-disc {
+  border-color: rgba(217, 255, 166, .95);
+  box-shadow: 0 0 8px rgba(124, 255, 79, .5), inset 0 0 6px rgba(0, 0, 0, .5);
+}
+body.theme-xbox360 .game-row.sel .submenu-art .folder,
+body.theme-xbox360 .game-row.sel .submenu-art::after { border-color: rgba(217, 255, 166, .85); }
+body.theme-xbox360 .game-row.sel .submenu-art::after { border-top-color: #d9ffa6; }
 body.theme-xbox360 .game-bar {
   clip-path: none; border-radius: 12px;
   border: 1px solid rgba(140, 255, 110, .25);
