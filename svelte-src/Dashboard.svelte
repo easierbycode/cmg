@@ -324,8 +324,8 @@
   let GAMES = $derived([...manifestGames, ...installedCmgnet, ...localGames, ...SUBMENUS]);
 
   // Add Game screen rows (method picker + contextual inputs + action). A flat
-  // selectable list nav/actA/render all index into, like oeRows. Every row is
-  // selectable (no header rows to skip).
+  // selectable list nav/actFbtnBottom/render all index into, like oeRows. Every
+  // row is selectable (no header rows to skip).
   let addRows = $derived.by(() => {
     const rows = [
       { kind: 'method', key: 'm-github', method: 'github', label: 'FROM GITHUB REPO', sub: 'owner/name or github.com URL' },
@@ -985,15 +985,16 @@
     // into — otherwise swallows every arrow/Enter/Esc while the Guide is up.
     if (gameOn) { try { document.getElementById('gameframe')?.blur(); window.focus(); } catch (_) { /* ignore */ } }
   }
-  // B / Esc backs out of the Cheats sub-page to the root before it closes the
-  // whole Guide; the ✕ button and tap-out always close outright.
+  // FBTN_RIGHT / Esc backs out of the Cheats sub-page to the root before it
+  // closes the whole Guide; the ✕ button and tap-out always close outright.
   function osdBack() {
     if (osdView === 'cheats') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); return; }
-    // B / FACEBTN_RIGHT dismisses the topmost overlay first: if the music player
-    // is open (docked over the game or inline in the xbox360 Music blade), close
-    // it and stay in the Guide — a second B then closes the Guide. This is the
-    // primary close path for the docked player, whose ✕ sits under the in-game
-    // two-corner gesture zone. Mirrors actB()'s off-game "close topmost first".
+    // FBTN_RIGHT dismisses the topmost overlay first: if the music player is
+    // open (docked over the game or inline in the xbox360 Music blade), close
+    // it and stay in the Guide — a second press then closes the Guide. This is
+    // the primary close path for the docked player, whose ✕ sits under the
+    // in-game two-corner gesture zone. Mirrors actFbtnRight()'s off-game
+    // "close topmost first".
     if (musicOpen) { closeMusic(); return; }
     closeOsd();
   }
@@ -1205,8 +1206,8 @@
   });
 
   // Auto-focus the BYOD button when entering the empty PSX screen so gamepad
-  // A can click it. Note: browsers require a *user* gesture to open the native
-  // file picker — gamepad input doesn't count. Focusing means a real keyboard
+  // FBTN_BOTTOM can click it. Note: browsers require a *user* gesture to open
+  // the native file picker — gamepad input doesn't count. Focusing means a real
   // Enter on a USB keyboard will trigger the picker; programmatic .click()
   // from gamepad polling will be silently denied in some browsers.
   $effect(() => {
@@ -2359,7 +2360,7 @@
     }
   }
 
-  // Throttle uninstalls: the currentGame-based entry points (gamepad X, keyboard
+  // Throttle uninstalls: the currentGame-based entry points (gamepad FBTN_LEFT, keyboard
   // Delete — which auto-repeats when held — and the footer chip) act on whatever
   // row is selected, and an uninstall re-derives the Games list under the cursor.
   // A short cooldown stops a held key or double-tap from cascading onto the row
@@ -2695,7 +2696,7 @@
     try { addFileInput?.click(); } catch (_) {}
   }
 
-  // Submit the current method (A on the primary action row).
+  // Submit the current method (FBTN_BOTTOM on the primary action row).
   function submitAdd() {
     if (addBusy) return;
     if (addMethod === 'github') submitAddGithub();
@@ -2703,9 +2704,9 @@
     else openAddZipPicker();
   }
 
-  // A / Enter on an Add Game row. Method rows switch method; input rows focus
-  // the field (so a keyboard user can type); the subdir row cycles; the action
-  // row submits.
+  // FBTN_BOTTOM / Enter on an Add Game row. Method rows switch method; input
+  // rows focus the field (so a keyboard user can type); the subdir row cycles;
+  // the action row submits.
   function addActivate(i) {
     const row = addRows[i];
     if (!row) return;
@@ -3356,7 +3357,7 @@
     try { sessionStorage.removeItem('nes-byoc'); } catch (_) {}
     // A music app deliberately OUTLIVES the game it was opened over: exiting the
     // game leaves the sidebar playing (back at the menu, and on into the next
-    // game) until it's closed explicitly (✕, the Guide toggle, or B/Esc off-game).
+    // game) until it's closed explicitly (✕, the Guide toggle, or FBTN_RIGHT/Esc off-game).
     sfx.back();
   }
 
@@ -3611,7 +3612,7 @@
     else if (screen === 'ctrlsync') ctrlSel = 1;
     sfx.nav();
   }
-  function actA() {
+  function actFbtnBottom() {
     if (gameOn) return;
     if (screen === 'dashboard') pickMenu(menuSel);
     else if (screen === 'games') launchGame(GAMES[gameSel].id);
@@ -3643,11 +3644,12 @@
     else if (screen === 'oeimport') oeToggle(oeSel);
     else if (screen === 'ctrlsync') ctrlActivate(ctrlSel);
   }
-  function actB() {
+  function actFbtnRight() {
     if (gameOn) closeGame();
-    // A music sidebar opened from the catalog (no game running) closes on B — its
-    // only gamepad close path off-game, since the Guide (which owns the in-game
-    // toggle) isn't reachable without a game. Closes the topmost overlay first.
+    // A music sidebar opened from the catalog (no game running) closes on
+    // FBTN_RIGHT — its only gamepad close path off-game, since the Guide (which
+    // owns the in-game toggle) isn't reachable without a game. Closes the
+    // topmost overlay first.
     else if (musicOpen) closeMusic();
     else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
   }
@@ -3723,8 +3725,8 @@
         if (hReal !== 0) osdNav.hSeenAt = nowOsd;
         if (h !== 0 && h !== osdNav.hDir) adjustOsd(osdSel, h);
         osdNav.hDir = h;
-        if (justPressed(0)) activateOsd(osdSel);              // A
-        else if (justPressed(1) || justPressed(8)) osdBack(); // B or Select (Cheats → root → close)
+        if (justPressed(0)) activateOsd(osdSel);              // FBTN_BOTTOM
+        else if (justPressed(1) || justPressed(8)) osdBack(); // FBTN_RIGHT or Select (Cheats → root → close)
         padState.btn = pressedNow;
         return;
       }
@@ -3880,15 +3882,15 @@
     const pressedNow = new Set();
     pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
     const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
-    if (justPressed(0) || justPressed(9)) actA();   // A or Start
-    if (justPressed(1) || justPressed(8)) actB();   // B or Back/Select
-    // X — remove the selected game from the Games list: uninstall a graduated
-    // network game, or delete a locally-added game.
+    if (justPressed(0) || justPressed(9)) actFbtnBottom(); // FBTN_BOTTOM or Start
+    if (justPressed(1) || justPressed(8)) actFbtnRight();  // FBTN_RIGHT or Back/Select
+    // FBTN_LEFT — remove the selected game from the Games list: uninstall a
+    // graduated network game, or delete a locally-added game.
     if (justPressed(2) && screen === 'games' && !gameOn) {
       if (currentGame?.__cmgnet) cmgnetUninstall(currentGame);
       else if (currentGame?.__local) deleteLocalGame(currentGame);
     }
-    if (justPressed(3)) actUpdate();                // Y — update a graduated/local game (when applicable)
+    if (justPressed(3)) actUpdate();                // FBTN_TOP — update a graduated/local game (when applicable)
     // Shoulder/trigger navigation — fallback when D-pad isn't recognized
     // (e.g. Firefox + non-standard SNES adapters). Safe for SNES pads too:
     // the compat plugin guarantees normalized 6/7 are either real L2/R2
@@ -3942,8 +3944,9 @@
       }
       return;
     }
-    // Off-game, a music sidebar (opened from the catalog) closes on Esc / B /
-    // Backspace before any screen navigation — the topmost overlay goes first.
+    // Off-game, a music sidebar (opened from the catalog) closes on Esc /
+    // FBTN_RIGHT / Backspace before any screen navigation — the topmost
+    // overlay goes first.
     if (musicOpen && (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B')) {
       closeMusic(); e.preventDefault(); return;
     }
@@ -5699,7 +5702,7 @@
       </span>
     </div>
   {/if}
-  <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actA)}>
+  <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actFbtnBottom)}>
     <div class="btn-hint">A</div>
     <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'ps2' ? (ps2Games.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
   </div>
