@@ -49,11 +49,42 @@ export function isDeploy(): boolean {
   return !!Deno.env.get("DENO_DEPLOYMENT_ID");
 }
 
+// sec-fetch-site is the primary signal — "none" is a user-initiated navigation
+// (address bar, bookmark), which no attacker page can forge. Browsers that
+// predate Fetch Metadata still attach Origin to every non-GET, so fall back to
+// comparing its host against Host. A request carrying neither header is a
+// non-browser client (curl, the repo's own scripts) and is not the CSRF threat
+// model, so it passes — that is the policy the /api/games routes have always
+// run under.
+function isCrossSite(req: Request): boolean {
+  const site = req.headers.get("sec-fetch-site");
+  if (site) return site !== "same-origin" && site !== "none";
+  const origin = req.headers.get("origin");
+  if (!origin) return false;
+  try {
+    return new URL(origin).host !== req.headers.get("host");
+  } catch {
+    return true; // an unparseable Origin is not something a browser sends
+  }
+}
+
+// Cross-site half of localWriteGuard, usable on its own by the mutating local
+// endpoints that keep their own "not on the hosted build" wording (/api/install,
+// /api/build-apk). The wildcard-CORS middleware in main.ts opens every response
+// to any origin, so same-origin policy protects nothing here — Fetch Metadata is
+// the line of defense (openemu/import.ts established the pattern). What it buys:
+// a cross-site page can issue a CORS-"simple" POST with no preflight — bodyless,
+// or with a text/plain body that ctx.req.json() happily parses — so neither the
+// method nor the body shape is CSRF protection on its own.
+export function crossSiteGuard(req: Request): Response | null {
+  if (!isCrossSite(req)) return null;
+  return Response.json({ ok: false, error: "cross-site request" }, {
+    status: 403,
+  });
+}
+
 // Shared guard for every mutating endpoint: refuse on the read-only hosted
-// origin, and reject cross-site requests. The wildcard-CORS middleware in
-// main.ts opens every response to any origin, so same-origin policy protects
-// nothing here — sec-fetch-site is the line of defense (openemu/import.ts
-// established the pattern).
+// origin, and reject cross-site requests.
 export function localWriteGuard(req: Request): Response | null {
   if (isDeploy()) {
     return Response.json(
@@ -64,13 +95,7 @@ export function localWriteGuard(req: Request): Response | null {
       { status: 403 },
     );
   }
-  const site = req.headers.get("sec-fetch-site");
-  if (site && site !== "same-origin" && site !== "none") {
-    return Response.json({ ok: false, error: "cross-site request" }, {
-      status: 403,
-    });
-  }
-  return null;
+  return crossSiteGuard(req);
 }
 
 export type SourceInfo = {
