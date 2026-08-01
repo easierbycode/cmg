@@ -4898,7 +4898,23 @@ function GAME3D_RUNTIME(DATA) {
                 // Info
                 const info = document.createElement('div');
                 info.className = 'boss-pattern-info';
-                info.innerHTML = `<div class="boss-pattern-name">${BOSS_PATTERN_NAMES[bk] || b.name || bk}</div><div class="boss-pattern-key">${bk} · HP ${b.hp || '?'}</div>`;
+                // Build the two lines out of DOM nodes and set the label text via
+                // textContent. `bk` is a bossData key and `b.name` / `b.hp` are its
+                // fields — bossData is taken straight off the record on the SHARED
+                // levels path (see loadFromFirebase), so anyone who can save a game
+                // picks all three, and the only sanitizer anything on that path
+                // passes through (sanitizeLevelName) strips just the five
+                // Firebase-forbidden chars [.#$/[]] and never touches these at all.
+                // Interpolating them into innerHTML is stored XSS on the launcher's
+                // own origin, triggered by opening the Boss Pattern editor.
+                const nameEl = document.createElement('div');
+                nameEl.className = 'boss-pattern-name';
+                nameEl.textContent = BOSS_PATTERN_NAMES[bk] || b.name || bk;
+                info.appendChild(nameEl);
+                const keyEl = document.createElement('div');
+                keyEl.className = 'boss-pattern-key';
+                keyEl.textContent = bk + ' · HP ' + (b.hp || '?');
+                info.appendChild(keyEl);
                 row.appendChild(info);
 
                 // Select
@@ -5563,9 +5579,19 @@ function GAME3D_RUNTIME(DATA) {
                     _ssGists[target].forEach(g => {
                         const item = document.createElement('div');
                         item.className = 'ss-gist-item' + (e.gist.id === g.id ? ' sel' : '');
-                        item.innerHTML = '<div>' + g.sceneFiles.join(', ') + '</div>' +
-                            '<div class="ss-gist-desc">' + (g.description || '(no description)') +
-                            ' · updated ' + (g.updatedAt || '').slice(0, 10) + '</div>';
+                        // Same treatment: the filenames and the description come back
+                        // from the GitHub gists API for whatever account happens to be
+                        // in the gist-user box, so they are not ours to trust either.
+                        // Only the structure is built as elements; every value goes
+                        // through textContent.
+                        const filesEl = document.createElement('div');
+                        filesEl.textContent = g.sceneFiles.join(', ');
+                        item.appendChild(filesEl);
+                        const descEl = document.createElement('div');
+                        descEl.className = 'ss-gist-desc';
+                        descEl.textContent = (g.description || '(no description)') +
+                            ' · updated ' + (g.updatedAt || '').slice(0, 10);
+                        item.appendChild(descEl);
                         item.onclick = () => ssPickGist(target, g.id);
                         list.appendChild(item);
                     });
