@@ -30,6 +30,7 @@
     "record:post": "deno run -A tools/game-recorder/post.ts",
     "record:slides": "deno run -A tools/game-recorder/slides/main.ts",
     "test:e2e": "deno test -A tests/e2e/",
+    "test:visual": "deno run -A tools/visual-test-runner/main.ts",
     "start": "deno serve -A _fresh/server.js",
     "update": "deno run -A -r jsr:@fresh/update ."
   },
