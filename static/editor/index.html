@@ -5377,13 +5377,35 @@ function GAME3D_RUNTIME(DATA) {
             } else {
                 ssEntry(target).sourceType = src;
             }
+            // A message now survives re-renders, so drop it wherever switching
+            // context makes it stale — a gist listing count means nothing once
+            // you're on CODE, and vice versa.
+            ssSetStatus(target, '');
             ssSyncToGameData();
             renderSceneScriptPanel(target);
         }
 
+        // Last status line per target, kept outside the DOM. Almost every
+        // ssSetStatus() caller finishes by re-rendering the panel, and
+        // renderSceneScriptPanel() rebuilds it from scratch — including a fresh,
+        // empty status element — so a message written before that render used to
+        // be destroyed before anyone could read it: "N scene gist(s) found",
+        // "pinned @ …" and every "✗ <error>" were set and then wiped in the same
+        // tick. Remembering the message here and repainting it after each render
+        // is what actually puts it on screen.
+        const _ssStatus = { title: null, adv: null };
+
         function ssSetStatus(target, msg, color) {
+            _ssStatus[target] = msg ? { msg, color: color || 'var(--rsub)' } : null;
+            ssPaintStatus(target);
+        }
+
+        function ssPaintStatus(target) {
             const el = document.getElementById('ss-status-' + target);
-            if (el) { el.textContent = msg || ''; el.style.color = color || 'var(--rsub)'; }
+            if (!el) return;
+            const s = _ssStatus[target];
+            el.textContent = s ? s.msg : '';
+            el.style.color = s ? s.color : 'var(--rsub)';
         }
 
         async function ssCheck(target) {
@@ -5405,6 +5427,7 @@ function GAME3D_RUNTIME(DATA) {
             if ((e.code || '').trim() && !confirm('Replace the current code with the ' + (e.lang === 'svelte' ? '.svelte' : 'TypeScript') + ' template?')) return;
             e.code = e.lang === 'svelte' ? SS_TEMPLATE_SVELTE : SS_TEMPLATE_TS;
             e.compiledJs = null;
+            ssSetStatus(target, '');   // last compile result describes the old code
             ssSyncToGameData();
             renderSceneScriptPanel(target);
         }
@@ -5440,6 +5463,7 @@ function GAME3D_RUNTIME(DATA) {
             const e = ssEntry(target);
             if (kind === 'latest') {
                 e.gist.rev = 'latest';
+                ssSetStatus(target, '');   // "pinned @ …" no longer true
                 ssSyncToGameData();
                 renderSceneScriptPanel(target);
                 return;
@@ -5641,6 +5665,7 @@ function GAME3D_RUNTIME(DATA) {
             status.className = 'ss-status';
             status.id = 'ss-status-' + target;
             host.appendChild(status);
+            ssPaintStatus(target);
         }
 
         // ================== KEYBOARD ==================

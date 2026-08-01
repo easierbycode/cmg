@@ -185,6 +185,14 @@ async function waitFor<T>(
   );
 }
 
+// The panel's status line, as the user would read it.
+function status(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const el = document.getElementById("ss-status-title");
+    return el ? (el.textContent || "") : "(no status element)";
+  });
+}
+
 // Click a control in the title panel by its visible label, through the same
 // onclick the user's pointer would hit. Returns false if no such control.
 function clickByText(page: Page, label: string): Promise<boolean> {
@@ -305,15 +313,14 @@ Deno.test("scene-script gist picker: list, select, choose file, pin revision", a
     assertEquals(seen[0], `/users/${GIST_USER}/gists`);
 
     // Filter: 4 of 5 kept; ee55 (no "scene" in a filename or the description)
-    // is dropped. NB: nothing here asserts the "N scene gist(s) found" status
-    // line — ssLoadGists sets it and then calls renderSceneScriptPanel, which
-    // clears the panel and rebuilds the status element empty, so that message
-    // never actually reaches the screen.
+    // is dropped.
     assertEquals(rows.length, EXPECTED_ROWS.length, "one row per scene gist");
     assertEquals(
       rows.map((r: { files: string }) => r.files),
       EXPECTED_ROWS.map((r) => r[1]),
     );
+    // The status line survives the re-render ssLoadGists ends with.
+    assertEquals(await status(page), "4 scene gist(s) found");
 
     // The hostile row: payload intact as TEXT, no markup, no handlers, no boom.
     const hostile = rows[2];
@@ -412,8 +419,7 @@ Deno.test("scene-script gist picker: list, select, choose file, pin revision", a
       seen.includes("/gists/aa11"),
       `pinning should have fetched the gist detail (saw ${Deno.inspect(seen)})`,
     );
-    // The pill label is the surviving user-visible proof of the pin (the
-    // "pinned @ …" status line is wiped by the re-render, as above).
+    assertEquals(await status(page), "pinned @ " + PINNED_SHA.slice(0, 10));
     assert(
       await page.evaluate(
         (sha: string) =>
@@ -438,6 +444,18 @@ Deno.test("scene-script gist picker: list, select, choose file, pin revision", a
       "latest",
       "LATEST should unpin",
     );
+    // Persisting the status across renders must not leave a stale one behind:
+    // unpinning retires "pinned @ …" rather than carrying it forward.
+    assertEquals(await status(page), "", "unpinning should clear the status");
+
+    // Same for switching the source kind — a gist count means nothing on CODE.
+    assert(await clickByText(page, "CODE"), "CODE source pill should exist");
+    assertEquals(
+      await status(page),
+      "",
+      "switching source should clear the status",
+    );
+    assert(await clickByText(page, "GIST"), "GIST source pill should exist");
 
     // What Save Game would persist, and what the runtime reads back.
     assertEquals(
