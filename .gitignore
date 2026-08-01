@@ -58,5 +58,9 @@ static/bios/
 static/arcade/emularity/engine/
 static/arcade/cfg/
 
+# Downloaded by deno task 2028-ai:bgm (first step of deno task build) — bulky
+# runtime-local audio, same policy as the arcade core above.
+static/games/2028-ai/assets/custom-bgm/
+
 # game-recorder output (videos, covers, frame dumps)
 out/

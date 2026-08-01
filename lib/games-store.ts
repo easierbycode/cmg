@@ -375,7 +375,12 @@ export async function downloadFromGithub(
 ): Promise<Uint8Array> {
   const { owner, name } = parseGithubRepo(repo);
   const useBranch = branch || "main";
-  const zipUrl = `https://codeload.github.com/${encodeURIComponent(owner)}/${
+  // CMG_CODELOAD_BASE is a test seam: the protocol-handler E2E repoints it at a
+  // local stub so the full add-from-github chain runs without the network.
+  // Read per-call (not at module load) so a test can set it after import.
+  const codeloadBase = Deno.env.get("CMG_CODELOAD_BASE") ??
+    "https://codeload.github.com";
+  const zipUrl = `${codeloadBase}/${encodeURIComponent(owner)}/${
     encodeURIComponent(name)
   }/zip/refs/heads/${useBranch.split("/").map(encodeURIComponent).join("/")}`;
   const resp = await fetch(zipUrl);

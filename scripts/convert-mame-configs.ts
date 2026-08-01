@@ -12,8 +12,12 @@
 //      Stadia Controller layout for sfex2) live here so they ship in every
 //      build, including CI/Linux/web where OpenEmu is absent.
 
+import { fromFileUrl } from "jsr:@std/path@^1.1.2";
+
+// fromFileUrl, not URL.pathname: the latter renders file:///C:/… as "/C:/…",
+// which Windows file APIs reject (os error 123) — build:windows runs this too.
 const ROOT = new URL("../", import.meta.url);
-const path = (rel: string) => new URL(rel, ROOT).pathname;
+const path = (rel: string) => fromFileUrl(new URL(rel, ROOT));
 
 const DEFAULT_SRC =
   "/Users/danieljohnson/Library/Application Support/OpenEmu/MAME";

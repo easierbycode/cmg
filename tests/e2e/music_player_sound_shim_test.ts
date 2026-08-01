@@ -86,6 +86,9 @@ Deno.test("sound.js replacement loads and plays all 6 boss BGMs through the embe
   const cmgServer = staticServer(CMG_PORT, cmgRoot);
   const playerServer = staticServer(PLAYER_PORT, azlegendRoot);
 
+  // CHROME_PATH escape hatch as in scene_script_gist_picker_test.ts —
+  // astral's bundled win64 Chrome fails to spawn on some Windows hosts.
+  const chrome = Deno.env.get("CHROME_PATH");
   const browser = await launch({
     headless: true,
     args: [
@@ -93,6 +96,7 @@ Deno.test("sound.js replacement loads and plays all 6 boss BGMs through the embe
       "--mute-audio",
       "--no-sandbox",
     ],
+    ...(chrome ? { path: chrome } : {}),
   });
 
   try {

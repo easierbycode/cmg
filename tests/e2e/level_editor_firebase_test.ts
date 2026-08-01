@@ -69,9 +69,13 @@ async function waitFor<T>(
 
 Deno.test("level editor saves a custom stage0 Game to Firebase and it round-trips", async () => {
   const server = staticServer(CMG_PORT, cmgRoot);
+  // CHROME_PATH escape hatch as in scene_script_gist_picker_test.ts —
+  // astral's bundled win64 Chrome fails to spawn on some Windows hosts.
+  const chrome = Deno.env.get("CHROME_PATH");
   const browser = await launch({
     headless: true,
     args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"],
+    ...(chrome ? { path: chrome } : {}),
   });
   // Unique name so parallel/repeat runs never collide, and cleanup is safe.
   const levelName = `e2e-2019-turbo-stage0-${Date.now()}`;
@@ -172,7 +176,12 @@ Deno.test({
 
     // Author a record via the editor first (reuse the same page flow, minimal).
     const server = staticServer(CMG_PORT + 1, cmgRoot);
-    const browser = await launch({ headless: true, args: ["--no-sandbox"] });
+    const chrome = Deno.env.get("CHROME_PATH");
+    const browser = await launch({
+      headless: true,
+      args: ["--no-sandbox"],
+      ...(chrome ? { path: chrome } : {}),
+    });
     const levelName = `e2e-export-stage0-${Date.now()}`;
     try {
       const page: Page = await browser.newPage(
