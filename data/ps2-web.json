@@ -5,5 +5,12 @@
     "url": "/games/shmup-party-ps2/play/",
     "size": "web build - 1-4 players",
     "date": "07.27.26"
+  },
+  {
+    "file": "ps2-mario.web",
+    "name": "Mario",
+    "url": "/games/ps2-mario/play/",
+    "size": "web build - 1 player",
+    "date": "08.01.26"
   }
 ]
