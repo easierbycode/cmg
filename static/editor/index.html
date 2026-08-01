@@ -4842,10 +4842,20 @@ function GAME3D_RUNTIME(DATA) {
         }
 
         // ================== BOSS PATTERN ASSIGNMENT ==================
-        const BOSS_PATTERN_NAMES = {
+        // Null-prototype on purpose. Every lookup into this map is keyed by a
+        // bossData key, and bossData comes straight off the record on the SHARED
+        // levels path — so a game saved with a boss named "constructor",
+        // "toString" or "__proto__" would otherwise pull an inherited value off
+        // Object.prototype, win the `|| entry.name || key` fallback chain and
+        // render as function source. With no prototype an unknown key is just
+        // undefined, which is what the fallback chain already expects, so every
+        // BOSS_PATTERN_NAMES[…] site (the enemy/boss list labels, the pattern
+        // dropdown options and the pattern rows) is covered without each one
+        // needing its own own-property guard.
+        const BOSS_PATTERN_NAMES = Object.assign(Object.create(null), {
             boss0: 'Bison',  boss1: 'Barlog', boss2: 'Sagat',
             boss3: 'Vega',   boss4: 'Fang',   bossExtra: 'Goki'
-        };
+        });
 
         function showBossPatternEditor() {
             closeMenu();
