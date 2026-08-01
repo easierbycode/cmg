@@ -94,9 +94,9 @@ onto every game document it runs, so a game can hide that chrome with plain CSS:
 
 ```html
 <style>
-  .inLauncher #info {
-    display: none !important;
-  }
+.inLauncher #info {
+  display: none !important;
+}
 </style>
 ```
 
@@ -119,6 +119,35 @@ also stamps same-origin game frames on load (`injectLauncherMarkerIntoFrame` in
 other origins entirely (e.g. easierbycode.com) can't be stamped by the launcher;
 they should self-detect with `if (self !== top)` (see
 [`static/demos/akuma.js`](static/demos/akuma.js)).
+
+## Windows build & the `codemonkey://` protocol
+
+```
+deno task build:windows              # → dist/cmg-windows-x86_64.exe
+deno task register:windows:protocol  # HKCU registry: codemonkey:// → the exe
+deno task unregister:windows:protocol
+```
+
+`build:windows` compiles
+[`scripts/launch-windows.ts`](scripts/launch-windows.ts) into a self-contained
+kiosk launcher (embedded Fresh app served on localhost, Chrome/Edge/Brave opened
+in kiosk mode — the Windows counterpart of `build:mac` / `build:linux`). The exe
+doubles as the `codemonkey://` protocol handler: a link like
+
+```
+codemonkey://add?repo=https://github.com/owner/game&branch=main&folder=
+```
+
+installs that repo into the local game store
+([`lib/protocol.ts`](lib/protocol.ts) — the same flow as
+`POST /api/games/add-github`). If a launcher is already running, the link is
+forwarded to its API instead of racing a second kiosk onto the port.
+
+The **Add to CodeMonkey** button that builds those links on github.com is the
+Chrome extension in [`tools/github-extension/`](tools/github-extension/) (ported
+from codemonkey-games-launcher). The whole chain — button click → protocol link
+→ install → listed by `/api/games/local` — is covered by
+[`tests/e2e/protocol_add_github_button_test.ts`](tests/e2e/protocol_add_github_button_test.ts).
 
 ## Importing an OpenEmu game library
 

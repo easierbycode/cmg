@@ -24,6 +24,11 @@ const TARGETS: Record<string, BuildTarget> = {
     output: "dist/cmg-linux-x86_64",
     target: "x86_64-unknown-linux-gnu",
   },
+  windows: {
+    entry: "scripts/launch-windows.ts",
+    output: "dist/cmg-windows-x86_64.exe",
+    target: "x86_64-pc-windows-msvc",
+  },
 };
 
 const includeRoots = ["_fresh", "static"];
@@ -110,7 +115,9 @@ async function main() {
   const name = Deno.args[0] ?? "";
   const target = TARGETS[name];
   if (!target) {
-    console.error("usage: deno run -A scripts/compile-launcher.ts <mac|linux>");
+    console.error(
+      "usage: deno run -A scripts/compile-launcher.ts <mac|linux|windows>",
+    );
     Deno.exit(2);
   }
 

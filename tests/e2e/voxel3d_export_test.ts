@@ -120,6 +120,9 @@ Deno.test("RTDB level foo loads in 2019-es7 and converts to a URL-served Voxel 3
     )
     : null;
 
+  // CHROME_PATH escape hatch as in scene_script_gist_picker_test.ts —
+  // astral's bundled win64 Chrome fails to spawn on some Windows hosts.
+  const chrome = Deno.env.get("CHROME_PATH");
   const browser = await launch({
     headless: true,
     args: [
@@ -127,6 +130,7 @@ Deno.test("RTDB level foo loads in 2019-es7 and converts to a URL-served Voxel 3
       "--autoplay-policy=no-user-gesture-required",
       "--mute-audio",
     ],
+    ...(chrome ? { path: chrome } : {}),
   });
 
   try {

@@ -6,8 +6,13 @@
 //   static/arcade/emularity/engine/mamezn.js
 //   static/arcade/emularity/engine/mamezn.wasm
 
+import { fromFileUrl } from "jsr:@std/path@^1.1.2";
+
+// fromFileUrl, not URL.pathname: the latter renders file:///C:/… as "/C:/…",
+// which Windows file APIs reject (os error 123) — build:windows runs this too.
 const ROOT = new URL("../", import.meta.url);
-const path = (rel: string) => new URL(rel, ROOT).pathname;
+const ROOT_PATH = fromFileUrl(ROOT);
+const path = (rel: string) => fromFileUrl(new URL(rel, ROOT));
 
 const SOURCE = (Deno.env.get("CMG_ARCADE_ENGINE_ORIGIN") ??
   "https://emularity-engine.ux-b.archive.org/").replace(/\/?$/, "/");
@@ -27,7 +32,7 @@ async function exists(p: string): Promise<boolean> {
 
 async function fetchTo(url: string, destPath: string): Promise<void> {
   if (!FORCE && await exists(destPath)) {
-    console.log(`  - ${destPath.replace(ROOT.pathname, "")} (cached)`);
+    console.log(`  - ${destPath.replace(ROOT_PATH, "")} (cached)`);
     return;
   }
   const r = await fetch(url, { redirect: "follow" });
@@ -36,7 +41,7 @@ async function fetchTo(url: string, destPath: string): Promise<void> {
     recursive: true,
   });
   await Deno.writeFile(destPath, new Uint8Array(await r.arrayBuffer()));
-  console.log(`  + ${destPath.replace(ROOT.pathname, "")}`);
+  console.log(`  + ${destPath.replace(ROOT_PATH, "")}`);
 }
 
 function localCoreName(remoteName: string): string {

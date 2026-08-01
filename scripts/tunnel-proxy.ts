@@ -18,7 +18,9 @@ function proxyWebSocket(req: Request): Response {
     proto ? proto.split(",").map((s) => s.trim()) : undefined,
   );
 
-  const bufferedFromClient: (string | ArrayBufferLike | Blob)[] = [];
+  // Typed as WebSocket.send()'s own parameter type: ArrayBufferLike would
+  // admit SharedArrayBuffer, which send() rejects under current lib.dom.
+  const bufferedFromClient: (string | Blob | BufferSource)[] = [];
   let upstreamOpen = false;
 
   clientSock.addEventListener("message", (e) => {

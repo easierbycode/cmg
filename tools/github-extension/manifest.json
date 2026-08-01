@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub to CodeMonkey Games Launcher",
+  "version": "1.1",
+  "description": "Adds an 'Add to CodeMonkey' button to GitHub repositories that installs them into the CodeMonkey games launcher via the codemonkey:// protocol.",
+  "content_scripts": [
+    {
+      "js": [
+        "content.js"
+      ],
+      "matches": [
+        "https://github.com/*"
+      ]
+    }
+  ]
+}
