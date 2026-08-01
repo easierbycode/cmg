@@ -103,6 +103,96 @@
           document.body.classList.toggle("pad-on", anyParentPad());
         }, 1000);
 
+        // ── Quick save / quick load on Share and Home ──────────────────────
+        // MAME has no one-press quicksave: UI_SAVE_STATE / UI_LOAD_STATE open a
+        // prompt ("Press a key or joystick button, or select state to
+        // overwrite") and name the slot after whatever is pressed next. Left to
+        // the player that is two presses, and save and load would land on
+        // different slot names. So the gesture lives here instead: the pad
+        // button is watched in JS, and both steps are driven as keystrokes —
+        // MAME's stock keyboard bindings (Shift+F7 save, F7 load) followed by a
+        // fixed slot key. One tap, always the same slot, both ways.
+        //
+        // Nothing is bound to these pad buttons in MAME's cfg on purpose: if
+        // they were, MAME's own prompt could grab the button press as the slot
+        // name and beat us to it.
+        //
+        // Save states are session-scoped (the emulator's filesystem is
+        // in-memory) and MAME warns they are "not officially supported" on
+        // Capcom ZN boards — they do restore correctly on sfex2, verified
+        // save → advance → load.
+        var QS_SAVE_BTN = 8;  // Share / Select / Create / View
+        var QS_LOAD_BTN = 16; // Home / Guide / PS / Stadia (absent on many pads)
+        var QS_SLOT = { code: "Digit0", key: "0", keyCode: 48 };
+        var QS_TAP_MS = 500;
+
+        function qsKey(code, key, keyCode, type, shift) {
+          var ev = new KeyboardEvent(type, {
+            code: code, key: key, bubbles: true, cancelable: true, shiftKey: !!shift,
+          });
+          // MAME reads keyCode/which; KeyboardEvent init doesn't set them.
+          Object.defineProperty(ev, "keyCode", { get: function () { return keyCode; } });
+          Object.defineProperty(ev, "which", { get: function () { return keyCode; } });
+          (canvas || document.body).dispatchEvent(ev);
+        }
+
+        function qsRun(shift) {
+          // Shift is a real key to MAME's SDL layer, so hold it around F7 the
+          // way a keyboard would, then answer the slot prompt.
+          if (shift) qsKey("ShiftLeft", "Shift", 16, "keydown", true);
+          setTimeout(function () { qsKey("F7", "F7", 118, "keydown", shift); }, shift ? 60 : 0);
+          setTimeout(function () { qsKey("F7", "F7", 118, "keyup", shift); }, shift ? 140 : 80);
+          if (shift) setTimeout(function () { qsKey("ShiftLeft", "Shift", 16, "keyup", false); }, 200);
+          setTimeout(function () {
+            qsKey(QS_SLOT.code, QS_SLOT.key, QS_SLOT.keyCode, "keydown", false);
+            setTimeout(function () {
+              qsKey(QS_SLOT.code, QS_SLOT.key, QS_SLOT.keyCode, "keyup", false);
+            }, 60);
+          }, 400);
+        }
+
+        // Tap = pressed and released inside QS_TAP_MS with no other button
+        // touched meanwhile. That keeps Share free for the launcher's
+        // SELECT + Down chord (which opens the OSD): holding Share to reach the
+        // OSD is not a tap, so it never fires a save.
+        var qsWatch = {};
+        qsWatch[QS_SAVE_BTN] = { down: 0, dirty: false, shift: true };
+        qsWatch[QS_LOAD_BTN] = { down: 0, dirty: false, shift: false };
+
+        function qsPoll() {
+          var pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+          var pad = null;
+          for (var i = 0; i < pads.length; i++) {
+            if (pads[i] && pads[i].connected) { pad = pads[i]; break; }
+          }
+          if (!pad) return;
+          var osdOpen = false;
+          try {
+            osdOpen = !!(window.parent && window.parent !== window &&
+              window.parent.document.body.classList.contains("osd-open"));
+          } catch (_) {}
+          var anyOther = false;
+          for (var b = 0; b < pad.buttons.length; b++) {
+            if (b === QS_SAVE_BTN || b === QS_LOAD_BTN) continue;
+            if (pad.buttons[b] && pad.buttons[b].pressed) { anyOther = true; break; }
+          }
+          for (var key in qsWatch) {
+            var idx = Number(key);
+            var w = qsWatch[key];
+            var pressed = !!(pad.buttons[idx] && pad.buttons[idx].pressed);
+            if (pressed) {
+              if (!w.down) { w.down = Date.now(); w.dirty = osdOpen; }
+              if (anyOther || osdOpen) w.dirty = true;
+            } else if (w.down) {
+              var held = Date.now() - w.down;
+              w.down = 0;
+              if (!w.dirty && held < QS_TAP_MS) qsRun(w.shift);
+              w.dirty = false;
+            }
+          }
+        }
+        setInterval(qsPoll, 50);
+
         function postParent(type) {
           try { window.parent.postMessage({ type: type }, window.location.origin); } catch (_) {}
         }
@@ -176,12 +266,61 @@
           return ENGINE_REMOTE + encodeURIComponent(file);
         }
 
+        // Config files are fetched here (no-store) and mounted as local data
+        // rather than handed to the loader as a URL: the loader's own fetch is a
+        // plain XHR through the HTTP cache, which can feed MAME a control map
+        // older than the one the app ships.
         function resolveCfg(name) {
           if (!name) return Promise.resolve(null);
           var url = "/arcade/cfg/" + encodeURIComponent(name) + ".cfg";
           return fetch(url, { cache: "no-store" })
-            .then(function (r) { return r.ok ? { name: name, url: url } : null; })
+            .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
+            .then(function (data) { return data ? { name: name, data: data } : null; })
             .catch(function () { return null; });
+        }
+
+        // FNV-1a over the bytes we ship, used as the emularity filesystem key.
+        //
+        // The emulator's OverlayFS mirrors every write into IndexedDB, and on
+        // the next boot a file that already exists there SHADOWS the one we
+        // mount (loader.js sets file.cached from deltaFS.existsSync, then skips
+        // the write). MAME rewrites <driver>.cfg whenever a machine stops, so
+        // the very first run's control map would otherwise outlive every update
+        // we ship — verified: an edited sfex2.cfg kept applying its old L3
+        // binding until that store was dropped by hand. Worse, the store name
+        // was a single shared "emularity" for the whole library.
+        //
+        // Keying the store by the config bytes gives each game its own store and
+        // makes a shipped cfg/NVRAM change start a fresh one, so new defaults
+        // reach players who already ran the game. A player's own writes still
+        // persist for as long as the shipped files stay put.
+        function stampBytes(h, buf) {
+          var v = new Uint8Array(buf);
+          for (var i = 0; i < v.length; i++) {
+            h ^= v[i];
+            h = (h * 16777619) >>> 0;
+          }
+          return h;
+        }
+
+        // Pre-baked NVRAM (e.g. the ZN-2 at28c16 EEPROM holding sfex2's
+        // "Free Play" soft-dip) — served from /arcade/nvram/<driver>/<file>
+        // and mounted where -nvram_directory points so the board boots
+        // already configured. Soft dips live in NVRAM, not MAME cfg, and the
+        // in-memory BrowserFS forgets everything on exit, so shipping the
+        // file is the only way settings survive to a first boot.
+        var NVRAM_FILES = ["at28c16"];
+        function resolveNvram(driver) {
+          return Promise.all(NVRAM_FILES.map(function (f) {
+            var url = "/arcade/nvram/" + encodeURIComponent(driver) + "/" +
+              encodeURIComponent(f);
+            return fetch(url, { cache: "no-store" })
+              .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
+              .then(function (data) { return data ? { file: f, data: data } : null; })
+              .catch(function () { return null; });
+          })).then(function (found) {
+            return found.filter(Boolean);
+          });
         }
 
         function startArcade(romName, localRomData) {
@@ -204,6 +343,7 @@
               resolveCfg("default"),
               resolveCfg(driver),
               driver === romName ? Promise.resolve(null) : resolveCfg(romName),
+              resolveNvram(driver),
             ]).then(function (resolved) {
               return {
                 cfg: cfg,
@@ -212,6 +352,7 @@
                 wasmUrl: resolved[1],
                 defaultCfg: resolved[2],
                 gameCfg: resolved[3] || resolved[4],
+                nvram: resolved[5],
                 driver: driver,
               };
             });
@@ -235,21 +376,35 @@
                 romSource,
               ),
             ];
-            if (localRomData !== null && typeof localRomData !== "undefined") {
-              args.push(MAMELoader.fileSystemKey("arcade-byob-" + romName + "-" + Date.now()));
-            }
+            var stamp = 2166136261;
             if (boot.defaultCfg) {
+              stamp = stampBytes(stamp, boot.defaultCfg.data);
               args.push(MAMELoader.mountFile(
                 "/default.cfg",
-                MAMELoader.fetchFile("MAME default cfg", boot.defaultCfg.url),
+                MAMELoader.localFile("MAME default cfg", boot.defaultCfg.data),
               ));
             }
             if (boot.gameCfg) {
+              stamp = stampBytes(stamp, boot.gameCfg.data);
               args.push(MAMELoader.mountFile(
                 "/" + driver + ".cfg",
-                MAMELoader.fetchFile("MAME game cfg", boot.gameCfg.url),
+                MAMELoader.localFile("MAME game cfg", boot.gameCfg.data),
               ));
             }
+            (boot.nvram || []).forEach(function (nv) {
+              stamp = stampBytes(stamp, nv.data);
+              args.push(MAMELoader.mountFile(
+                "/nvram/" + driver + "/" + nv.file,
+                MAMELoader.localFile("MAME nvram " + nv.file, nv.data),
+              ));
+            });
+            // BYOD boards get a throwaway store (the zip isn't ours to key on);
+            // library games get one per driver, invalidated by the config bytes.
+            args.push(MAMELoader.fileSystemKey(
+              localRomData !== null && typeof localRomData !== "undefined"
+                ? "arcade-byob-" + romName + "-" + Date.now()
+                : "arcade-" + driver + "-" + stamp.toString(36),
+            ));
             // BIOS / device ROM sets (e.g. coh3002c for ZN-2, qsound). MAME finds
             // any ROM set mounted into the rompath, so split sets work as long as
             // their BIOS zips are dropped into static/arcade/ and named here via
@@ -262,10 +417,19 @@
                 MAMELoader.fetchFile(b, "/arcade/" + encodeURIComponent(b) + ".zip"),
               ));
             });
-            // Extra MAME args: the recipe's extra_args, plus optional overrides
-            // for debugging the renderer — ?video=opengl|bgfx|accel|soft and
+            // Extra MAME args: point MAME's config/NVRAM lookups at the
+            // BrowserFS mount. Emularity mounts every mountFile() under
+            // /emulator, but MAME's cfg_directory defaults to /cfg and
+            // nvram_directory to /nvram — so the shipped <driver>.cfg
+            // control maps were never read (verified against MAME 0.239's
+            // Input menu: it showed stock defaults until this flag). Then
+            // the recipe's extra_args, plus optional overrides for
+            // debugging the renderer — ?video=opengl|bgfx|accel|soft and
             // ?args=<space-separated MAME flags>.
-            var extra = [];
+            var extra = [
+              "-cfg_directory", "/emulator",
+              "-nvram_directory", "/emulator/nvram",
+            ];
             if (cfg.extra_args && cfg.extra_args.join("")) extra = extra.concat(cfg.extra_args);
             var video = params.get("video");
             if (video) extra.push("-video", video);
