@@ -60,7 +60,9 @@ try {
   for (const row of web) games.push({ ...row, kind: "web" });
 } catch (e) {
   if (!(e instanceof Deno.errors.NotFound)) {
-    console.error(`[ps2-manifest] bad ${webListUrl.pathname}: ${(e as Error).message}`);
+    console.error(
+      `[ps2-manifest] bad ${webListUrl.pathname}: ${(e as Error).message}`,
+    );
   }
 }
 

@@ -46,8 +46,8 @@ const STRIP_HEADERS = new Set([
 export const handler = define.handlers({
   async GET(ctx) {
     const rawPath = (ctx.params as Record<string, string | string[]>).path;
-    const rest =
-      (Array.isArray(rawPath) ? rawPath.join("/") : rawPath) || "index.html";
+    const rest = (Array.isArray(rawPath) ? rawPath.join("/") : rawPath) ||
+      "index.html";
 
     // Resolve the requested sub-path against the fixed upstream base and refuse
     // anything that escapes the evil-invaders subtree (path traversal / host

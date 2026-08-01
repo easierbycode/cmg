@@ -132,7 +132,8 @@ export const handler = define.handlers({
         await Deno.remove(staged).catch(() => {});
         return Response.json({
           ok: false,
-          error: `Downloaded file is implausibly small (${size} bytes) — aborted.`,
+          error:
+            `Downloaded file is implausibly small (${size} bytes) — aborted.`,
         }, { status: 502 });
       }
       await Deno.chmod(staged, 0o755);

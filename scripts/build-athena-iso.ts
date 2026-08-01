@@ -70,7 +70,8 @@ function dirDate(d: Date): number[] {
 // 17-byte volume-descriptor timestamp ("YYYYMMDDHHMMSScc" + tz byte).
 function volDate(d: Date): number[] {
   const p = (n: number, w = 2) => String(n).padStart(w, "0");
-  const s = `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
+  const s =
+    `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
     `${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}00`;
   return [...ascii(s), 0];
 }
@@ -113,7 +114,10 @@ interface Node {
 
 const SKIP = /(^\.DS_Store$)|(\.iso$)/i;
 
-async function readTree(dir: string, isoNameOverrides: Record<string, string> = {}): Promise<Node[]> {
+async function readTree(
+  dir: string,
+  isoNameOverrides: Record<string, string> = {},
+): Promise<Node[]> {
   const out: Node[] = [];
   for await (const e of Deno.readDir(dir)) {
     if (SKIP.test(e.name)) continue;
@@ -129,7 +133,14 @@ async function readTree(dir: string, isoNameOverrides: Record<string, string> = 
     } else if (e.isFile) {
       const data = await Deno.readFile(`${dir}/${e.name}`);
       const isoName = isoNameOverrides[e.name] ?? isoFileId(e.name);
-      out.push({ name: e.name, iso: ascii(isoName), isDir: false, data, lba: 0, size: data.length });
+      out.push({
+        name: e.name,
+        iso: ascii(isoName),
+        isDir: false,
+        data,
+        lba: 0,
+        size: data.length,
+      });
     }
   }
   // ISO9660 requires directory entries sorted ascending by identifier.
@@ -163,22 +174,49 @@ try {
   }
 }
 if (!elf) {
-  console.error(`[athena-iso] no boot ELF found in ${appDir} (looked for ${bootElfName} / *.elf)`);
+  console.error(
+    `[athena-iso] no boot ELF found in ${appDir} (looked for ${bootElfName} / *.elf)`,
+  );
   Deno.exit(1);
 }
 
 const root = await readTree(appDir);
 // Drop the original ELF entry and any pre-existing SYSTEM.CNF — we add our own.
-const rootFiles = root.filter((n) => n.name !== elfOrig && n.name.toUpperCase() !== "SYSTEM.CNF");
+const rootFiles = root.filter((n) =>
+  n.name !== elfOrig && n.name.toUpperCase() !== "SYSTEM.CNF"
+);
 
-const systemCnf = enc.encode("BOOT2 = cdrom0:\\ATHA_000.01;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n");
+const systemCnf = enc.encode(
+  "BOOT2 = cdrom0:\\ATHA_000.01;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n",
+);
 rootFiles.push(
-  { name: "SYSTEM.CNF", iso: ascii("SYSTEM.CNF;1"), isDir: false, data: systemCnf, lba: 0, size: systemCnf.length },
-  { name: "ATHA_000.01", iso: ascii("ATHA_000.01;1"), isDir: false, data: elf, lba: 0, size: elf.length },
+  {
+    name: "SYSTEM.CNF",
+    iso: ascii("SYSTEM.CNF;1"),
+    isDir: false,
+    data: systemCnf,
+    lba: 0,
+    size: systemCnf.length,
+  },
+  {
+    name: "ATHA_000.01",
+    iso: ascii("ATHA_000.01;1"),
+    isDir: false,
+    data: elf,
+    lba: 0,
+    size: elf.length,
+  },
 );
 rootFiles.sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0));
 
-const rootNode: Node = { name: "", iso: [], isDir: true, children: rootFiles, lba: 0, size: 0 };
+const rootNode: Node = {
+  name: "",
+  iso: [],
+  isDir: true,
+  children: rootFiles,
+  lba: 0,
+  size: 0,
+};
 
 // Collect directories in path-table order (breadth-first: parent before child).
 const dirs: Node[] = [];
@@ -251,7 +289,12 @@ const totalSectors = lba;
 // ── emit ─────────────────────────────────────────────────────────────────────
 const img = new Uint8Array(totalSectors * SECTOR);
 
-function dirRecord(lbaVal: number, sizeVal: number, isDir: boolean, idBytes: number[]): number[] {
+function dirRecord(
+  lbaVal: number,
+  sizeVal: number,
+  isDir: boolean,
+  idBytes: number[],
+): number[] {
   const total = recLen(idBytes.length);
   const b = new Array(total).fill(0);
   b[0] = total;

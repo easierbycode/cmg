@@ -1,15 +1,15 @@
 # Goofy Game (Space-time DB)
 
-A SpacetimeDB-backed remake of the [Goofy Game](../../routes/demos/goofy-game.tsx)
-multiplayer demo. Instead of the dumb WebSocket fan-out relay
-(`routes/api/ws-goofy.ts`), the shared world lives in a SpacetimeDB module and
-is streamed to every client:
+A SpacetimeDB-backed remake of the
+[Goofy Game](../../routes/demos/goofy-game.tsx) multiplayer demo. Instead of the
+dumb WebSocket fan-out relay (`routes/api/ws-goofy.ts`), the shared world lives
+in a SpacetimeDB module and is streamed to every client:
 
 - **player** — one row per client: its Goofy's position on the globe, facing,
   animation state and banked coins.
 - **brick** — sparse "this brick was hit" state for the letter bricks/blocks.
-  The letter layout is computed deterministically on every client, so a brick
-  is addressed by a stable `"<phase>:<idx>"` key.
+  The letter layout is computed deterministically on every client, so a brick is
+  addressed by a stable `"<phase>:<idx>"` key.
 - **coin** — coins orbiting the globe; the server assigns ids and arbitrates
   collection so a coin is never banked twice.
 - **world** — a single row holding the shared phase (message) index.
@@ -20,14 +20,13 @@ Route: [`routes/demos/goofy-game-st.tsx`](../../routes/demos/goofy-game-st.tsx).
 ## Characters
 
 P1 (the lowest live id) plays Goofy. Every additional player is randomly
-assigned a character from the `ENEMIES` roster — the 16 sprites from the
-"Mar.io sandbox" CodePen (`raw-assets/codepen`): blue-horn-girl, crab, creeper,
+assigned a character from the `ENEMIES` roster — the 16 sprites from the "Mar.io
+sandbox" CodePen (`raw-assets/codepen`): blue-horn-girl, crab, creeper,
 crewmate, donkey-kong, dr-mario, excitebike, goomba-blue, helmet, hello-kitty,
 krusty, mnm, ryu, shy-guy, snake and virus. The pick hashes the player's
 identity, so every client independently dresses the same player in the same
-character. All art — the Goofy/mario atlases and the enemy sheets — is
-committed under
-[`static/demos/goofy-game-st/`](../../static/demos/goofy-game-st/), so the
+character. All art — the Goofy/mario atlases and the enemy sheets — is committed
+under [`static/demos/goofy-game-st/`](../../static/demos/goofy-game-st/), so the
 demo loads no cross-origin assets.
 
 ## Publishing the module

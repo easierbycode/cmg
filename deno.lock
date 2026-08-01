@@ -2,6 +2,7 @@
   "version": "5",
   "specifiers": {
     "jsr:@astral/astral@*": "0.5.6",
+    "jsr:@astral/astral@0.5.6": "0.5.6",
     "jsr:@astral/astral@~0.5.6": "0.5.6",
     "jsr:@deno-library/progress@^1.5.1": "1.5.1",
     "jsr:@deno/cache-dir@0.22.2": "0.22.2",
@@ -1614,6 +1615,15 @@
     "zimmerframe@1.1.4": {
       "integrity": "sha512-B58NGBEoc8Y9MWWCQGl/gq9xBCe4IiKM0a2x7GZdQKOW5Exr8S1W24J6OgM1njK8xCRGvAJIL/MxXHf6SkmQKQ=="
     }
+  },
+  "redirects": {
+    "https://esm.sh/@types/three@~0.153.0/examples/jsm/loaders/FBXLoader.d.ts": "https://esm.sh/@types/three@0.153.0/examples/jsm/loaders/FBXLoader.d.ts",
+    "https://esm.sh/@types/three@~0.153.0/index.d.ts": "https://esm.sh/@types/three@0.153.0/index.d.ts"
+  },
+  "remote": {
+    "https://cmg.easierbycode.deno.net/sound_defaults.js": "ce5dce24a1b166e78676b721bbbe9e84d188c15ff887a7849b84fc25c99c33c8",
+    "https://esm.sh/three@0.153.0": "d6cf06d57aa9842e571c0ae2ad219a60fb6b422e00d434aa6d6a121ba7cada56",
+    "https://esm.sh/three@0.153.0/examples/jsm/loaders/FBXLoader.js": "eaeec418bf5ede47ffcc424c7c3d7ef6e58ebccde4a327d51b6ead23c09ac24d"
   },
   "workspace": {
     "dependencies": [

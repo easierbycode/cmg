@@ -14,7 +14,9 @@
 const VITE_PORT = Number(Deno.env.get("VITE_PORT") ?? "5173");
 const TUNNEL_PORT = Number(Deno.env.get("TUNNEL_PORT") ?? "8000");
 
-async function readDeployConfig(): Promise<{ org: string; app: string } | null> {
+async function readDeployConfig(): Promise<
+  { org: string; app: string } | null
+> {
   for (const path of ["deno.json", "deno.jsonc"]) {
     try {
       const txt = await Deno.readTextFile(path);
@@ -76,15 +78,27 @@ async function waitForVite(timeoutMs = 20_000): Promise<boolean> {
 let proxy: Deno.ChildProcess | null = null;
 
 const cleanup = () => {
-  try { proxy?.kill("SIGTERM"); } catch (_e) { /* ignore */ }
-  try { vite.kill("SIGTERM"); } catch (_e) { /* ignore */ }
+  try {
+    proxy?.kill("SIGTERM");
+  } catch (_e) { /* ignore */ }
+  try {
+    vite.kill("SIGTERM");
+  } catch (_e) { /* ignore */ }
 };
-Deno.addSignalListener("SIGINT", () => { cleanup(); Deno.exit(130); });
-Deno.addSignalListener("SIGTERM", () => { cleanup(); Deno.exit(143); });
+Deno.addSignalListener("SIGINT", () => {
+  cleanup();
+  Deno.exit(130);
+});
+Deno.addSignalListener("SIGTERM", () => {
+  cleanup();
+  Deno.exit(143);
+});
 
 const viteReady = await waitForVite();
 if (!viteReady) {
-  console.log("[dev:tunnel] Vite did not become ready in 20s — aborting tunnel.");
+  console.log(
+    "[dev:tunnel] Vite did not become ready in 20s — aborting tunnel.",
+  );
   cleanup();
   Deno.exit(1);
 }

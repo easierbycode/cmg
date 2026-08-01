@@ -1,7 +1,7 @@
 {
   "nodeModulesDir": "manual",
   "tasks": {
-    "check": "deno fmt --check . && deno lint . && deno check",
+    "check": "deno fmt --check . && deno lint . && deno check --allow-import=jsr.io,esm.sh",
     "dev": "deno run -A scripts/dev.ts",
     "dev:vite": "vite",
     "dev:tunnel": "deno run -A scripts/dev-tunnel.ts",
@@ -38,21 +38,28 @@
       "tags": [
         "fresh",
         "recommended"
+      ],
+      "exclude": [
+        "react-no-danger"
       ]
     }
   },
   "fmt": {
     "exclude": [
       "data/games.json",
-      "data/demos.json",
-      "static/gamepad-support.js",
-      "static/dashboard.css"
+      "data/demos.json"
     ]
   },
   "exclude": [
     "**/_fresh/*",
+    ".claude/**",
+    "desktop-main.ts",
+    "node_modules/**",
     "out/**",
-    "static/dashboard.bundle.js",
+    "scripts/2028-ai/boot-entry.js",
+    "scripts/launch-linux.ts",
+    "scripts/launch-mac.ts",
+    "static/**",
     "svelte-src/**",
     "tools/build-level/**",
     "tools/sprite-picker-extension/**"

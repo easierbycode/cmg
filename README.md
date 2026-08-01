@@ -67,8 +67,8 @@ also runs as the first step of `deno task build`).
 
 ## Recording games for social
 
-`tools/game-recorder` records any catalog game from a headless browser and
-posts it to Instagram Reels / TikTok:
+`tools/game-recorder` records any catalog game from a headless browser and posts
+it to Instagram Reels / TikTok:
 
 ```sh
 deno task record --list
@@ -76,12 +76,12 @@ deno task record --game games/2028-ai
 deno task record --game akuma --post instagram,tiktok --caption "..." --dry-run
 ```
 
-The catalog comes from `data/games.json` / `data/demos.json`, so a game
-added to CMG is recordable immediately. Capture is deterministic — the page
-clock is replaced and the game is stepped one exact frame at a time — so no
-frames drop and the same game always produces the same file. Per-game
-capture hints (`startWhen`, `stopWhen`, `durationMs`, …) go in an optional
-`recorder` key on the catalog entry. See
+The catalog comes from `data/games.json` / `data/demos.json`, so a game added to
+CMG is recordable immediately. Capture is deterministic — the page clock is
+replaced and the game is stepped one exact frame at a time — so no frames drop
+and the same game always produces the same file. Per-game capture hints
+(`startWhen`, `stopWhen`, `durationMs`, …) go in an optional `recorder` key on
+the catalog entry. See
 [`tools/game-recorder/README.md`](tools/game-recorder/README.md).
 
 ## Launcher detection — hiding a game's own chrome
@@ -94,9 +94,9 @@ onto every game document it runs, so a game can hide that chrome with plain CSS:
 
 ```html
 <style>
-.inLauncher #info {
-  display: none !important;
-}
+  .inLauncher #info {
+    display: none !important;
+  }
 </style>
 ```
 
@@ -116,8 +116,8 @@ games, per-game Fresh routes, and the evil-invaders proxy alike, including when
 a packaged launcher loads them cross-origin from the deploy — and the dashboard
 also stamps same-origin game frames on load (`injectLauncherMarkerIntoFrame` in
 [`svelte-src/Dashboard.svelte`](svelte-src/Dashboard.svelte)). Games hosted on
-other origins entirely (e.g. easierbycode.com) can't be stamped by the
-launcher; they should self-detect with `if (self !== top)` (see
+other origins entirely (e.g. easierbycode.com) can't be stamped by the launcher;
+they should self-detect with `if (self !== top)` (see
 [`static/demos/akuma.js`](static/demos/akuma.js)).
 
 ## Importing an OpenEmu game library

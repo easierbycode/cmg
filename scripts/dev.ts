@@ -129,15 +129,27 @@ const vite = startVite();
 let ngrok: Deno.ChildProcess | null = null;
 
 const cleanup = () => {
-  try { ngrok?.kill("SIGTERM"); } catch (_e) { /* ignore */ }
-  try { vite.kill("SIGTERM"); } catch (_e) { /* ignore */ }
+  try {
+    ngrok?.kill("SIGTERM");
+  } catch (_e) { /* ignore */ }
+  try {
+    vite.kill("SIGTERM");
+  } catch (_e) { /* ignore */ }
 };
-Deno.addSignalListener("SIGINT", () => { cleanup(); Deno.exit(130); });
-Deno.addSignalListener("SIGTERM", () => { cleanup(); Deno.exit(143); });
+Deno.addSignalListener("SIGINT", () => {
+  cleanup();
+  Deno.exit(130);
+});
+Deno.addSignalListener("SIGTERM", () => {
+  cleanup();
+  Deno.exit(143);
+});
 
 const ready = await waitForVite();
 if (!ready) {
-  console.log("[dev] vite did not become ready — falling back to localhost only");
+  console.log(
+    "[dev] vite did not become ready — falling back to localhost only",
+  );
 } else {
   ngrok = await startNgrok();
   if (ngrok) {

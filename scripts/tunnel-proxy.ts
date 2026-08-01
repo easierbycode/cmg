@@ -7,7 +7,7 @@ const VITE_PORT = Number(Deno.env.get("VITE_PORT") ?? "5173");
 const TUNNEL_PORT = Number(Deno.env.get("TUNNEL_PORT") ?? "8000");
 const VITE_HOST = `127.0.0.1:${VITE_PORT}`;
 
-async function proxyWebSocket(req: Request): Promise<Response> {
+function proxyWebSocket(req: Request): Response {
   const { socket: clientSock, response } = Deno.upgradeWebSocket(req);
   const url = new URL(req.url);
   const upstreamUrl = `ws://${VITE_HOST}${url.pathname}${url.search}`;
@@ -26,10 +26,14 @@ async function proxyWebSocket(req: Request): Promise<Response> {
     else bufferedFromClient.push(e.data);
   });
   clientSock.addEventListener("close", () => {
-    try { upstreamSock.close(); } catch (_e) { /* ignore */ }
+    try {
+      upstreamSock.close();
+    } catch (_e) { /* ignore */ }
   });
   clientSock.addEventListener("error", () => {
-    try { upstreamSock.close(); } catch (_e) { /* ignore */ }
+    try {
+      upstreamSock.close();
+    } catch (_e) { /* ignore */ }
   });
 
   upstreamSock.addEventListener("open", () => {
@@ -38,13 +42,19 @@ async function proxyWebSocket(req: Request): Promise<Response> {
     bufferedFromClient.length = 0;
   });
   upstreamSock.addEventListener("message", (e) => {
-    try { clientSock.send(e.data); } catch (_e) { /* ignore */ }
+    try {
+      clientSock.send(e.data);
+    } catch (_e) { /* ignore */ }
   });
   upstreamSock.addEventListener("close", () => {
-    try { clientSock.close(); } catch (_e) { /* ignore */ }
+    try {
+      clientSock.close();
+    } catch (_e) { /* ignore */ }
   });
   upstreamSock.addEventListener("error", () => {
-    try { clientSock.close(); } catch (_e) { /* ignore */ }
+    try {
+      clientSock.close();
+    } catch (_e) { /* ignore */ }
   });
 
   return response;

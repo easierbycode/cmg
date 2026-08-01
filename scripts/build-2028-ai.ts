@@ -9,7 +9,9 @@
 import * as esbuild from "esbuild";
 import { fileURLToPath } from "node:url";
 
-const entry = fileURLToPath(new URL("./2028-ai/boot-entry.js", import.meta.url));
+const entry = fileURLToPath(
+  new URL("./2028-ai/boot-entry.js", import.meta.url),
+);
 const outfile = fileURLToPath(
   new URL("../static/games/2028-ai/game.bundle.js", import.meta.url),
 );
