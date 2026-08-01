@@ -28,8 +28,16 @@ body {
   background-color: #000;
 }
 
-/* Hide the pointer when any gamepad is connected — controller is the input */
-body.pad-on, body.pad-on * { cursor: none !important; }
+/* Hide the pointer on anything that isn't a keyboard-and-mouse desk: a
+   touchscreen or a connected gamepad means the controller is the input and a
+   parked arrow is just litter over the game. body.no-cursor carries that
+   verdict (set in Dashboard.svelte).
+
+   body.cfg-mouse is the single exception — the Controller Layout panel was
+   opened by an actual mouse click. That panel has no gamepad path, so the
+   pointer has to come back for as long as it is up. */
+body.no-cursor:not(.cfg-mouse),
+body.no-cursor:not(.cfg-mouse) * { cursor: none !important; }
 
 /* === Background mesh === */
 .field { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }

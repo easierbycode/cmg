@@ -361,6 +361,11 @@
   let controlsShown = $state(false);
   let padHadConnection = $state(false);
   let padConnected = $state(false);
+  // Which device last drove the UI — 'mouse' | 'touch' | 'key' | 'pad'. Only
+  // consumed by the cursor policy (see the no-cursor effect), so it is a plain
+  // let, not $state: nothing renders off it. Defaults to 'pad' because a
+  // couch session starts on the controller.
+  let lastInput = 'pad';
   let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/') || gameSrc.startsWith('/arcade/')));
   let hasEmulatorControls = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/')));
   // The level editor runs in the game frame but is a button-dense editor UI:
@@ -1061,7 +1066,10 @@
       return;
     }
     if (it.key === 'exit') { sfx.enter(); osdOpen = false; closeGame(); }
-    else if (it.key === 'controller') { sfx.enter(); osdOpen = false; try { window.openControllerConfigurator?.(); } catch (_) {} }
+    // byMouse decides whether the Controller Layout un-hides the pointer: the
+    // panel is mouse-only, so a player who reached it with a click needs the
+    // cursor back, while one who reached it on the pad should not get one.
+    else if (it.key === 'controller') { sfx.enter(); osdOpen = false; try { window.openControllerConfigurator?.({ byMouse: lastInput === 'mouse' }); } catch (_) {} }
     else if (it.key === 'leveleditor') { openLevelEditor(); }
     else if (it.key === 'cheats') { sfx.enter(); osdView = 'cheats'; osdSel = firstSelectable(osdItems); }
     else if (it.key === 'cheats-back') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); }
@@ -3430,6 +3438,7 @@
     repeatMs: 150,
     holdingSince: 0,
     comboLatched: false,
+    r3Latched: false,
     dirSeenAt: 0,
     lastPollAt: 0,
     // Index of the controller currently driving the menu. Any controller the
@@ -3678,6 +3687,13 @@
     padDebugTick();
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
     let pad = pickActivePad(pads);
+    // R3 anywhere — launcher or mid-game — asks for fullscreen. Latched on its
+    // own so the early returns below (and the OSD branch) can't swallow it.
+    if (pad) {
+      const r3 = !!pad.buttons[11]?.pressed;
+      if (r3 && !padState.r3Latched) requestFullscreenFromPad();
+      padState.r3Latched = r3;
+    } else padState.r3Latched = false;
     if (gameOn) {
       // While a game is up we yield input to gamepad-support.js (it dispatches
       // keys into #gameframe). Here we only watch for the OSD open-chord, and
@@ -3731,7 +3747,7 @@
         if (hReal !== 0) osdNav.hSeenAt = nowOsd;
         if (h !== 0 && h !== osdNav.hDir) adjustOsd(osdSel, h);
         osdNav.hDir = h;
-        if (justPressed(0)) activateOsd(osdSel);              // FBTN_BOTTOM
+        if (justPressed(0)) { lastInput = 'pad'; activateOsd(osdSel); }  // FBTN_BOTTOM
         else if (justPressed(1) || justPressed(8)) osdBack(); // FBTN_RIGHT or Select (Cheats → root → close)
         padState.btn = pressedNow;
         return;
@@ -3917,6 +3933,8 @@
   function unlockAudio() { try { getAc()?.resume(); } catch (e) { /* ignore */ } }
 
   function onKey(e) {
+    lastInput = 'key';
+    completePendingFullscreen();
     // Nintendo theme lays the catalog lists out as a horizontal coverflow row,
     // so left/right arrows navigate them too (up/down keeps working).
     if (!gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard' && screen !== 'addgame' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
@@ -4525,6 +4543,9 @@
     bootTimer = setTimeout(() => { bootGone = true; }, 1600);
 
     window.addEventListener('keydown', onKey);
+    // Capture phase so lastInput is already correct by the time the resulting
+    // click reaches a row handler (Osd rows activate on click, not pointerdown).
+    window.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('message', onWindowMessage);
     window.addEventListener('message', onMusicPlayerMessage);
     window.addEventListener('message', onSoftmodMessage);
@@ -4556,10 +4577,70 @@
   }
   function onPadConnect() { padHadConnection = true; refreshPadConnected(); }
   function onPadDisconnect() { refreshPadConnected(); }
+  // A pen counts as a pointer the player is aiming by hand, like touch — only a
+  // real mouse earns the cursor back in the Controller Layout.
+  function onPointerDown(e) {
+    lastInput = e.pointerType === 'mouse' ? 'mouse' : 'touch';
+    completePendingFullscreen();
+  }
+
+  // ── R3 → fullscreen ──────────────────────────────────────────────────────
+  // One-way on purpose: R3 also reaches games as a normal button, so letting it
+  // toggle would drop players out of fullscreen mid-game.
+  //
+  // The shipped launchers (--kiosk) and the desktop shell already fill the
+  // screen at the window-manager level, where the Fullscreen API reports
+  // nothing — document.fullscreenElement is null even though there is nothing
+  // to gain. Comparing the viewport against the screen catches that case too,
+  // so R3 stays a no-op there instead of firing a doomed request every press.
+  function isEffectivelyFullscreen() {
+    if (document.fullscreenElement) return true;
+    const sw = window.screen?.width;
+    const sh = window.screen?.height;
+    return !!(sw && sh && window.innerWidth >= sw - 2 && window.innerHeight >= sh - 2);
+  }
+
+  // Chrome only grants fullscreen with transient user activation, and a gamepad
+  // press does not count as one (verified: the promise rejects with
+  // "Permissions check failed" and navigator.userActivation.isActive is false).
+  // So the pad press records the intent and the next real gesture — a click, a
+  // key — cashes it in. In kiosk/desktop builds none of this runs.
+  let fullscreenWanted = false;
+
+  function requestFullscreenFromPad() {
+    if (isEffectivelyFullscreen()) { fullscreenWanted = false; return; }
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    try {
+      const p = req.call(el);
+      if (p && p.catch) p.catch(() => { fullscreenWanted = true; });
+    } catch (_) { fullscreenWanted = true; }
+  }
+
+  function completePendingFullscreen() {
+    if (!fullscreenWanted) return;
+    fullscreenWanted = false;
+    if (isEffectivelyFullscreen()) return;
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    try { const p = req.call(el); if (p && p.catch) p.catch(() => {}); } catch (_) {}
+  }
 
   $effect(() => {
     if (padConnected) document.body.classList.add('pad-on');
     else document.body.classList.remove('pad-on');
+  });
+
+  // ── Cursor policy ────────────────────────────────────────────────────────
+  // The pointer only belongs on a keyboard-and-mouse desk. A touchscreen or a
+  // gamepad means it is dead weight parked over the game, so hide it. The one
+  // exception lives in CSS: body.cfg-mouse, set while the Controller Layout was
+  // opened by an actual mouse click — that panel has no gamepad path, so the
+  // pointer has to come back or it can't be driven at all.
+  $effect(() => {
+    document.body.classList.toggle('no-cursor', isTouch || padConnected);
   });
 
   $effect(() => {
@@ -4635,6 +4716,7 @@
     if (padRaf) cancelAnimationFrame(padRaf);
     document.removeEventListener('click', unlockAudio);
     window.removeEventListener('keydown', onKey);
+    window.removeEventListener('pointerdown', onPointerDown, true);
     window.removeEventListener('message', onWindowMessage);
     window.removeEventListener('message', onSoftmodMessage);
     window.removeEventListener('message', onSpritePickerMessage);

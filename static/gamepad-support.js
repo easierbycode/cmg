@@ -746,20 +746,14 @@ class GamepadManager {
     return this.getKeydownOnlyForGame(id);
   }
 
-  handleSpecialActions(groupName, buttonName, controllerIndex) {
-    // Handle special controller actions
-    if (groupName === 'special') {
-      switch (buttonName) {
-        case 'home':
-          // Toggle fullscreen
-          if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen();
-          } else {
-            document.exitFullscreen();
-          }
-          break;
-      }
-    }
+  handleSpecialActions(_groupName, _buttonName, _controllerIndex) {
+    // Home used to toggle fullscreen from here. It doesn't any more:
+    //   - fullscreen is R3's job now, and it only ever ENTERS (see
+    //     requestFullscreenFromPad in Dashboard.svelte), because a toggle bound
+    //     to a button games also receive kicks players out mid-game;
+    //   - Home is the arcade player's quick-load (static/arcade/play.html), and
+    //     a fullscreen toggle riding along with every state load was wrong.
+    // Kept as a hook for future per-button special actions.
   }
 
   dispatchKeyboardEvent(eventType, mapping) {

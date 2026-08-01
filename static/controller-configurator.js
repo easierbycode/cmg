@@ -18,10 +18,15 @@ import { GamepadManager } from './gamepad-support.js';
 
   // Authored in class syntax for readability, then mixed into the prototype.
   class ConfiguratorMixin {
-  openControllerConfigurator() {
+  // opts.byMouse — the caller reached this panel with a real mouse click, so the
+  // cursor must be visible while it is up even on a pad/touch device that
+  // otherwise hides it (body.no-cursor). The panel is mouse-only: nothing in it
+  // is reachable from a gamepad, so a pad-opened panel keeps the cursor hidden.
+  openControllerConfigurator(opts) {
+    document.body.classList.toggle('cfg-mouse', !!(opts && opts.byMouse));
     this.createConfiguratorUI();
   }
-  
+
   createConfiguratorUI() {
     // Remove existing configurator
     const existingConfig = document.querySelector('.controller-configurator');
@@ -553,6 +558,9 @@ import { GamepadManager } from './gamepad-support.js';
   }
   
   closeConfigurator() {
+    // Hand the cursor back to the no-cursor policy — every close path (✕,
+    // Save & Close, Reset All) funnels through here.
+    document.body.classList.remove('cfg-mouse');
     const configurator = document.querySelector('.controller-configurator');
     if (configurator) {
       configurator.classList.remove('visible');
@@ -1379,6 +1387,6 @@ input:checked + .slider:before {
   document.head.appendChild(styleSheet);
 
   // Opened from the in-game OSD ("Controller Settings"); alias kept for back-compat.
-  window.openControllerConfigurator = () => window.gamepadManager.openControllerConfigurator();
+  window.openControllerConfigurator = (opts) => window.gamepadManager.openControllerConfigurator(opts);
   window.openControllerConfig = window.openControllerConfigurator;
 })();
