@@ -53,6 +53,8 @@ Env: CHROME_PATH (or RECORD_CHROME) — same as --chrome.`);
 // under 1MB and UI text stays legible.
 const SHOT_FORMAT = "webp";
 const SHOT_MIME = `image/${SHOT_FORMAT}`;
+const shotUrl = (step: number) => `/shot/${step}.${SHOT_FORMAT}`;
+const SHOT_ROUTE = new RegExp(`^/shot/(\\d+)\\.${SHOT_FORMAT}$`);
 
 interface Shot {
   step: number;
@@ -159,8 +161,8 @@ function stepCard(s: StepResult, hasShot: boolean) {
   }
   ${
     hasShot
-      ? `<a class="shot" href="/shot/${s.index}.${SHOT_FORMAT}" target="_blank">
-           <img src="/shot/${s.index}.${SHOT_FORMAT}" alt="screenshot after ${
+      ? `<a class="shot" href="${shotUrl(s.index)}" target="_blank">
+           <img src="${shotUrl(s.index)}" alt="screenshot after ${
         esc(s.name)
       }" loading="lazy">
          </a>`
@@ -266,7 +268,7 @@ if (args.once) {
     // to hundreds of thousands of bytes and spreading that overflows the stack.
     const b64 = encodeBase64(s.img);
     html = html.replaceAll(
-      `/shot/${s.step}.${SHOT_FORMAT}`,
+      shotUrl(s.step),
       `data:${SHOT_MIME};base64,${b64}`,
     );
   }
@@ -296,7 +298,10 @@ const server = Deno.serve(
       return Response.json({ ok: run.result.ok });
     }
 
-    const shot = pathname.match(/^\/shot\/(\d+)\.png$/);
+    // Built from SHOT_FORMAT rather than hardcoded, so the route and the URLs
+    // in the report can't drift apart the way they did when this said .png
+    // and the page had already moved to .webp.
+    const shot = pathname.match(SHOT_ROUTE);
     if (shot) {
       const hit = run.shots.find((s) => s.step === Number(shot[1]));
       if (!hit) return new Response("no screenshot", { status: 404 });
