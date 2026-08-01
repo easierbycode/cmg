@@ -44,7 +44,9 @@
   "fmt": {
     "exclude": [
       "data/games.json",
-      "data/demos.json"
+      "data/demos.json",
+      "static/gamepad-support.js",
+      "static/dashboard.css"
     ]
   },
   "exclude": [
