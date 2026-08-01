@@ -339,7 +339,13 @@
     const profile = profileFor(pad);
     if (profile) return wrapProfiledPad(pad, profile, opts);
 
-    if (!isSnesPad(pad)) return pad;
+    // forceIndexZero must hold for EVERY pad, not just SNES ones: consumers
+    // like EmulatorJS's GamepadHandler and Emscripten SDL look pads up by
+    // ARRAY POSITION using the pad's .index, and preferSinglePad serves them
+    // a one-element array — a pad still wearing a browser index of 1+ sends
+    // those lookups at a hole (dead input, or a crashed poll loop).
+    const snes = isSnesPad(pad);
+    if (!snes && !(opts.forceIndexZero && pad.index !== 0)) return pad;
 
     const key = cacheKey(opts);
     if (wrapCache) {
@@ -350,9 +356,9 @@
     const wrapped = new Proxy(pad, {
       get(target, prop) {
         if (prop === "__cmgGamepadCompatWrapped") return true;
-        if (prop === "buttons") return snesButtons(target);
+        if (snes && prop === "buttons") return snesButtons(target);
         if (prop === "index" && opts.forceIndexZero) return 0;
-        if (prop === "mapping" && opts.standardizeSnesMapping) {
+        if (snes && prop === "mapping" && opts.standardizeSnesMapping) {
           return "standard";
         }
 

@@ -188,6 +188,7 @@
       }
     </style>
     <script src="/gamepad-compatibility-plugin.js"></script>
+    <script src="/emulator-controls.js"></script>
     <script src="/shaders/pixellate.js"></script>
   </head>
   <body>
@@ -220,6 +221,10 @@
           document.body.classList.add("touch");
         }
 
+        // Per-console default + per-game override, if either is defined for
+        // this core in /emulator-controls.js. Neither -> EmulatorJS's own
+        // defaults stand.
+        if (window.CMGEmuControls) window.CMGEmuControls.apply("mednafen_pce", title);
         window.EJS_player = "#display";
         // Full Beetle PCE / Mednafen PCE libretro core (more accurate than pce_fast).
         window.EJS_core = "mednafen_pce";

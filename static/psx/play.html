@@ -53,6 +53,7 @@
       }
     </style>
     <script src="/gamepad-compatibility-plugin.js"></script>
+    <script src="/emulator-controls.js"></script>
     <script src="/shaders/pixellate.js"></script>
   </head>
   <body>
@@ -174,6 +175,10 @@
 
         function boot(gameUrl, title) {
           document.title = title;
+          // Per-console default + per-game override, if either is defined for
+          // this core in /emulator-controls.js. Neither -> EmulatorJS's own
+          // defaults stand.
+          if (window.CMGEmuControls) window.CMGEmuControls.apply("psx", title);
           window.EJS_player = "#display";
           window.EJS_core = "psx";
           window.EJS_gameUrl = gameUrl;
