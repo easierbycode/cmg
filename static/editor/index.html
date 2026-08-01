@@ -5988,12 +5988,47 @@ function GAME3D_RUNTIME(DATA) {
                     const item = document.createElement('div');
                     item.className = 'fb-level-item';
                     const date = val.savedAt ? new Date(val.savedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-                    let badges = '';
-                    if (val.storyData) badges += '<span class="save-badge" title="Story">📖</span>';
-                    if (val.sceneScripts) badges += '<span class="save-badge" title="Scene Scripts">📜</span>';
-                    if (val.logoDataURL || val.titleBgDataURL) badges += '<span class="save-badge" title="Title Screen">🖼</span>';
-                    if (val.atlasImageDataURL) badges += '<span class="save-badge" title="Custom Sprites">🎨</span>';
-                    item.innerHTML = `<div><div class="fb-name">${key}</div><div class="fb-detail">${date ? `<span class="fb-date">${date}</span>` : ''}${badges ? `<span style="margin-left:4px">${badges}</span>` : ''}</div></div>`;
+                    // Build the row out of DOM nodes and set the name + date via
+                    // textContent. `key` is an RTDB key from the SHARED levels
+                    // path — anyone who can save a game picks it — and the only
+                    // sanitizer it ever passes through (sanitizeLevelName) strips
+                    // just the five Firebase-forbidden chars [.#$/[]], so angle
+                    // brackets and quotes survive. Interpolating it into innerHTML
+                    // is therefore stored XSS on the launcher's own origin. Only
+                    // the badges, which are fixed strings chosen here, are built
+                    // as elements.
+                    const wrap = document.createElement('div');
+                    const nameEl = document.createElement('div');
+                    nameEl.className = 'fb-name';
+                    nameEl.textContent = key;
+                    wrap.appendChild(nameEl);
+                    const detail = document.createElement('div');
+                    detail.className = 'fb-detail';
+                    if (date) {
+                        const d = document.createElement('span');
+                        d.className = 'fb-date';
+                        d.textContent = date;
+                        detail.appendChild(d);
+                    }
+                    const badgeDefs = [];
+                    if (val.storyData) badgeDefs.push(['Story', '📖']);
+                    if (val.sceneScripts) badgeDefs.push(['Scene Scripts', '📜']);
+                    if (val.logoDataURL || val.titleBgDataURL) badgeDefs.push(['Title Screen', '🖼']);
+                    if (val.atlasImageDataURL) badgeDefs.push(['Custom Sprites', '🎨']);
+                    if (badgeDefs.length) {
+                        const bwrap = document.createElement('span');
+                        bwrap.style.marginLeft = '4px';
+                        for (const [title, emoji] of badgeDefs) {
+                            const b = document.createElement('span');
+                            b.className = 'save-badge';
+                            b.title = title;
+                            b.textContent = emoji;
+                            bwrap.appendChild(b);
+                        }
+                        detail.appendChild(bwrap);
+                    }
+                    wrap.appendChild(detail);
+                    item.appendChild(wrap);
                     item.onclick = () => { closeFirebaseBrowser(); loadFromFirebase(key); };
                     list.appendChild(item);
                 }

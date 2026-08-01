@@ -7,6 +7,7 @@
 // library and matches the entry, so no client-supplied filesystem path is
 // ever acted on.
 import { define } from "../../../utils.ts";
+import { crossSiteGuard } from "../../../lib/games-store.ts";
 import {
   importEntry,
   regenManifest,
@@ -18,10 +19,8 @@ export const handler = define.handlers({
   async POST(ctx) {
     // Imports write to local disk — reject cross-site requests outright
     // (non-preflighted form POSTs would otherwise reach this handler).
-    const site = ctx.req.headers.get("sec-fetch-site");
-    if (site && site !== "same-origin" && site !== "none") {
-      return Response.json({ error: "cross-site request" }, { status: 403 });
-    }
+    const denied = crossSiteGuard(ctx.req);
+    if (denied) return denied;
 
     let body: unknown;
     try {

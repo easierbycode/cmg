@@ -1,4 +1,5 @@
 import { define } from "../../utils.ts";
+import { crossSiteGuard } from "../../lib/games-store.ts";
 import { dirname, fromFileUrl, join } from "jsr:@std/path@^1.1.2";
 
 // /api/install — build a native desktop binary of the launcher on demand with
@@ -82,7 +83,15 @@ export const handler = define.handlers({
     });
   },
 
-  async POST() {
+  async POST(ctx) {
+    // This POST takes no body at all and spawns a filesystem-writing
+    // `deno task desktop:*`, so it is the easiest possible CSRF target: without
+    // this check any page the user happens to visit could point a plain form at
+    // the launcher's localhost port and kick off a full build with no
+    // interaction. Same policy as the /api/games routes (localWriteGuard), just
+    // without its games-specific Deploy message.
+    const denied = crossSiteGuard(ctx.req);
+    if (denied) return denied;
     if (isDeploy()) {
       return Response.json(
         { ok: false, error: "Install is only available on a local launcher." },

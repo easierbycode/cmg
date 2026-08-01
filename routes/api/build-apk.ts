@@ -1,4 +1,5 @@
 import { define } from "../../utils.ts";
+import { crossSiteGuard } from "../../lib/games-store.ts";
 import { dirname, fromFileUrl, join } from "jsr:@std/path@^1.1.2";
 
 // POST /api/build-apk — export a custom Firebase "Game" to an installable app.
@@ -121,6 +122,12 @@ async function findArtifacts(
 
 export const handler = define.handlers({
   async POST(ctx) {
+    // Requiring a JSON body is not a CSRF defense: a cross-site page can post
+    // text/plain without tripping a CORS preflight, and ctx.req.json() parses it
+    // all the same. Since a hit here spawns the build tool and writes to disk,
+    // gate on Fetch Metadata the way every other mutating local route does.
+    const denied = crossSiteGuard(ctx.req);
+    if (denied) return denied;
     if (Deno.env.get("DENO_DEPLOYMENT_ID")) {
       return Response.json(
         {
