@@ -35,11 +35,16 @@ class GamepadManager {
         left: { gamepadButton: 14, keyboardKey: 'ArrowLeft', keyCode: 37 },
         right: { gamepadButton: 15, keyboardKey: 'ArrowRight', keyCode: 39 }
       },
+      // Face buttons are named by POSITION, not by vendor letter, because the
+      // same standard-mapping index is a different glyph per vendor: index 0 is
+      // Xbox A / PlayStation Cross but Nintendo B, and index 1 is Xbox B but
+      // Nintendo A. "Press A" is therefore ambiguous across pads; FBTN_BOTTOM
+      // is not. The indices themselves follow the W3C standard gamepad mapping.
       face: {
-        btnBottom: { gamepadButton: 0, keyboardKey: ' ', keyCode: 32 }, // A/Cross
-        btnRight: { gamepadButton: 1, keyboardKey: 'c', keyCode: 67 }, // B/Circle
-        btnLeft: { gamepadButton: 2, keyboardKey: 'c', keyCode: 67 }, // X/Square
-        btnTop: { gamepadButton: 3, keyboardKey: ' ', keyCode: 32 } // Y/Triangle
+        btnBottom: { gamepadButton: 0, keyboardKey: ' ', keyCode: 32 }, // FBTN_BOTTOM
+        btnRight: { gamepadButton: 1, keyboardKey: 'c', keyCode: 67 }, // FBTN_RIGHT
+        btnLeft: { gamepadButton: 2, keyboardKey: 'c', keyCode: 67 }, // FBTN_LEFT
+        btnTop: { gamepadButton: 3, keyboardKey: ' ', keyCode: 32 } // FBTN_TOP
       },
       shoulder: {
         leftShoulder: { gamepadButton: 4, keyboardKey: 'q', keyCode: 81 },
@@ -331,7 +336,8 @@ class GamepadManager {
           if (swallow) {
             // no-op: allow state update below for visualization
           }
-          // B closes controller configurator if open; otherwise fall through
+          // FBTN_RIGHT closes controller configurator if open; otherwise fall
+          // through
           else if (this.isConfiguratorOpen && this.isConfiguratorOpen() && groupName === 'face' && buttonName === 'btnRight') {
             try { this.closeConfigurator(); } catch (_) {}
             this.buttonState[controllerIndex].faceEast = true;
@@ -339,7 +345,8 @@ class GamepadManager {
           }
           // While overlays are open, don't forward most groups to the game
           else if (this.isAnyOverlayOpen && this.isAnyOverlayOpen() && (groupName === 'dpad' || groupName === 'face' || groupName === 'shoulder')) {
-            // Latch A/B so releasing after closing overlay won't trigger launcher actions
+            // Latch FBTN_BOTTOM/FBTN_RIGHT so releasing after closing overlay
+            // won't trigger launcher actions
             if (groupName === 'face' && buttonName === 'btnBottom') this.buttonState[controllerIndex].faceSouth = true;
             if (groupName === 'face' && buttonName === 'btnRight') this.buttonState[controllerIndex].faceEast = true;
             // Overlay-specific handling handled elsewhere
@@ -696,13 +703,13 @@ class GamepadManager {
 
   // Swallow inputs for ALL controllers while testing is active
   // Rationale: During live button testing, no controller should
-  // navigate the launcher or close overlays (e.g., via B). The
+  // navigate the launcher or close overlays (e.g., via FBTN_RIGHT). The
   // controller selection only affects visualization aggregation,
   // not input routing. This prevents other controllers from
   // interacting with the launcher while testing a single controller.
   shouldSwallowFor(controllerIndex) {
     // wizardActive: the Button Mapping Wizard is capturing raw presses — no
-    // pad input may reach the launcher or game (B would close the
+    // pad input may reach the launcher or game (FBTN_RIGHT would close the
     // configurator underneath, etc.).
     return !!(this.isTestingActive && this.isTestingActive()) || !!this.wizardActive;
   }
