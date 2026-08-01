@@ -139,6 +139,18 @@ codemonkey://add?repo=https://github.com/owner/game&branch=main&folder=
 ```
 
 installs that repo into the local game store
+
+.: TRY IT :.
+
+```
+deno task register:windows:protocol
+```
+
+.: (then paste below into browser / file explorer / run box) :.
+```
+codemonkey://add?repo=https://github.com/easierbycode/pacman&branch=master
+```
+
 ([`lib/protocol.ts`](lib/protocol.ts) — the same flow as
 `POST /api/games/add-github`). If a launcher is already running, the link is
 forwarded to its API instead of racing a second kiosk onto the port.
