@@ -1,3 +1,3 @@
-source: easierbycode/ps2-mario@8edd890eddcdc7e677087a46fc9c5a0436a30adc
+source: easierbycode/ps2-mario@e0def66491daacbc8a65013f86e300547e5974b6
 built with: BASE_PATH=/games/ps2-mario/ npm run build
 copied: dist/play + dist/assets
