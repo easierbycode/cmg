@@ -1,5 +1,20 @@
 [
   {
+    "file": "ps2-mario.web",
+    "name": "Mario",
+    "url": "/games/ps2-mario/play/",
+    "size": "web build - 1 player",
+    "date": "08.01.26",
+    "kind": "web"
+  },
+  {
+    "file": "ps2-mario.iso",
+    "name": "ps2-mario",
+    "url": "/PlayStation2/ps2-mario.iso",
+    "size": "5.6 MB",
+    "date": "08.01.26"
+  },
+  {
     "file": "shmup-party-ps2.web",
     "name": "Sh'M Up Party",
     "url": "/games/shmup-party-ps2/play/",
