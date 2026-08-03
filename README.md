@@ -147,6 +147,7 @@ deno task register:windows:protocol
 ```
 
 .: (then paste below into browser / file explorer / run box) :.
+
 ```
 codemonkey://add?repo=https://github.com/easierbycode/pacman&branch=master
 ```
@@ -160,6 +161,59 @@ Chrome extension in [`tools/github-extension/`](tools/github-extension/) (ported
 from codemonkey-games-launcher). The whole chain — button click → protocol link
 → install → listed by `/api/games/local` — is covered by
 [`tests/e2e/protocol_add_github_button_test.ts`](tests/e2e/protocol_add_github_button_test.ts).
+
+## Editing a game in Phaser Editor 2D — the Guide's "Edit Game"
+
+When a game's project directory carries a `phasereditor2d.config.json`, the
+in-game Guide gains an **Edit Game** row. Pressing it starts
+[Phaser Editor 2D](https://phasereditor2d.com/) against that directory and swaps
+the game frame to the IDE — the real editor, on the real sources.
+
+Install the editor once (it is **not** committed — ~12 MB of binaries, and
+`vendor/` is gitignored):
+
+```sh
+deno task phasereditor:vendor            # this machine's platform
+deno task phasereditor:vendor -- --all   # windows + macos + linux
+```
+
+That does up front what a project's `phasereditor2d-launcher` devDependency
+would do on first run: it installs the npm package and the
+`PhaserEditor2D-core-<version>-<platform>` binaries into
+`vendor/phasereditor2d/`, laid out exactly like `~/.phasereditor2d/installs` so
+either location works. Resolution order is `CMG_PHASER_EDITOR_HOME` →
+`vendor/phasereditor2d` → `~/.phasereditor2d`; with none of them present the
+button simply doesn't appear. If `npm run editor` already downloaded the zip,
+the vendor task copies it out of the home directory instead of re-fetching.
+
+Where projects are looked for, given a launched game id (`games/2028-ai` and
+`evil-invaders-phaser4/?scene=MutoidScene` both reduce to a plain directory
+name): `GAMES_DIR` (games added through **Add Game**) and the app root's parent
+— the developer layout, where the launcher checkout and the game checkouts are
+siblings (`C:\CODE\cmg`, `C:\CODE\evil-invaders-phaser4`). Set
+`CMG_PHASER_PROJECT_DIRS` (`;`-separated) to search somewhere else instead.
+
+The editor runs as its own process on a free port from 1960 up — 1959 is left to
+a `npm run editor` you started by hand — and
+[`routes/phaser-editor/[...path].ts`](routes/phaser-editor/%5B...path%5D.ts)
+proxies it onto the launcher's origin at `/phaser-editor/<project>/`. Framing it
+cross-origin would cost the launcher marker and the in-frame two-corner gesture
+that opens the Guide (both same-origin only), and would break entirely over
+https; the proxy also rebases the handful of absolute `/editor/…` URLs the
+editor bakes in, which would otherwise land on this repo's own level editor.
+
+**Local launcher only.** It spawns a process and serves an IDE over a directory
+on this machine, so `/api/phaser-editor` refuses on the hosted Deno Deploy
+origin and against cross-site callers, only accepts a project name that is a
+single plain directory segment, and only ever opens a directory that actually
+holds a `phasereditor2d.config.json`. Editors are children of the launcher and
+are killed with it.
+
+End to end — dashboard → Guide → **Edit Game** → the real editor in the frame —
+is covered by
+[`tests/e2e/phaser_editor_test.ts`](tests/e2e/phaser_editor_test.ts) (needs
+`deno task phasereditor:vendor` and `deno task dashboard:build`; it skips itself
+with a note otherwise).
 
 ## Importing an OpenEmu game library
 

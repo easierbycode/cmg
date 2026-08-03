@@ -368,14 +368,16 @@
   let lastInput = 'pad';
   let isTg16Game = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/') || gameSrc.startsWith('/arcade/')));
   let hasEmulatorControls = $derived(typeof gameSrc === 'string' && (gameSrc.startsWith('/turbografx16/') || gameSrc.startsWith('/psx/') || gameSrc.startsWith('/saturn/') || gameSrc.startsWith('/nes/')));
-  // The level editor runs in the game frame but is a button-dense editor UI:
-  // the transparent .osd-corner hit-zones would swallow taps on its toolbar
-  // corners (enemy/item pickers top-left, save/menu top-right) and on grid
-  // cells in the bottom corners. While it's the active frame the overlay zones
-  // are suppressed and the same gestures are detected by listeners injected
-  // into the (guaranteed same-origin) frame instead — see
-  // injectEditorCornerGesture.
-  let editorFrameActive = $derived(typeof gameSrc === 'string' && /^\/editor(\/|\?|$)/.test(gameSrc));
+  // An editor runs in the game frame but is a button-dense editor UI: the
+  // transparent .osd-corner hit-zones would swallow taps on its toolbar corners
+  // (enemy/item pickers top-left, save/menu top-right) and on grid cells in the
+  // bottom corners. While one is the active frame the overlay zones are
+  // suppressed and the same gestures are detected by listeners injected into
+  // the (guaranteed same-origin) frame instead — see injectEditorCornerGesture.
+  // Covers both the built-in level editor (/editor/…) and Phaser Editor, which
+  // is proxied onto this origin at /phaser-editor/<project>/ precisely so the
+  // injection keeps working.
+  let editorFrameActive = $derived(typeof gameSrc === 'string' && (/^\/editor(\/|\?|$)/.test(gameSrc) || /^\/phaser-editor\//.test(gameSrc)));
   // Same-origin games get the launcher's Gamepad API patch (Twin-Stick /
   // touch virtual pad); cross-origin games run their own touch analogs off
   // cmg-twinstick-touch-set instead, so the launcher's zones must stand down.
@@ -629,6 +631,69 @@
     // read-only deploy.
     gameSrc = le.url;
     setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  // ── Phaser Editor ("Edit Game") ───────────────────────────────────────────
+  // A game whose project directory carries a `phasereditor2d.config.json` can
+  // be opened in Phaser Editor 2D — the real IDE, running against the real
+  // sources. Unlike every other Guide capability this is resolved by the
+  // LAUNCHER rather than advertised by the game: only a local launcher can see
+  // the project on disk and start the editor process (/api/phaser-editor,
+  // lib/phaser-editor.ts). The hosted web app always answers "unavailable", so
+  // the button simply never appears there.
+  let osdPhaserEditor = $state(null); // { id, name, url } | null
+  let phaserEditorBusy = $state(false);
+  // Launches can outrun their probes (arrow down the list fast enough and two
+  // are in flight at once); only the newest probe may write the state.
+  let phaserProbe = 0;
+  async function probePhaserEditor(id) {
+    osdPhaserEditor = null;
+    const token = ++phaserProbe;
+    if (!id) return;
+    try {
+      const r = await fetch('/api/phaser-editor?game=' + encodeURIComponent(id), { cache: 'no-store' });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (token !== phaserProbe) return;
+      if (d && d.available && d.url) osdPhaserEditor = { id, name: d.name, url: d.url };
+    } catch (_) {
+      // no local API (hosted build, or the launcher is offline) — no button
+    }
+  }
+
+  // Start (or reuse) the project's editor and swap the frame to it. Same
+  // discipline as openLevelEditor: the outgoing game's advertised capabilities
+  // are dropped so none of its cheats/plugins/actions linger over the IDE.
+  // Starting the editor takes a few seconds the first time, so the row reports
+  // progress rather than looking dead.
+  async function openPhaserEditor() {
+    const pe = osdPhaserEditor;
+    if (!pe || phaserEditorBusy) return;
+    phaserEditorBusy = true;
+    sfx.enter();
+    try {
+      const r = await fetch('/api/phaser-editor', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ game: pe.id }),
+      });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || !d.ok || !d.url) { sfx.back(); return; }
+      osdOpen = false; osdView = 'main';
+      osdCheats = []; osdPlugins = []; osdActions = []; osdExtras = [];
+      osdLevelEditor = null;
+      osdPhaserEditor = null;
+      twinStickAvail = false; twinStickOn = false;
+      touchCtlAvail = false; touchCtlOn = false;
+      // Root-relative (NOT resolved against manifestOrigin): the proxy that
+      // fronts the editor process lives on this launcher's own origin.
+      gameSrc = d.url;
+      setTimeout(() => { gameOn = true; }, 30);
+    } catch (_) {
+      sfx.back();
+    } finally {
+      phaserEditorBusy = false;
+    }
   }
 
   // ── Twin-Stick mode ───────────────────────────────────────────────────────
@@ -937,6 +1002,15 @@
     if (osdLevelEditor) {
       game.push({ key: 'leveleditor', kind: 'button', label: 'Edit Levels' });
     }
+    // "Edit Game" appears only when the launcher found a Phaser Editor project
+    // for this game on disk (phasereditor2d.config.json — see probePhaserEditor).
+    if (osdPhaserEditor) {
+      game.push({
+        key: 'phasereditor',
+        kind: 'button',
+        label: phaserEditorBusy ? 'Starting Editor…' : 'Edit Game',
+      });
+    }
     // Game-advertised extra builds (e.g. an unlocked EX super-scaler 3D
     // version) each get a launch row; like Cheats, they exist only while the
     // running game has broadcast them (cmg-ex → osdExtras).
@@ -1071,6 +1145,7 @@
     // cursor back, while one who reached it on the pad should not get one.
     else if (it.key === 'controller') { sfx.enter(); osdOpen = false; try { window.openControllerConfigurator?.({ byMouse: lastInput === 'mouse' }); } catch (_) {} }
     else if (it.key === 'leveleditor') { openLevelEditor(); }
+    else if (it.key === 'phasereditor') { openPhaserEditor(); }
     else if (it.key === 'cheats') { sfx.enter(); osdView = 'cheats'; osdSel = firstSelectable(osdItems); }
     else if (it.key === 'cheats-back') { osdView = 'main'; osdSel = firstSelectable(osdItems); sfx.back(); }
     else if (it.exUrl) { sfx.enter(); osdOpen = false; launchEx(it.exUrl); }
@@ -1673,6 +1748,7 @@
       initTwinStick(id, localItem);
       initTouchControls(id, localItem);
       osdLevelEditor = null;
+      probePhaserEditor(id);
       gameSrc = localItem.url;
       setTimeout(() => { gameOn = true; }, 30);
       return;
@@ -1692,6 +1768,10 @@
     osdLevelEditor = (item && item.levelEditor)
       ? sanitizeLevelEditor(item.levelEditor, id)
       : null;
+    // Ask the launcher whether this game is also a Phaser Editor project here
+    // (id in hand). Async — the Guide gains "Edit Game" a beat after the game
+    // starts, which is fine: the Guide isn't open yet.
+    probePhaserEditor(id);
     if (item && item.url) {
       // Same-origin whenever this origin embeds the game (mapped-key dispatch
       // needs it — see localGameUrls); the deploy origin covers OTA-only games.
@@ -1798,6 +1878,7 @@
       initTwinStick(id, row);
       initTouchControls(id, row);
       osdLevelEditor = null;
+      probePhaserEditor(id);
       gameSrc = row.url;
       setTimeout(() => { gameOn = true; }, 30);
       return;
@@ -2054,6 +2135,7 @@
     osdLevelEditor = (game && game.levelEditor)
       ? sanitizeLevelEditor(game.levelEditor, game.id)
       : null;
+    probePhaserEditor(game.id);
     if (cmgnetStatus[game.id]?.cached) {
       if (cmgnetStatus[game.id]?.updateAvailable && !cmgnetStatus[game.id]?.downloading) {
         // A newer build is known to exist (boot-time check against the game
@@ -2170,6 +2252,7 @@
       chromeDismissed = false;
       initTwinStick(item.id, item);
       osdLevelEditor = null;
+      probePhaserEditor(item.id);
       cmgnetDownload(item).then(() => {
         if (cmgnetStatus[item.id]?.cached) playCmgnet(item);
         else if (item.streamUrl) {
@@ -3353,6 +3436,8 @@
     osdActions = [];
     osdExtras = [];
     osdLevelEditor = null;
+    // Also invalidates any probe still in flight (see phaserProbe).
+    probePhaserEditor(null);
     twinStickAvail = false;
     twinStickOn = false;
     twinGameId = null;

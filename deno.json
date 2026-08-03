@@ -27,6 +27,7 @@
     "saturn:manifest": "deno run -A scripts/build-saturn-manifest.ts",
     "arcade:manifest": "deno run -A scripts/build-arcade-manifest.ts",
     "openemu:import": "deno run -A scripts/import-openemu.ts",
+    "phasereditor:vendor": "deno run -A scripts/vendor-phaser-editor.ts",
     "arcade:core": "deno run -A scripts/vendor-arcade-core.ts",
     "arcade:configs": "deno run -A scripts/convert-mame-configs.ts",
     "arcade:bundle": "deno task arcade:core && deno task arcade:configs",
@@ -67,6 +68,7 @@
     "scripts/launch-windows.ts",
     "static/**",
     "svelte-src/**",
+    "vendor/**",
     "tools/build-level/**",
     "tools/sprite-picker-extension/**"
   ],
