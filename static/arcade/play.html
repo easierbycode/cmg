@@ -164,6 +164,36 @@
           }, 400);
         }
 
+        // ── Start / Select → START1 / INSERT COIN ──────────────────────────
+        // The cfg binds START1 to JOYCODE_1_BUTTON10 (Gamepad-API index 9),
+        // which works for pads the joystick layer sees in full (Stadia). But
+        // SDL registers each pad with the RAW button count from the browser's
+        // gamepadconnected event — the compat plugin can only patch
+        // getGamepads(), not the event's pad object — so on SNES-class pads
+        // whose raw report ends at 8 buttons (Select/Start at raw 6/7, the
+        // joydev family), the normalized Select/Start slots (8/9) sit past
+        // the registered end and are never polled: Start can't start the
+        // game. Drive both as keystrokes instead, the same proven path
+        // quick-save uses: Start mirrors its held state into KEYCODE_1
+        // (START1's stock key, kept in the shipped cfg), and a clean Select
+        // tap fires KEYCODE_5 (COIN1's stock key) — free-play boards ignore
+        // the coin, coin-mode boards get their credit. On pads whose Start
+        // DOES reach MAME, key and joycode press the same input port, so
+        // nothing double-fires.
+        var START_BTN = 9;
+        var startKeyDown = false;
+
+        function setStartKey(down) {
+          if (down === startKeyDown) return;
+          startKeyDown = down;
+          qsKey("Digit1", "1", 49, down ? "keydown" : "keyup", false);
+        }
+
+        function insertCoin() {
+          qsKey("Digit5", "5", 53, "keydown", false);
+          setTimeout(function () { qsKey("Digit5", "5", 53, "keyup", false); }, 60);
+        }
+
         // Tap = pressed and released inside QS_TAP_MS with no other button
         // touched meanwhile. That keeps Share free for the launcher's
         // SELECT + Down chord (which opens the OSD): holding Share to reach the
@@ -178,7 +208,7 @@
           for (var i = 0; i < pads.length; i++) {
             if (pads[i] && pads[i].connected) { pad = pads[i]; break; }
           }
-          if (!pad) return;
+          if (!pad) { setStartKey(false); return; }
           var osdOpen = false;
           try {
             osdOpen = !!(window.parent && window.parent !== window &&
@@ -189,6 +219,9 @@
             qsLastTapAt = 0;
             if (qsPendingSave) { clearTimeout(qsPendingSave); qsPendingSave = 0; }
           }
+          // Start mirrors into KEYCODE_1 while the OSD is closed; opening the
+          // OSD mid-hold releases the key.
+          setStartKey(!osdOpen && !!(pad.buttons[START_BTN] && pad.buttons[START_BTN].pressed));
           var anyOther = false;
           for (var b = 0; b < pad.buttons.length; b++) {
             if (b === QS_SAVE_BTN || b === QS_LOAD_BTN) continue;
@@ -208,6 +241,9 @@
               w.down = 0;
               if (!w.dirty && held < QS_TAP_MS) {
                 if (idx === QS_SAVE_BTN) {
+                  // Every clean Select tap is also INSERT COIN (see above);
+                  // the save/load gesture rides on top of it.
+                  insertCoin();
                   var nowTap = Date.now();
                   if (nowTap - qsLastTapAt <= QS_DOUBLE_MS) {
                     // Second clean tap inside the window → quick-LOAD.
@@ -232,6 +268,11 @@
           }
         }
         setInterval(qsPoll, 50);
+        // Headless test hook: the in-app preview keeps tabs hidden (interval
+        // timers throttle to ≥1s there), so tap timing can't be driven through
+        // the real poll loop — tests call poll() directly against a stubbed
+        // navigator.getGamepads.
+        window.__cmgArcadeInput = { poll: qsPoll, insertCoin: insertCoin };
 
         function postParent(type) {
           try { window.parent.postMessage({ type: type }, window.location.origin); } catch (_) {}
