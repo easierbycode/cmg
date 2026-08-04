@@ -53,7 +53,15 @@ function refsInDescriptor(name: string, text: string): string[] {
     // flycast's NAOMI .lst: quoted chip file names, one per ROM entry.
     for (const m of text.matchAll(/"([^"]+)"/g)) out.push(m[1]);
   }
-  return out.map((r) => r.split(/[\\/]/).pop()!.toLowerCase());
+  // Keep the reference as written (bar Windows separators): a descriptor that
+  // names `tracks/track01.bin` is talking about a file in a subdirectory, not
+  // about a `track01.bin` sitting at the top of the library, and shouldn't
+  // fold that unrelated image into itself. static/naomi/play.html resolves
+  // these the same way.
+  return out.map((r) =>
+    r.replace(/\\/g, "/").replace(/^\.?\//, "")
+      .toLowerCase()
+  );
 }
 
 const dirUrl = new URL("../static/Naomi/", import.meta.url);

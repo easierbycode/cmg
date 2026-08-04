@@ -342,14 +342,32 @@
         // resolves the names out of the descriptor as it would on disk.
         var DESCRIPTOR_RE = /\.(gdi|cue|lst)$/i;
 
+        // A reference is resolved by flycast RELATIVE TO THE DESCRIPTOR, which
+        // lands at the filesystem root — so `tracks/track01.bin` has to stay
+        // `tracks/track01.bin`, not collapse to its basename, or the descriptor
+        // would point at a file that isn't where it says. Windows separators
+        // and drive letters are normalised away, and a reference that climbs
+        // out of the game's own directory is dropped rather than followed.
+        function normalizeRef(ref) {
+          var parts = String(ref).replace(/\\/g, "/").replace(/^[a-zA-Z]:/, "")
+            .split("/");
+          var out = [];
+          for (var i = 0; i < parts.length; i++) {
+            if (!parts[i] || parts[i] === ".") continue;
+            if (parts[i] === "..") return null;
+            out.push(parts[i]);
+          }
+          return out.length ? out.join("/") : null;
+        }
+
         function refsInDescriptor(name, text) {
           var out = [];
           var seen = {};
           var push = function (ref) {
-            var base = String(ref).split(/[\\/]/).pop();
-            if (!base || seen[base.toLowerCase()]) return;
-            seen[base.toLowerCase()] = true;
-            out.push(base);
+            var rel = normalizeRef(ref);
+            if (!rel || seen[rel.toLowerCase()]) return;
+            seen[rel.toLowerCase()] = true;
+            out.push(rel);
           };
           var m;
           if (/\.cue$/i.test(name)) {
@@ -395,13 +413,19 @@
             var chain = Promise.resolve();
             refs.forEach(function (ref) {
               chain = chain.then(function () {
-                var local = byName[ref.toLowerCase()];
+                // A file picker only ever reports basenames, so a pick is
+                // matched on that — but the file is still written under the
+                // path the descriptor asks for (EmulatorJS creates the
+                // directories on the way in).
+                var local = byName[ref.split("/").pop().toLowerCase()];
                 if (local) {
                   files["/" + ref] = URL.createObjectURL(local);
                   return;
                 }
-                // Hosted images keep their tracks in the same directory.
-                var url = "/Naomi/" + encodeURIComponent(ref);
+                // Hosted images keep their tracks beside the descriptor,
+                // under whatever subdirectory it names.
+                var url = "/Naomi/" + ref.split("/").map(encodeURIComponent)
+                  .join("/");
                 return probe(url).then(function (ok) {
                   if (ok) files["/" + ref] = url;
                   else missing.push(ref);
