@@ -52,20 +52,48 @@ export function isDeploy(): boolean {
 // sec-fetch-site is the primary signal — "none" is a user-initiated navigation
 // (address bar, bookmark), which no attacker page can forge. Browsers that
 // predate Fetch Metadata still attach Origin to every non-GET, so fall back to
-// comparing its host against Host. A request carrying neither header is a
-// non-browser client (curl, the repo's own scripts) and is not the CSRF threat
-// model, so it passes — that is the policy the /api/games routes have always
-// run under.
+// comparing its host against this origin's own (see selfHosts). A request
+// carrying neither header is a non-browser client (curl, the repo's own
+// scripts) and is not the CSRF threat model, so it passes — that is the policy
+// the /api/games routes have always run under.
 function isCrossSite(req: Request): boolean {
   const site = req.headers.get("sec-fetch-site");
   if (site) return site !== "same-origin" && site !== "none";
   const origin = req.headers.get("origin");
   if (!origin) return false;
   try {
-    return new URL(origin).host !== req.headers.get("host");
+    return !selfHosts(req).includes(new URL(origin).host);
   } catch {
     return true; // an unparseable Origin is not something a browser sends
   }
+}
+
+// The hosts a same-origin request may legitimately name in Origin. Host is the
+// obvious one, but it is not always the host the browser addressed: under
+// `deno task dev:tunnel` the page is served from a public Deno Deploy tunnel
+// domain and scripts/tunnel-proxy.ts rewrites Host to 127.0.0.1:<vite port>
+// before forwarding, while leaving the browser's Origin untouched. Comparing
+// against Host alone would call every same-origin POST cross-site and 403 it —
+// and only on the pre-Fetch-Metadata browsers this fallback exists to serve.
+// The proxy therefore forwards the address the browser used in
+// X-Forwarded-Host, which is accepted here as well.
+//
+// A cross-site page cannot forge that header to whitelist itself: a custom
+// request header makes the request non-"simple", so the browser preflights it,
+// and nothing in this app answers OPTIONS with Access-Control-Allow-Headers
+// (main.ts sets Access-Control-Allow-Origin and nothing else), so the preflight
+// fails and the POST is never sent. tunnel-proxy.ts overwrites rather than
+// appends, so a value from the client cannot survive the hop either.
+function selfHosts(req: Request): string[] {
+  const hosts: string[] = [];
+  const host = req.headers.get("host");
+  if (host) hosts.push(host);
+  const forwarded = req.headers.get("x-forwarded-host");
+  // Comma-separated when a request crosses several proxies; the first entry is
+  // the one the client actually addressed.
+  const first = forwarded?.split(",")[0].trim();
+  if (first) hosts.push(first);
+  return hosts;
 }
 
 // Cross-site half of localWriteGuard, usable on its own by the mutating local
