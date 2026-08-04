@@ -215,6 +215,51 @@ is covered by
 `deno task phasereditor:vendor` and `deno task dashboard:build`; it skips itself
 with a note otherwise).
 
+## NAOMI / Dreamcast (Flycast WASM)
+
+Games → **NAOMI** (the leaping reindeer of the Utopia boot disc) runs Sega's
+NAOMI/Atomiswave arcade boards and Dreamcast discs through
+[flycast-wasm](https://github.com/nasomers/flycast-wasm) — flycast built as a
+libretro core with an SH4→WebAssembly JIT — inside the same EmulatorJS frontend
+the PSX / Saturn / NES / TG16 players use.
+
+The core is ~10 MB of binaries published as loose release assets, so it is
+fetched rather than committed:
+
+```sh
+deno task naomi:core   # → static/naomi/core/flycast-wasm.data (+ report.json)
+```
+
+`scripts/vendor-flycast-core.ts` downloads the pinned release
+(`CMG_FLYCAST_TAG`, default `v1.0`) and packs it into the
+`cores/<core>-wasm.data` zip EmulatorJS asks for;
+[`static/naomi/play.html`](static/naomi/play.html) points the frontend at it
+with `EJS_paths`. It runs as part of `deno task build`, so the deploy, the
+desktop builds and the compiled launchers all carry the core, and it is a
+warning rather than a build break when the download fails (the player then says
+so, and names the task to run).
+
+**BYOD — Bring Your Own Disc.** With no images in `static/Naomi/`, the section
+is a file picker: choose a NAOMI/Atomiswave ROM set (`.zip` `.7z` `.lst` `.dat`)
+or a Dreamcast image (`.chd` `.gdi` `.cdi` `.cue` `.iso`) and it boots from the
+picked `File` without ever uploading it.
+
+**Local images** dropped in `static/Naomi/` are indexed by
+`deno task naomi:manifest` (also part of `deno task build`) into
+`static/Naomi/manifest.json`, which is what the dashboard lists. Since every
+packaging task starts with `deno task build` and embeds `static/` wholesale,
+those images ride along into `deno task desktop:*` and `deno task build:mac` /
+`build:linux` / `build:windows` binaries. The files themselves are gitignored —
+same policy as the PSX/Saturn/NES libraries, so the public deploy stays ROM-free
+and falls back to BYOD.
+
+**BIOS is yours to supply.** NAOMI needs `naomi.zip` (`awbios.zip` for
+Atomiswave) and Dreamcast discs need `dc_boot.bin` / `dc_flash.bin`. Put them in
+`static/bios/` or `static/Naomi/` (both gitignored), or select them in the BYOD
+dialog alongside the game — the player writes whatever it finds into the
+emulated system directory before boot. Nothing copyrighted is shipped or fetched
+by any task here.
+
 ## Importing an OpenEmu game library
 
 `deno task openemu:import` copies every game from OpenEmu's library

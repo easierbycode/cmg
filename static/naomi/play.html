@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>NAOMI</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        color: #9cff6b;
+        font-family: "Share Tech Mono", monospace;
+      }
+      #display {
+        width: 100%;
+        height: 100%;
+      }
+      #err {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 2em;
+        line-height: 1.6;
+        white-space: pre-line;
+      }
+      #err.show {
+        display: flex;
+      }
+      #err code {
+        color: #dfffca;
+      }
+      /* Hide EmulatorJS chrome by default — parent toggles `.show-controls` to reveal */
+      .ejs_menu_bar, .ejs_top_bar {
+        opacity: 0 !important;
+        pointer-events: none !important;
+        transition: opacity 0.2s ease;
+      }
+      body.show-controls .ejs_menu_bar,
+      body.show-controls .ejs_top_bar,
+      body.touch .ejs_menu_bar,
+      body.touch .ejs_top_bar {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+      }
+      /* Hide cursor when a gamepad is connected */
+      body.pad-on, body.pad-on * {
+        cursor: none !important;
+      }
+    </style>
+    <script src="/gamepad-compatibility-plugin.js"></script>
+    <script src="/emulator-controls.js"></script>
+  </head>
+  <body>
+    <div id="display"></div>
+    <div id="err">No cartridge specified.</div>
+    <script>
+      (function () {
+        "use strict";
+        var params = new URLSearchParams(location.search);
+        var rom = params.get("rom") || "";
+        var byod = params.get("byod") === "1";
+
+        var errEl = document.getElementById("err");
+        function fail(msg) {
+          errEl.textContent = msg;
+          errEl.classList.add("show");
+          try { console.error("[naomi] " + msg); } catch (_) {}
+        }
+
+        if (!byod && !rom) {
+          errEl.classList.add("show");
+          return;
+        }
+
+        // ── The core ───────────────────────────────────────────────────────
+        // Flycast WASM (https://github.com/nasomers/flycast-wasm) is a libretro
+        // core built for EmulatorJS — same frontend the PSX / Saturn / NES /
+        // TG16 players use — but it is published as loose release assets rather
+        // than an EmulatorJS core bundle, and it is not in the CDN's core list.
+        // `deno task naomi:core` (scripts/vendor-flycast-core.ts) packs it into
+        // the `cores/<core>-wasm.data` zip the frontend asks for, and EJS_paths
+        // redirects the two core lookups here — everything else (the frontend
+        // itself, the compression workers, localization) still comes from the
+        // CDN, exactly like the other players.
+        //
+        // EJS_paths matches on the BASENAME of the path EmulatorJS builds, so
+        // the keys below are the file names it would have fetched:
+        //   cores/flycast-wasm.data         the core bundle
+        //   cores/flycast-legacy-wasm.data  the same, when it thinks WebGL2 is
+        //                                   unavailable (mapped to the same
+        //                                   bundle — there is only one build)
+        //   cores/reports/flycast.json      the build report; ours declares
+        //                                   defaultWebGL2, since flycast
+        //                                   renders through WebGL2 only
+        //
+        // The core's README asks for cross-origin isolation (COOP + COEP), but
+        // this build carries no SharedArrayBuffer and no pthreads — the JIT
+        // compiles through WebAssembly.compile and dispatches from a single
+        // thread — so it runs unisolated, and the player stays in the ordinary
+        // game iframe where the launcher's gamepad normalisation and OSD reach
+        // it. (The PS2 player, whose emulator genuinely needs SharedArrayBuffer,
+        // takes over the tab instead — see main.ts.) A future threaded flycast
+        // build would need that same treatment.
+        var CORE_DATA = "/naomi/core/flycast-wasm.data";
+        var CORE_REPORT = "/naomi/core/report.json";
+
+        // BIOS. NAOMI cannot boot without its board BIOS, and Dreamcast discs
+        // need dc_boot.bin/dc_flash.bin unless HLE BIOS is turned on. None of
+        // it is shipped here — drop your own dumps in static/bios/ (gitignored)
+        // or next to the images in static/Naomi/, or pick them alongside the
+        // ROM in the BYOD dialog.
+        var BIOS_NAMES = ["naomi.zip", "awbios.zip", "dc_boot.bin", "dc_flash.bin"];
+        // Where flycast looks: its libretro build reads BIOS from the RetroArch
+        // system dir (and a `dc` subdirectory of it), and NAOMI BIOS zips are
+        // also looked up beside the ROM — which, in the EmulatorJS filesystem,
+        // is the root. Writing all three is cheap: the downloader fetches each
+        // URL once and the writes are a few hundred KB.
+        var SYSTEM_DIRS = [
+          "/home/web_user/retroarch/userdata/system/dc/",
+          "/home/web_user/retroarch/userdata/system/",
+          "/",
+        ];
+
+        if ("ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0) {
+          document.body.classList.add("touch");
+        }
+
+        // Cursor hide on gamepad connect
+        function refreshPadClass() {
+          var pads = (navigator.getGamepads && navigator.getGamepads()) || [];
+          var any = false;
+          for (var i = 0; i < pads.length; i++) {
+            if (pads[i] && pads[i].connected) {
+              any = true;
+              break;
+            }
+          }
+          document.body.classList.toggle("pad-on", any);
+        }
+        window.addEventListener("gamepadconnected", refreshPadClass);
+        window.addEventListener("gamepaddisconnected", refreshPadClass);
+        refreshPadClass();
+
+        if (window.CMGGamepadCompat) {
+          window.CMGGamepadCompat.install({
+            sourceParent: true,
+            preferSinglePad: true,
+            forceIndexZero: true,
+          });
+        }
+        refreshPadClass();
+
+        // Only accept control / file messages from our own parent (same-origin).
+        function isFromOwnParent(e) {
+          if (e.origin && e.origin !== window.location.origin) return false;
+          return e.source === window.parent;
+        }
+        window.addEventListener("message", function (e) {
+          if (!isFromOwnParent(e)) return;
+          var d = e.data || {};
+          if (d.type === "tg16-show-controls") {
+            document.body.classList.add("show-controls");
+          } else if (d.type === "tg16-hide-controls") {
+            document.body.classList.remove("show-controls");
+          }
+        });
+
+        function postParent(type) {
+          try {
+            window.parent.postMessage({ type: type }, window.location.origin);
+          } catch (_) {}
+        }
+
+        // Keyboard fallback for the control bar — see psx/play.html. ` / ~ and
+        // Escape mirror the SELECT + Down gamepad chord that opens the OSD (and
+        // with it Exit Game) when the Gamepad API sees no pad.
+        window.addEventListener("keydown", function (e) {
+          if (
+            e.code === "Backquote" || e.key === "`" || e.key === "~" ||
+            e.keyCode === 192 || e.key === "Escape"
+          ) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            postParent("tg16-toggle-controls");
+          }
+        }, true);
+
+        // First touch inside the game iframe tells the parent to drop its close
+        // button + controller-legend overlay so they don't obscure play.
+        var touchReported = false;
+        function reportFirstTouch() {
+          if (touchReported) return;
+          touchReported = true;
+          postParent("tg16-first-touch");
+          window.removeEventListener("touchstart", reportFirstTouch, true);
+          window.removeEventListener("pointerdown", reportFirstTouch, true);
+        }
+        window.addEventListener("touchstart", reportFirstTouch, {
+          capture: true,
+          passive: true,
+        });
+        window.addEventListener("pointerdown", reportFirstTouch, {
+          capture: true,
+          passive: true,
+        });
+
+        function hookExitButton() {
+          var buttons = document.querySelectorAll(".ejs_menu_button");
+          for (var i = 0; i < buttons.length; i++) {
+            var b = buttons[i];
+            var text = (b.textContent || "").trim();
+            if (text === "Exit Emulation" && !b.dataset.naomiHooked) {
+              b.dataset.naomiHooked = "1";
+              b.addEventListener("click", function () {
+                postParent("tg16-exit");
+              });
+              return true;
+            }
+          }
+          return false;
+        }
+
+        // Does this URL exist? A one-byte ranged GET rather than a HEAD: not
+        // every static server this page runs on answers HEAD (the deploy, the
+        // compiled launchers and `deno task dev` all serve these files through
+        // different stacks), and a server that ignores Range just sends a body
+        // we immediately cancel.
+        function probe(url) {
+          return fetch(url, { headers: { Range: "bytes=0-0" } })
+            .then(function (r) {
+              try { if (r.body && r.body.cancel) r.body.cancel(); } catch (_) {}
+              return r.ok;
+            })
+            .catch(function () { return false; });
+        }
+
+        // Resolve the BIOS set: files picked alongside the ROM in the BYOD
+        // dialog win, then static/Naomi/, then static/bios/. Returns the
+        // EJS_externalFiles map (FS path -> URL) EmulatorJS writes before boot.
+        function resolveBios(picked) {
+          var byName = {};
+          (picked || []).forEach(function (f) {
+            if (f && f.name) byName[f.name.toLowerCase()] = f;
+          });
+          var out = {};
+          var chain = Promise.resolve();
+          BIOS_NAMES.forEach(function (name) {
+            chain = chain.then(function () {
+              var local = byName[name];
+              if (local) return URL.createObjectURL(local);
+              // A ".zip" URL would be unpacked by EmulatorJS's downloader on
+              // the way in (it extracts by extension) and only the first entry
+              // would survive — but flycast wants the ROM-set zip itself. The
+              // query string moves the extension out of the way; the file is
+              // still written under `name`, from the externalFiles key.
+              var suffix = /\.zip$/i.test(name) ? "?raw=1" : "";
+              return probe("/Naomi/" + name).then(function (ok) {
+                if (ok) return "/Naomi/" + name + suffix;
+                return probe("/bios/" + name).then(function (ok2) {
+                  return ok2 ? "/bios/" + name + suffix : null;
+                });
+              });
+            }).then(function (url) {
+              if (!url) return;
+              SYSTEM_DIRS.forEach(function (dir) {
+                out[dir + name] = url;
+              });
+            });
+          });
+          return chain.then(function () { return out; });
+        }
+
+        function boot(gameUrl, title, picked) {
+          document.title = title;
+          Promise.all([probe(CORE_DATA), resolveBios(picked)])
+            .then(function (res) {
+              if (!res[0]) {
+                fail(
+                  "The Flycast core is not installed.\n\n" +
+                  "Run `deno task naomi:core` to fetch it " +
+                  "(scripts/vendor-flycast-core.ts), then reload.",
+                );
+                return;
+              }
+              start(gameUrl, title, res[1]);
+            });
+        }
+
+        function start(gameUrl, title, externalFiles) {
+          // Per-console default + per-game override, if either is defined for
+          // this core in /emulator-controls.js.
+          if (window.CMGEmuControls) window.CMGEmuControls.apply("flycast", title);
+          window.EJS_player = "#display";
+          window.EJS_core = "flycast";
+          window.EJS_gameUrl = gameUrl;
+          window.EJS_gameName = title;
+          var paths = {
+            "flycast-wasm.data": CORE_DATA,
+            "flycast-legacy-wasm.data": CORE_DATA,
+            "flycast.json": CORE_REPORT,
+          };
+          // EmulatorJS cache-busts the report with an hourly counter
+          // (cores/reports/flycast.json?v=<hours since epoch>) and EJS_paths
+          // matches the basename verbatim — query included — so the plain key
+          // above never fires on builds that do this. Register the buckets
+          // either side of now as well; without the report the frontend
+          // assumes no WebGL2 and asks for a "-legacy" bundle (mapped above to
+          // the same file, so this is polish rather than a hard requirement).
+          var hour = Math.floor(Date.now() / 3600000);
+          for (var h = hour - 1; h <= hour + 1; h++) {
+            paths["flycast.json?v=" + h] = CORE_REPORT;
+          }
+          window.EJS_paths = paths;
+          window.EJS_externalFiles = externalFiles;
+          // Core options as tuned by the core's author — config/
+          // dreamcast-core-options.json in the flycast-wasm release. They are
+          // defaults only: anything changed in EmulatorJS's Settings → Core
+          // menu persists per browser and wins over these.
+          window.EJS_defaultOptions = {
+            reicast_boot_to_bios: "disabled",
+            reicast_hle_bios: "disabled",
+            reicast_threaded_rendering: "disabled",
+            reicast_synchronous_rendering: "disabled",
+            reicast_internal_resolution: "640x480",
+            reicast_mipmapping: "disabled",
+            reicast_anisotropic_filtering: "1",
+            reicast_texupscale: "disabled",
+            reicast_enable_rttb: "disabled",
+            reicast_enable_purupuru: "disabled",
+            reicast_alpha_sorting: "per-strip (fast, least accurate)",
+            reicast_delay_frame_swapping: "disabled",
+            reicast_frame_skipping: "enabled",
+            reicast_framerate: "normal",
+          };
+          window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+          window.EJS_startOnLoaded = true;
+          window.EJS_color = "#7CFF4F";
+          window.EJS_ready = function () {
+            if (hookExitButton()) return;
+            var mo = new MutationObserver(function () {
+              if (hookExitButton()) mo.disconnect();
+            });
+            mo.observe(document.body, { childList: true, subtree: true });
+            setTimeout(function () {
+              mo.disconnect();
+            }, 15000);
+          };
+          var s = document.createElement("script");
+          s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
+          document.body.appendChild(s);
+        }
+
+        if (byod) {
+          // BYOD: the parent (Dashboard) sends the picked image — and any BIOS
+          // files picked with it — via postMessage, so EmulatorJS sees a File
+          // from *this* realm (a parent-realm File fails its `instanceof File`
+          // check). We boot only after the file arrives, and only accept the
+          // message from our own parent.
+          var booted = false;
+          window.addEventListener("message", function (ev) {
+            if (booted) return;
+            if (!isFromOwnParent(ev)) return;
+            if (!ev.data || ev.data.type !== "naomi-byod-file") return;
+            if (!ev.data.file) return;
+            booted = true;
+            var t = ev.data.name || ev.data.file.name.replace(/\.[^.]+$/, "");
+            boot(ev.data.file, t, ev.data.bios || []);
+          });
+          postParent("naomi-byod-ready");
+          setTimeout(function () {
+            if (booted) return;
+            fail("BYOD failed: parent did not deliver an image (10s).");
+          }, 10000);
+        } else {
+          var url = "/Naomi/" + encodeURIComponent(rom);
+          var t = rom.replace(/\.(zip|7z|dat|lst|bin|chd|gdi|cdi|cue|iso|elf)$/i, "");
+          boot(url, t, []);
+        }
+      })();
+    </script>
+  </body>
+</html>
