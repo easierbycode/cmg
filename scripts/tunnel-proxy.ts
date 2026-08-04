@@ -66,6 +66,15 @@ async function proxyHttp(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const upstreamUrl = `http://${VITE_HOST}${url.pathname}${url.search}`;
   const headers = new Headers(req.headers);
+  // Host has to become Vite's, but the public tunnel host is the one the
+  // browser actually addressed, and lib/games-store.ts's CSRF fallback compares
+  // Origin against it on browsers that omit Sec-Fetch-Site. Forward it so those
+  // clients aren't 403'd on every same-origin POST through the tunnel. set()
+  // (and the delete) so a client-supplied X-Forwarded-Host can never survive
+  // the hop and name an origin of the sender's choosing.
+  const publicHost = req.headers.get("host");
+  if (publicHost) headers.set("x-forwarded-host", publicHost);
+  else headers.delete("x-forwarded-host");
   headers.set("host", VITE_HOST);
   try {
     const upstream = await fetch(upstreamUrl, {
