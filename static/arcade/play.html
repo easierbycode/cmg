@@ -49,9 +49,11 @@
   <body>
     <div id="emu"><canvas id="canvas"></canvas></div>
     <div id="err">No game specified.</div>
+    <!-- Compat plugin first (matching every other play page): any pad snapshot
+         the emularity loader takes must already see normalized pads. -->
+    <script src="/gamepad-compatibility-plugin.js"></script>
     <script src="/arcade/emularity/browserfs.min.js"></script>
     <script src="/arcade/emularity/loader.js"></script>
-    <script src="/gamepad-compatibility-plugin.js"></script>
     <script>
       (function () {
         "use strict";
@@ -125,6 +127,17 @@
         var QS_LOAD_BTN = 16; // Home / Guide / PS / Stadia (absent on many pads)
         var QS_SLOT = { code: "Digit0", key: "0", keyCode: 48 };
         var QS_TAP_MS = 500;
+        // SNES-class pads have no Home/Guide button at all, so quick-load gets
+        // a second gesture that exists everywhere: a Select DOUBLE-tap. To keep
+        // the single tap as save, the save is deferred by this window and the
+        // second tap supersedes it as a load instead.
+        var QS_DOUBLE_MS = 350;
+        var qsPendingSave = 0;
+        var qsLastTapAt = 0;
+        // When the Guide was open moments ago, the Select press that closed it
+        // must not arm the save/double-tap gesture — otherwise "close Guide,
+        // then tap Select to save" reads as a double-tap and LOADS instead.
+        var qsOsdSeenAt = 0;
 
         function qsKey(code, key, keyCode, type, shift) {
           var ev = new KeyboardEvent(type, {
@@ -171,6 +184,11 @@
             osdOpen = !!(window.parent && window.parent !== window &&
               window.parent.document.body.classList.contains("osd-open"));
           } catch (_) {}
+          if (osdOpen) {
+            qsOsdSeenAt = Date.now();
+            qsLastTapAt = 0;
+            if (qsPendingSave) { clearTimeout(qsPendingSave); qsPendingSave = 0; }
+          }
           var anyOther = false;
           for (var b = 0; b < pad.buttons.length; b++) {
             if (b === QS_SAVE_BTN || b === QS_LOAD_BTN) continue;
@@ -181,12 +199,34 @@
             var w = qsWatch[key];
             var pressed = !!(pad.buttons[idx] && pad.buttons[idx].pressed);
             if (pressed) {
-              if (!w.down) { w.down = Date.now(); w.dirty = osdOpen; }
+              // A press starting within 400ms of the Guide being seen open is
+              // the Guide-close press — never a save/load gesture.
+              if (!w.down) { w.down = Date.now(); w.dirty = osdOpen || (w.down - qsOsdSeenAt < 400); }
               if (anyOther || osdOpen) w.dirty = true;
             } else if (w.down) {
               var held = Date.now() - w.down;
               w.down = 0;
-              if (!w.dirty && held < QS_TAP_MS) qsRun(w.shift);
+              if (!w.dirty && held < QS_TAP_MS) {
+                if (idx === QS_SAVE_BTN) {
+                  var nowTap = Date.now();
+                  if (nowTap - qsLastTapAt <= QS_DOUBLE_MS) {
+                    // Second clean tap inside the window → quick-LOAD.
+                    qsLastTapAt = 0;
+                    if (qsPendingSave) { clearTimeout(qsPendingSave); qsPendingSave = 0; }
+                    qsRun(false);
+                  } else {
+                    // First tap: schedule the save; a second tap cancels it.
+                    qsLastTapAt = nowTap;
+                    if (qsPendingSave) clearTimeout(qsPendingSave);
+                    qsPendingSave = setTimeout(function () {
+                      qsPendingSave = 0;
+                      qsRun(true);
+                    }, QS_DOUBLE_MS);
+                  }
+                } else {
+                  qsRun(w.shift);
+                }
+              }
               w.dirty = false;
             }
           }

@@ -20,8 +20,9 @@ import { GamepadManager } from './gamepad-support.js';
   class ConfiguratorMixin {
   // opts.byMouse — the caller reached this panel with a real mouse click, so the
   // cursor must be visible while it is up even on a pad/touch device that
-  // otherwise hides it (body.no-cursor). The panel is mouse-only: nothing in it
-  // is reachable from a gamepad, so a pad-opened panel keeps the cursor hidden.
+  // otherwise hides it (body.no-cursor). A pad-opened panel keeps the cursor
+  // hidden: the pad drives it directly via handleConfiguratorPadTick (D-pad
+  // moves focus, A activates, B closes).
   openControllerConfigurator(opts) {
     document.body.classList.toggle('cfg-mouse', !!(opts && opts.byMouse));
     this.createConfiguratorUI();
@@ -67,6 +68,11 @@ import { GamepadManager } from './gamepad-support.js';
                 <g class="dpad-group" transform="translate(100, 140)">
                   <rect x="-15" y="-5" width="30" height="10" fill="#143a22" class="dpad-horizontal"/>
                   <rect x="-5" y="-15" width="10" height="30" fill="#143a22" class="dpad-vertical"/>
+                  <!-- Invisible enlarged touch targets (drawn under the visible shapes) -->
+                  <circle cx="0" cy="-12" r="14" fill="transparent" class="config-hit" data-group="dpad" data-button="up"></circle>
+                  <circle cx="0" cy="12" r="14" fill="transparent" class="config-hit" data-group="dpad" data-button="down"></circle>
+                  <circle cx="-12" cy="0" r="14" fill="transparent" class="config-hit" data-group="dpad" data-button="left"></circle>
+                  <circle cx="12" cy="0" r="14" fill="transparent" class="config-hit" data-group="dpad" data-button="right"></circle>
                   <circle cx="0" cy="-12" r="8" fill="#1f5c34" class="config-btn dpad-up" data-group="dpad" data-button="up"></circle>
                   <circle cx="0" cy="12" r="8" fill="#1f5c34" class="config-btn dpad-down" data-group="dpad" data-button="down"></circle>
                   <circle cx="-12" cy="0" r="8" fill="#1f5c34" class="config-btn dpad-left" data-group="dpad" data-button="left"></circle>
@@ -75,6 +81,11 @@ import { GamepadManager } from './gamepad-support.js';
                 
                 <!-- Face buttons -->
                 <g class="face-buttons-group" transform="translate(300, 140)">
+                  <!-- Invisible enlarged touch targets (drawn under the visible shapes) -->
+                  <circle cx="0" cy="-20" r="17" fill="transparent" class="config-hit" data-group="face" data-button="btnTop"></circle>
+                  <circle cx="0" cy="20" r="17" fill="transparent" class="config-hit" data-group="face" data-button="btnBottom"></circle>
+                  <circle cx="-20" cy="0" r="17" fill="transparent" class="config-hit" data-group="face" data-button="btnLeft"></circle>
+                  <circle cx="20" cy="0" r="17" fill="transparent" class="config-hit" data-group="face" data-button="btnRight"></circle>
                   <circle cx="0" cy="-20" r="12" fill="#1f5c34" class="config-btn face-north" data-group="face" data-button="btnTop"></circle>
                   <circle cx="0" cy="20" r="12" fill="#1f5c34" class="config-btn face-south" data-group="face" data-button="btnBottom"></circle>
                   <circle cx="-20" cy="0" r="12" fill="#1f5c34" class="config-btn face-west" data-group="face" data-button="btnLeft"></circle>
@@ -100,6 +111,9 @@ import { GamepadManager } from './gamepad-support.js';
                 
                 <!-- Special buttons -->
                 <g class="special-buttons">
+                  <!-- Invisible enlarged touch targets (drawn under the visible shapes) -->
+                  <rect x="152" y="112" width="36" height="26" rx="6" fill="transparent" class="config-hit" data-group="special" data-button="select"></rect>
+                  <rect x="212" y="112" width="36" height="26" rx="6" fill="transparent" class="config-hit" data-group="special" data-button="start"></rect>
                   <rect x="160" y="120" width="20" height="10" rx="5" fill="#1f5c34" class="config-btn special-select" data-group="special" data-button="select"></rect>
                   <rect x="220" y="120" width="20" height="10" rx="5" fill="#1f5c34" class="config-btn special-start" data-group="special" data-button="start"></rect>
                   <text x="170" y="127" text-anchor="middle" fill="#dfffc4" font-size="7">SEL</text>
@@ -109,6 +123,9 @@ import { GamepadManager } from './gamepad-support.js';
                 <!-- Analog sticks -->
                 <circle cx="140" cy="180" r="18" fill="#143a22" stroke="rgba(140,255,110,.3)" stroke-width="2" class="stick-left-base"></circle>
                 <circle cx="260" cy="180" r="18" fill="#143a22" stroke="rgba(140,255,110,.3)" stroke-width="2" class="stick-right-base"></circle>
+                <!-- Invisible enlarged touch targets (drawn under the visible thumbs) -->
+                <circle cx="140" cy="180" r="16" fill="transparent" class="config-hit" data-group="special" data-button="leftStick"></circle>
+                <circle cx="260" cy="180" r="16" fill="transparent" class="config-hit" data-group="special" data-button="rightStick"></circle>
                 <circle cx="140" cy="180" r="8" fill="#1f5c34" class="config-btn stick-left" data-group="special" data-button="leftStick"></circle>
                 <circle cx="260" cy="180" r="8" fill="#1f5c34" class="config-btn stick-right" data-group="special" data-button="rightStick"></circle>
               </svg>
@@ -212,7 +229,7 @@ import { GamepadManager } from './gamepad-support.js';
                     <span class="slider"></span>
                   </label>
                 </div>
-                <p class="testing-hint">When enabled, pressed controls light up on the diagram. The controller selected above will be used for testing.</p>
+                <p class="testing-hint">When enabled, pressed controls light up on the diagram. The controller selected above will be used for testing. While testing, hold the RIGHT face button (B) for 1.5s to turn testing off with the pad.</p>
                 <div class="raw-readout" id="raw-input-readout" aria-live="polite">
                   <div class="raw-readout-empty">Turn on Live Testing, then press any control to see the raw button/axis it reports.</div>
                 </div>
@@ -224,27 +241,33 @@ import { GamepadManager } from './gamepad-support.js';
             <button class="reset-all-btn" onclick="gamepadManager.resetAllMappings()">Reset All</button>
             <button class="save-close-btn" onclick="gamepadManager.saveAndClose()">Save & Close</button>
           </div>
+
+          <div class="cfg-toast" role="status" aria-live="polite"></div>
         </div>
       </div>
     `;
   }
   
   attachConfiguratorListeners(configurator) {
-    // Button configuration listeners
-    const configButtons = configurator.querySelectorAll('.config-btn');
+    // Button configuration listeners. The invisible .config-hit shapes enlarge
+    // tiny touch targets; they delegate to the visible .config-btn so the
+    // selected highlight always lands on the shape the player can see.
+    const configButtons = configurator.querySelectorAll('.config-btn, .config-hit');
     configButtons.forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const group = e.target.dataset.group;
-        const button = e.target.dataset.button;
-        this.selectButtonForConfig(group, button, e.target);
+        const t = e.currentTarget;
+        const group = t.dataset.group;
+        const button = t.dataset.button;
+        const visual = configurator.querySelector(`.config-btn[data-group="${group}"][data-button="${button}"]`) || t;
+        this.selectButtonForConfig(group, button, visual);
       });
     });
-    
+
     // Button Mapping Wizard (controller-mapping-wizard.js)
     const wizardBtn = configurator.querySelector('#open-wizard-btn');
     wizardBtn?.addEventListener('click', () => {
       if (this.openMappingWizard) this.openMappingWizard();
-      else alert('Mapping wizard failed to load.');
+      else this.showConfiguratorNotice('Mapping wizard failed to load.');
     });
 
     // Key detection
@@ -403,12 +426,15 @@ import { GamepadManager } from './gamepad-support.js';
     document.querySelector('#mapping-form').style.display = 'none';
     document.querySelector('#current-mapping-display').style.display = 'block';
     this.configSelection = null;
+    // The mapping form (and its key input) just went away — stop any pending
+    // key detection so its document listener doesn't dangle.
+    try { this.cancelKeyDetection(); } catch (_) {}
   }
   
   selectButtonForConfig(group, button, element) {
     const controllerId = document.querySelector('#config-controller-select')?.value;
     if (!controllerId || controllerId === 'all') {
-      alert('Please select a specific controller before configuring buttons.');
+      this.showConfiguratorNotice('Select a specific controller before configuring buttons.');
       return;
     }
 
@@ -454,16 +480,42 @@ import { GamepadManager } from './gamepad-support.js';
   }
   
   startKeyDetection(input) {
+    this.cancelKeyDetection();
+    const prev = input.value;
     input.value = 'Press any key...';
     input.focus();
-    
+
     const handler = (e) => {
       e.preventDefault();
-      input.value = e.key;
-      document.removeEventListener('keydown', handler);
+      input.value = e.key === 'Escape' ? prev : e.key;
+      this.cancelKeyDetection();
     };
-    
-    document.addEventListener('keydown', handler);
+
+    this._keyDetect = { handler, input, prev };
+    document.addEventListener('keydown', handler, true);
+  }
+
+  // Remove the key-detection listener wherever the flow ends — key pressed,
+  // Escape, deselect, or panel close — so it can never leak and swallow a
+  // later keypress after the panel is gone.
+  cancelKeyDetection() {
+    const kd = this._keyDetect;
+    if (!kd) return;
+    this._keyDetect = null;
+    document.removeEventListener('keydown', kd.handler, true);
+    // Detection ended without a key (close/deselect): restore the old value.
+    if (kd.input && kd.input.value === 'Press any key...') kd.input.value = kd.prev;
+  }
+
+  // Small inline toast — replaces blocking alert()s, which stall the rAF pad
+  // poll and are unusable from a gamepad or a touch-only device.
+  showConfiguratorNotice(message) {
+    const el = document.querySelector('.controller-configurator .cfg-toast');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.add('show');
+    clearTimeout(this._cfgToastTimer);
+    this._cfgToastTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
   
   saveCurrentMapping() {
@@ -485,8 +537,8 @@ import { GamepadManager } from './gamepad-support.js';
     
     // Save to localStorage
     this.saveMapping(controllerId);
-    
-    alert(`Mapping saved for ${controllerId}!`);
+
+    this.showConfiguratorNotice('Mapping saved.');
   }
   
   resetCurrentMapping() {
@@ -511,38 +563,63 @@ import { GamepadManager } from './gamepad-support.js';
   }
   
   resetAllMappings() {
-    if (confirm('Reset all controller mappings to default for ALL connected gamepads? This will clear all customizations.')) {
-      // Clear from memory
-      this.controllerMappings = {};
-      this.controllerUseWASD = {};
+    // Press-again-to-confirm: a blocking confirm() stalls the rAF pad poll and
+    // can't be answered from a gamepad. First activation arms the button;
+    // pressing it again within 3s performs the reset.
+    if (!this._resetAllArmed) {
+      this._resetAllArmed = true;
+      const btn = document.querySelector('.controller-configurator .reset-all-btn');
+      if (btn) {
+        btn.classList.add('confirming');
+        btn.textContent = 'Press again to confirm';
+      }
+      clearTimeout(this._resetAllArmTimer);
+      this._resetAllArmTimer = setTimeout(() => this.disarmResetAllConfirm(), 3000);
+      return;
+    }
+    this.disarmResetAllConfirm();
 
-      // Re-initialize for currently connected controllers
-      for (const idx in this.controllers) {
-        const controller = this.controllers[idx];
-        if (controller && controller.id) {
-          const controllerId = this.getControllerId(controller);
-          this.controllerMappings[controllerId] = JSON.parse(JSON.stringify(this.defaultMapping));
-          this.controllerUseWASD[controllerId] = false; // Default WASD to off
+    // Clear from memory
+    this.controllerMappings = {};
+    this.controllerUseWASD = {};
+
+    // Re-initialize for currently connected controllers
+    for (const idx in this.controllers) {
+      const controller = this.controllers[idx];
+      if (controller && controller.id) {
+        const controllerId = this.getControllerId(controller);
+        this.controllerMappings[controllerId] = JSON.parse(JSON.stringify(this.defaultMapping));
+        this.controllerUseWASD[controllerId] = false; // Default WASD to off
+      }
+    }
+
+    // Clear from localStorage
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('gamepadMapping_') || key.startsWith('gamepadUseWASD_'))) {
+          keysToRemove.push(key);
         }
       }
-
-      // Clear from localStorage
-      try {
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('gamepadMapping_') || key.startsWith('gamepadUseWASD_'))) {
-            keysToRemove.push(key);
-          }
-        }
-        for (const key of keysToRemove) {
-          localStorage.removeItem(key);
-        }
-      } catch(e) {
-        console.error("Error clearing all gamepad settings from localStorage", e);
+      for (const key of keysToRemove) {
+        localStorage.removeItem(key);
       }
+    } catch(e) {
+      console.error("Error clearing all gamepad settings from localStorage", e);
+    }
 
-      this.closeConfigurator();
+    this.closeConfigurator();
+  }
+
+  disarmResetAllConfirm() {
+    this._resetAllArmed = false;
+    clearTimeout(this._resetAllArmTimer);
+    this._resetAllArmTimer = null;
+    const btn = document.querySelector('.controller-configurator .reset-all-btn');
+    if (btn) {
+      btn.classList.remove('confirming');
+      btn.textContent = 'Reset All';
     }
   }
   
@@ -568,8 +645,13 @@ import { GamepadManager } from './gamepad-support.js';
     }
     // Stop detect mode if active
     try { this.cancelGamepadButtonDetection(); } catch (_) {}
+    // Stop key detection — its document listener must not outlive the panel
+    try { this.cancelKeyDetection(); } catch (_) {}
     // Turn off testing visuals
     try { this.setTestingMode(false); } catch (_) {}
+    // Disarm the Reset All confirmation and drop pad-nav state
+    try { this.disarmResetAllConfirm(); } catch (_) {}
+    this._cfgNav = null;
   }
   
   // ===== Button Testing (visualize pressed controls) =====
@@ -861,17 +943,38 @@ import { GamepadManager } from './gamepad-support.js';
 
 // ===== Detect Gamepad Button feature =====
 GamepadManager.prototype.startGamepadButtonDetection = function(uiRefs) {
-  // Snapshot current pressed state so we only pick up new presses
+  this.cancelGamepadButtonDetection();
+  // Snapshot current button AND axis state so we only pick up new input —
+  // detection accepts real buttons, digital D-pad axes, and encoded hats.
   this._detectSnapshot = {};
   for (let idx in this.controllers) {
     try {
       const gp = this.controllers[idx];
-      this._detectSnapshot[idx] = Array.from(gp.buttons || []).map(b => !!(b && b.pressed));
-    } catch (_) { this._detectSnapshot[idx] = []; }
+      this._detectSnapshot[idx] = {
+        buttons: Array.from(gp.buttons || []).map(b => !!(b && b.pressed)),
+        axes: Array.from(gp.axes || []).map(v => (typeof v === 'number' ? v : 0)),
+      };
+    } catch (_) { this._detectSnapshot[idx] = { buttons: [], axes: [] }; }
   }
-  this._detecting = { ui: uiRefs };
+  // Escape or a click/tap anywhere else cancels; so does the 10s timeout.
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      this.cancelGamepadButtonDetection();
+    }
+  };
+  const onClick = (e) => {
+    if (uiRefs.buttonEl && (e.target === uiRefs.buttonEl || uiRefs.buttonEl.contains(e.target))) return;
+    this.cancelGamepadButtonDetection();
+  };
+  document.addEventListener('keydown', onKey, true);
+  document.addEventListener('click', onClick, true);
+  this._detecting = { ui: uiRefs, deadline: Date.now() + 10000, onKey, onClick };
   try { uiRefs.buttonEl.disabled = true; } catch (_) {}
-  try { uiRefs.hintEl.style.display = ''; } catch (_) {}
+  try {
+    uiRefs.hintEl.textContent = 'Press any button, D-pad or hat direction… (Esc or tap elsewhere to cancel)';
+    uiRefs.hintEl.style.display = '';
+  } catch (_) {}
 };
 
 GamepadManager.prototype.cancelGamepadButtonDetection = function() {
@@ -879,6 +982,10 @@ GamepadManager.prototype.cancelGamepadButtonDetection = function() {
     const { buttonEl, hintEl } = this._detecting.ui;
     try { if (buttonEl) buttonEl.disabled = false; } catch (_) {}
     try { if (hintEl) hintEl.style.display = 'none'; } catch (_) {}
+  }
+  if (this._detecting) {
+    try { document.removeEventListener('keydown', this._detecting.onKey, true); } catch (_) {}
+    try { document.removeEventListener('click', this._detecting.onClick, true); } catch (_) {}
   }
   this._detecting = false;
   this._detectSnapshot = {};
@@ -891,26 +998,72 @@ GamepadManager.prototype.handleDetectionTick = function() {
     this.cancelGamepadButtonDetection();
     return;
   }
+  if (Date.now() > this._detecting.deadline) {
+    this.cancelGamepadButtonDetection();
+    try { this.showConfiguratorNotice('No gamepad input detected.'); } catch (_) {}
+    return;
+  }
   for (let idx in this.controllers) {
     const gp = this.controllers[idx];
-    const snap = this._detectSnapshot[idx] || [];
-    const buttons = gp && gp.buttons ? gp.buttons : [];
-    for (let i = 0; i < buttons.length; i++) {
-      const pressed = !!(buttons[i] && buttons[i].pressed);
-      if (pressed && !snap[i]) {
-        // Assign detected button to the UI select and show the default key
-        try {
-          const selectEl = this._detecting.ui && this._detecting.ui.selectEl;
-          if (selectEl) selectEl.value = String(i);
-          const defKey = this.getDefaultKeyForGamepadIndex(i);
-          const keyInput = document.querySelector('#keyboard-key-input');
-          if (keyInput && defKey) keyInput.value = defKey;
-        } catch (_) {}
-        this.cancelGamepadButtonDetection();
-        return;
-      }
+    if (!gp) continue;
+    const snap = this._detectSnapshot[idx] || { buttons: [], axes: [] };
+    const detected = this.detectRawControlEdge(gp, snap);
+    if (!detected) continue;
+    if (detected.slot === null) {
+      // An axis we can't translate to a standard button slot (e.g. an analog
+      // stick move) — be honest instead of guessing.
+      this.cancelGamepadButtonDetection();
+      try { this.showConfiguratorNotice(`Detected ${detected.desc} — can't be mapped here. Run the Button Wizard instead.`); } catch (_) {}
+      return;
     }
+    // Assign detected control to the UI select and show the default key
+    try {
+      const selectEl = this._detecting.ui && this._detecting.ui.selectEl;
+      if (selectEl) selectEl.value = String(detected.slot);
+      const defKey = this.getDefaultKeyForGamepadIndex(detected.slot);
+      const keyInput = document.querySelector('#keyboard-key-input');
+      if (keyInput && defKey) keyInput.value = defKey;
+    } catch (_) {}
+    this.cancelGamepadButtonDetection();
+    try { this.showConfiguratorNotice(`Detected ${detected.desc}.`); } catch (_) {}
+    return;
   }
+};
+
+// Compare a pad against its detection-start snapshot and return the first new
+// input as { slot, desc }: a raw button index, a hat direction (mapped to the
+// standard D-pad slots 12-15 — readDpad honors the hat directly), or a
+// digital D-pad axis (axes 6/7, same convention readDpad uses). Anything else
+// (analog stick movement) returns slot: null so the caller can bail honestly.
+GamepadManager.prototype.detectRawControlEdge = function(gp, snap) {
+  const buttons = gp.buttons || [];
+  for (let i = 0; i < buttons.length; i++) {
+    const pressed = !!(buttons[i] && buttons[i].pressed);
+    if (pressed && !snap.buttons[i]) return { slot: i, desc: `button ${i}` };
+  }
+  const axes = gp.axes || [];
+  const dirSlot = { up: 12, down: 13, left: 14, right: 15 };
+  for (let i = 0; i < axes.length; i++) {
+    const v = axes[i];
+    if (typeof v !== 'number') continue;
+    const base = typeof snap.axes[i] === 'number' ? snap.axes[i] : 0;
+    // Encoded hat: rests outside [-1, 1]; a press lands on the 8-step grid.
+    if (Math.abs(base) > 1.05) {
+      if (Math.abs(v) <= 1.05) {
+        const dirs = this.decodeHat(v);
+        for (const d of ['up', 'down', 'left', 'right']) {
+          if (dirs[d]) return { slot: dirSlot[d], desc: `hat ${d} (axis ${i})` };
+        }
+      }
+      continue;
+    }
+    if (Math.abs(v - base) < 0.6) continue;
+    // Dedicated digital D-pad axes (readDpad convention: 6 = left/right, 7 = up/down)
+    if (i === 6) return { slot: v < 0 ? 14 : 15, desc: `axis 6 ${v < 0 ? 'left' : 'right'}` };
+    if (i === 7) return { slot: v < 0 ? 12 : 13, desc: `axis 7 ${v < 0 ? 'up' : 'down'}` };
+    return { slot: null, desc: `axis ${i} movement` };
+  }
+  return null;
 };
 
 GamepadManager.prototype.getDefaultKeyForGamepadIndex = function(idx) {
@@ -924,6 +1077,257 @@ GamepadManager.prototype.getDefaultKeyForGamepadIndex = function(idx) {
     }
   }
   return '';
+};
+
+// ===== Gamepad navigation of the configurator panel =====
+//
+// Called from GamepadManager.poll() every frame, BEFORE processInputs(), so
+// nav presses are consumed here instead of leaking into the game or launcher.
+// While the panel is open this also latches the manager's edge-tracking state
+// for the D-pad and A/B to the live pressed values each frame, which means
+// processButtonGroup() never sees a rising or falling edge for them — the
+// panel fully owns those inputs, including the legacy "FBTN_RIGHT closes the
+// configurator" special case, which is re-issued from here.
+GamepadManager.prototype.handleConfiguratorPadTick = function () {
+  if (!(this.isConfiguratorOpen && this.isConfiguratorOpen())) {
+    if (this._cfgNav) this._cfgNav = null;
+    return;
+  }
+
+  const input = this.readConfiguratorNavInput();
+  this.latchConfiguratorButtonState();
+
+  const nav = this._cfgNav;
+  if (!nav) {
+    // Snapshot frame: whatever is held right now is the press that opened the
+    // panel — it must release before it can act on the panel.
+    this._cfgNav = { focusEl: null, prev: input, dir: null, dirStart: 0, dirLast: 0, holdB: 0, suspended: false };
+    return;
+  }
+
+  // The wizard and Detect-mode consume raw presses themselves; pause nav and
+  // resync the edge baselines afterwards so a still-held button can't re-fire.
+  if (this.wizardActive || this._detecting) {
+    nav.suspended = true;
+    nav.prev = input;
+    return;
+  }
+  if (nav.suspended) {
+    nav.suspended = false;
+    nav.prev = input;
+    return;
+  }
+
+  const now = performance.now();
+
+  // Live Testing swallows every control so presses can be visualized —
+  // including B-close. Escape hatch for pad-only players: hold B ~1.5s.
+  if (this.testingMode) {
+    if (input.b) {
+      if (!nav.holdB) {
+        nav.holdB = now;
+      } else if (now - nav.holdB >= 1500) {
+        nav.holdB = 0;
+        this.setTestingMode(false);
+        const toggle = document.querySelector('.controller-configurator #btn-testing-toggle');
+        if (toggle) toggle.checked = false;
+        this.showConfiguratorNotice('Live Testing off');
+      }
+    } else {
+      nav.holdB = 0;
+    }
+    nav.prev = input;
+    return;
+  }
+  nav.holdB = 0;
+
+  // FBTN_RIGHT (B) closes the panel — the same behavior processInputs
+  // provided before this tick took ownership of pad input.
+  if (input.b && !nav.prev.b) {
+    nav.prev = input;
+    try { this.closeConfigurator(); } catch (_) {}
+    return;
+  }
+
+  // FBTN_BOTTOM (A) activates the focused control.
+  if (input.a && !nav.prev.a) {
+    nav.prev = input;
+    if (nav.focusEl && this.getConfiguratorFocusables().includes(nav.focusEl)) {
+      this.activateConfiguratorControl(nav.focusEl);
+      this.applyConfiguratorFocus(nav.focusEl);
+    }
+    return;
+  }
+
+  // D-pad: up/down moves focus, left/right adjusts the focused control.
+  // Edge-latched with hold-to-repeat (~400ms initial delay, ~150ms rate).
+  const dir = input.up ? 'up' : input.down ? 'down' : input.left ? 'left' : input.right ? 'right' : null;
+  if (!dir) {
+    nav.dir = null;
+  } else {
+    let fire = false;
+    if (nav.dir !== dir) {
+      nav.dir = dir;
+      nav.dirStart = now;
+      nav.dirLast = now;
+      fire = true;
+    } else if (now - nav.dirStart >= 400 && now - nav.dirLast >= 150) {
+      nav.dirLast = now;
+      fire = true;
+    }
+    if (fire) this.handleConfiguratorNavDir(dir);
+  }
+
+  nav.prev = input;
+};
+
+// Aggregate nav-relevant pressed state across all connected pads. Direction
+// comes from readDpad() so hat- and axis-based D-pads work; A/B honor each
+// controller's face-button remap (defaults 0/1).
+GamepadManager.prototype.readConfiguratorNavInput = function () {
+  const agg = { up: false, down: false, left: false, right: false, a: false, b: false };
+  for (const idx in this.controllers) {
+    const c = this.controllers[idx];
+    if (!c || !c.id) continue;
+    const mapping = this.controllerMappings[this.getControllerId(c)] || this.defaultMapping;
+    const d = this.readDpad(c, mapping);
+    agg.up = agg.up || d.up;
+    agg.down = agg.down || d.down;
+    agg.left = agg.left || d.left;
+    agg.right = agg.right || d.right;
+    const pressed = (i) => !!(c.buttons && c.buttons[i] && c.buttons[i].pressed);
+    const aIdx = mapping.face && mapping.face.btnBottom && mapping.face.btnBottom.gamepadButton;
+    const bIdx = mapping.face && mapping.face.btnRight && mapping.face.btnRight.gamepadButton;
+    agg.a = agg.a || pressed(typeof aIdx === 'number' ? aIdx : 0);
+    agg.b = agg.b || pressed(typeof bIdx === 'number' ? bIdx : 1);
+  }
+  return agg;
+};
+
+// While the panel is open, keep the manager's edge-tracking state for the
+// controls the panel consumes in sync with reality so processButtonGroup()
+// never sees an edge for them: no synthetic keys, no double-handling, and the
+// press that closes the panel can't leak into the game as a fresh keydown.
+GamepadManager.prototype.latchConfiguratorButtonState = function () {
+  for (const idx in this.controllers) {
+    const c = this.controllers[idx];
+    if (!c || !c.id) continue;
+    const bs = this.ensureButtonState(idx);
+    const mapping = this.controllerMappings[this.getControllerId(c)] || this.defaultMapping;
+    const d = this.readDpad(c, mapping);
+    bs.up = d.up;
+    bs.down = d.down;
+    bs.left = d.left;
+    bs.right = d.right;
+    const pressed = (i) => !!(c.buttons && c.buttons[i] && c.buttons[i].pressed);
+    const aIdx = mapping.face && mapping.face.btnBottom && mapping.face.btnBottom.gamepadButton;
+    const bIdx = mapping.face && mapping.face.btnRight && mapping.face.btnRight.gamepadButton;
+    bs.btnBottom = pressed(typeof aIdx === 'number' ? aIdx : 0);
+    bs.btnRight = pressed(typeof bIdx === 'number' ? bIdx : 1);
+    bs.faceSouth = bs.btnBottom;
+    bs.faceEast = bs.btnRight;
+  }
+};
+
+// Ordered list of pad-focusable controls: sidebar top-to-bottom, then the
+// footer, then the header ✕. Free-text inputs are excluded — they need a
+// physical keyboard (the readonly key field's pad path is its Detect button).
+// Hidden controls (e.g. the mapping form before a diagram button is selected,
+// or sections hidden for "All Connected") drop out automatically.
+GamepadManager.prototype.getConfiguratorFocusables = function () {
+  const root = document.querySelector('.controller-configurator');
+  if (!root) return [];
+  const selectors = [
+    '#config-controller-select',
+    '#open-wizard-btn',
+    '#wasd-toggle',
+    '#start-touch-toggle',
+    '#detect-key-btn',
+    '#gamepad-button-select',
+    '#detect-gamepad-btn',
+    '#save-mapping-btn',
+    '#reset-mapping-btn',
+    '#btn-testing-toggle',
+    '.reset-all-btn',
+    '.save-close-btn',
+    '.close-btn',
+  ];
+  const items = [];
+  for (const sel of selectors) {
+    const el = root.querySelector(sel);
+    if (!el || el.disabled) continue;
+    const visual = this.configuratorFocusVisual(el);
+    if (!visual || !visual.getClientRects().length) continue;
+    items.push(el);
+  }
+  return items;
+};
+
+// The pill-toggle checkboxes are display:none; render focus on their .switch.
+GamepadManager.prototype.configuratorFocusVisual = function (el) {
+  if (el && el.tagName === 'INPUT' && el.type === 'checkbox') {
+    const sw = el.closest('label.switch');
+    if (sw) return sw;
+  }
+  return el;
+};
+
+GamepadManager.prototype.applyConfiguratorFocus = function (el) {
+  const root = document.querySelector('.controller-configurator');
+  if (!root) return;
+  root.querySelectorAll('.pad-focus').forEach((n) => n.classList.remove('pad-focus'));
+  if (!el) return;
+  const visual = this.configuratorFocusVisual(el);
+  visual.classList.add('pad-focus');
+  try { visual.scrollIntoView({ block: 'nearest' }); } catch (_) {}
+};
+
+GamepadManager.prototype.moveConfiguratorFocus = function (delta) {
+  const items = this.getConfiguratorFocusables();
+  if (!items.length) return;
+  const nav = this._cfgNav;
+  const idx = items.indexOf(nav.focusEl);
+  const next = idx < 0
+    ? (delta > 0 ? 0 : items.length - 1)
+    : (idx + delta + items.length) % items.length;
+  nav.focusEl = items[next];
+  this.applyConfiguratorFocus(nav.focusEl);
+};
+
+GamepadManager.prototype.handleConfiguratorNavDir = function (dir) {
+  if (dir === 'up') { this.moveConfiguratorFocus(-1); return; }
+  if (dir === 'down') { this.moveConfiguratorFocus(1); return; }
+  // left/right adjust the focused control in place
+  const el = this._cfgNav.focusEl;
+  if (!el || !this.getConfiguratorFocusables().includes(el)) return;
+  if (el.tagName === 'SELECT') {
+    this.cycleConfiguratorSelect(el, dir === 'right' ? 1 : -1);
+  } else if (el.tagName === 'INPUT' && el.type === 'checkbox') {
+    el.checked = !el.checked;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+};
+
+GamepadManager.prototype.activateConfiguratorControl = function (el) {
+  if (!el) return;
+  if (el.tagName === 'SELECT') {
+    // A pad can't open a native dropdown; A steps to the next option.
+    this.cycleConfiguratorSelect(el, 1);
+    return;
+  }
+  if (el.tagName === 'INPUT' && el.type === 'checkbox') {
+    el.checked = !el.checked;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+  try { el.click(); } catch (_) {}
+};
+
+GamepadManager.prototype.cycleConfiguratorSelect = function (el, delta) {
+  const n = el.options ? el.options.length : 0;
+  if (!n) return;
+  el.selectedIndex = ((el.selectedIndex < 0 ? 0 : el.selectedIndex) + delta + n) % n;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
 };
 
 // CSS for Controller Configurator
@@ -1379,6 +1783,96 @@ input:checked + .slider:before {
 .save-close-btn:hover {
   background: linear-gradient(180deg, rgba(180, 255, 130, 1), rgba(110, 240, 80, .95));
   box-shadow: 0 0 28px rgba(120, 255, 90, .5), inset 0 -2px 0 rgba(0, 0, 0, .15);
+}
+
+/* Anchor for the inline toast */
+.configurator-panel {
+  position: relative;
+}
+
+/* The SVG letter labels sit on top of the button shapes; without this they
+   swallow clicks/taps meant for the shape underneath (worst on touch). */
+.controller-svg text {
+  pointer-events: none;
+}
+
+/* Invisible enlarged touch targets layered under the small visible shapes */
+.config-hit {
+  cursor: pointer;
+}
+
+/* Gamepad-navigation focus ring */
+.controller-configurator .pad-focus {
+  outline: 2px solid var(--yellow, #F6FF4A);
+  outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(246, 255, 74, .45);
+  border-radius: 6px;
+}
+
+/* Inline toast — non-blocking replacement for alert() */
+.cfg-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%) translateY(6px);
+  background: rgba(6, 22, 11, .94);
+  border: 1px solid rgba(140, 255, 110, .5);
+  color: #eaffd2;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  max-width: 80%;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 5;
+}
+
+.cfg-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Reset All press-again-to-confirm state */
+.reset-all-btn.confirming {
+  background: rgba(255, 80, 60, .16);
+  border-color: rgba(255, 120, 90, .9);
+  color: #ff9c86;
+  box-shadow: 0 0 14px rgba(255, 120, 90, .35);
+}
+
+/* Narrow / portrait viewports (phones): stack the diagram above the sidebar
+   and let the whole content column scroll. */
+@media (max-width: 700px) {
+  .configurator-panel {
+    width: 96vw;
+    height: 94vh;
+  }
+
+  .configurator-content {
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .controller-visual {
+    flex: 0 0 auto;
+    padding: 8px;
+  }
+
+  .controller-svg {
+    width: 100%;
+    height: auto;
+    max-height: 32vh;
+  }
+
+  .configurator-sidebar {
+    flex: 0 0 auto;
+    overflow-y: visible;
+  }
 }
 `;
 

@@ -971,6 +971,9 @@
     const game = [
       { key: 'exit', kind: 'button', label: 'Exit Game' },
       { key: 'controller', kind: 'button', label: 'Controller Settings' },
+      // R3 is the only pad shortcut to fullscreen and SNES-class pads have no
+      // stick clicks — this row is their (and touch/mouse users') path to it.
+      { key: 'fullscreen', kind: 'button', label: 'Fullscreen' },
     ];
     // Game-advertised OSD action buttons (opt-in per game over cmg-actions).
     // Activating one posts { type:'cmg-action', id } back into the frame.
@@ -983,7 +986,10 @@
     // catalog `twinStick` flag, or a cmg-twinstick broadcast).
     if (twinStickAvail) {
       game.push({ key: 'twinstick', kind: 'toggle', label: 'Twin-Stick Mode', value: twinStickOn });
-      if (osdOpenedByTouch) {
+      // Gate on device capability, not on how THIS Guide was opened — a hybrid
+      // (touchscreen + pad) device that opened the Guide with the pad chord
+      // still wants the touch analogs reachable.
+      if (isTouch) {
         game.push({ key: 'twinstick-touch', kind: 'toggle', label: 'Touch Twin-Stick', value: twinTouchOn });
       }
     }
@@ -1140,6 +1146,10 @@
       return;
     }
     if (it.key === 'exit') { sfx.enter(); osdOpen = false; closeGame(); }
+    // Same deferred-activation semantics as R3: a mouse/touch/key activation
+    // grants fullscreen immediately; a pad press records the intent and the
+    // next real gesture cashes it in (see requestFullscreenFromPad).
+    else if (it.key === 'fullscreen') { sfx.enter(); requestFullscreenFromPad(); }
     // byMouse decides whether the Controller Layout un-hides the pointer: the
     // panel is mouse-only, so a player who reached it with a click needs the
     // cursor back, while one who reached it on the pad should not get one.
@@ -1459,6 +1469,45 @@
       e.preventDefault();
       action();
     };
+  }
+  // Keyboard twin of tapHandler for the role="button" footer chips — non-native
+  // buttons don't synthesize a click on Enter/Space, so without this they were
+  // focusable but inert on a keyboard (and for assistive tech).
+  function chipKeyHandler(action) {
+    return (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        // stopPropagation too: the window-level onKey would otherwise ALSO
+        // handle this Enter and activate the (possibly just-changed) screen's
+        // selected row — one keystroke, two dispatches.
+        e.preventDefault();
+        e.stopPropagation();
+        action();
+      }
+    };
+  }
+
+  // ── Transient toast ────────────────────────────────────────────────────────
+  // Small self-dismissing notice for actions the browser can't honor from
+  // gamepad input (file pickers, typing) — surfacing the working alternative
+  // beats failing silently.
+  let toastMsg = $state('');
+  let toastTimer = null;
+  function showToast(msg) {
+    toastMsg = msg;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastMsg = ''; }, 3600);
+  }
+
+  // Browsers only open the native file picker inside a real user gesture — a
+  // gamepad press doesn't qualify (same rule as fullscreen; see
+  // requestFullscreenFromPad). When the click is about to be silently dropped,
+  // tell the player what will work instead.
+  function pickerGestureHint() {
+    try {
+      if (navigator.userActivation && !navigator.userActivation.isActive) {
+        showToast('The file picker needs a key press, tap, or click — press ENTER on a keyboard or tap BROWSE.');
+      }
+    } catch (_) { /* ignore */ }
   }
 
   // ─── Settings / OpenEmu import / Controller sync ───────────────────────────
@@ -1853,6 +1902,7 @@
 
   function openArcadeByobPicker() {
     try { arcadeFileInput?.click(); } catch (_) {}
+    pickerGestureHint();
   }
 
   function launchPsx(file) {
@@ -2790,6 +2840,7 @@
 
   function openAddZipPicker() {
     try { addFileInput?.click(); } catch (_) {}
+    pickerGestureHint();
   }
 
   // Submit the current method (FBTN_BOTTOM on the primary action row).
@@ -2813,6 +2864,13 @@
     } else if (row.kind === 'input') {
       const el = addRowEls[i]?.querySelector('input');
       try { el?.focus(); } catch (_) {}
+      // Focused via gamepad: the field can't be typed into without a real
+      // keyboard — say so instead of appearing to do nothing.
+      try {
+        if (navigator.userActivation && !navigator.userActivation.isActive) {
+          showToast('Typing needs a keyboard — plug one in, or tap the field on a touchscreen.');
+        }
+      } catch (_) { /* ignore */ }
       sfx.nav();
     } else if (row.kind === 'subdir') {
       cycleAddSubdir();
@@ -3193,8 +3251,9 @@
   function openByodPicker() {
     // Click the visible button (rather than the hidden input) so the activation
     // context is anchored to a user-visible element. Falls back to the input.
-    try { psxByodBtnEl?.click(); return; } catch (_) {}
+    try { psxByodBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
     try { psxFileInput?.click(); } catch (_) {}
+    pickerGestureHint();
   }
 
   // PS2 BYOD — Play! boots single-file images (iso/cso/chd/isz/bin/elf), so
@@ -3241,8 +3300,9 @@
   }
 
   function openPs2ByodPicker() {
-    try { ps2ByodBtnEl?.click(); return; } catch (_) {}
+    try { ps2ByodBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
     try { ps2FileInput?.click(); } catch (_) {}
+    pickerGestureHint();
   }
 
   // Saturn BYOD — a copy of the PSX path (Saturn shares PSX's disc formats, so
@@ -3344,8 +3404,9 @@
   }
 
   function openSaturnByodPicker() {
-    try { saturnByodBtnEl?.click(); return; } catch (_) {}
+    try { saturnByodBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
     try { saturnFileInput?.click(); } catch (_) {}
+    pickerGestureHint();
   }
 
   // BYOC — Bring Your Own Cartridge (NES).
@@ -3396,6 +3457,7 @@
 
   function openByocPicker() {
     try { nesFileInput?.click(); } catch (_) {}
+    pickerGestureHint();
   }
 
   function closeGame() {
@@ -3533,9 +3595,24 @@
   };
   const PAD_DEADZONE = 0.55;
   const SNES_PAD_RE = /SNES Controller|Nintendo.*SNES|057e.{0,8}2017/i;
+  // What kind of pad is currently driving the menus — feeds the Guide footer
+  // hint so the open-chord it advertises is the one that actually works on
+  // this pad/platform (the hardcoded 'SELECT + ↓' was wrong on Android+SNES,
+  // where the D-pad doesn't report and the real chord is SELECT + L2).
+  let activePadKind = $state('none'); // 'none' | 'pad' | 'snes' | 'snes-android'
+  let osdHint = $derived(
+    activePadKind === 'snes-android'
+      ? 'SELECT + L2 (R) · two-corner tap'
+      : activePadKind === 'snes'
+        ? 'SELECT + ↓ or R · two-corner tap'
+        : 'SELECT + ↓ · two-corner tap'
+  );
   // Chrome on Android: the compat plugin remaps the SNES pad's R shoulder to
   // the L2 slot there, and the launcher pairs it with L/L2 nav + SELECT+L2.
-  const IS_ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
+  // userAgentData first — "Request desktop site" strips Android from the UA
+  // string, which would silently disable those accommodations.
+  const IS_ANDROID = typeof navigator !== 'undefined' &&
+    (navigator.userAgentData?.platform === 'Android' || /Android/i.test(navigator.userAgent || ''));
   const XBOX_PAD_RE = /Xbox|XInput|Microsoft|Legion Go/i;
 
   function padPriority(p) {
@@ -3571,6 +3648,12 @@
       const v = pad.axes[i];
       if (typeof v === 'number' && Math.abs(v) > PAD_DEADZONE && Math.abs(v) <= 1.05) return true;
     }
+    // Hat on axes[9] counts as activity (grid-validated decode rejects analog
+    // values), but raw axes 6/7 deliberately do NOT: trigger axes rest at ±1
+    // on some pads, and counting them here would let a completely idle device
+    // permanently seize menu control in multi-pad sessions. A pad whose D-pad
+    // lives on 6/7 still navigates fine whenever it is the primary/last-used
+    // pad — it just can't steal control with its first D-pad press alone.
     const hat = decodePadHat(pad.axes[9]);
     return hat.up || hat.down || hat.left || hat.right;
   }
@@ -3644,105 +3727,91 @@
     return dirs;
   }
 
-  function navUp() {
-    if (screen === 'dashboard') menuSel = Math.max(menuSel - 1, 0);
-    else if (screen === 'games') gameSel = Math.max(gameSel - 1, 0);
-    else if (screen === 'arcade') arcadeSel = Math.max(arcadeSel - 1, 0);
-    else if (screen === 'tg16') tg16Sel = Math.max(tg16Sel - 1, 0);
-    else if (screen === 'psx') psxSel = Math.max(psxSel - 1, 0);
-    else if (screen === 'ps2') ps2Sel = Math.max(ps2Sel - 1, 0);
-    else if (screen === 'saturn') saturnSel = Math.max(saturnSel - 1, 0);
-    else if (screen === 'nes') nesSel = Math.max(nesSel - 1, 0);
-    else if (screen === 'demos') demosSel = Math.max(demosSel - 1, 0);
-    else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetSel - 1, 0);
-    else if (screen === 'addgame') addSel = Math.max(addSel - 1, 0);
-    else if (screen === 'settings') settingsSel = Math.max(settingsSel - 1, 0);
-    else if (screen === 'oeimport') oeMove(-1);
-    else if (screen === 'ctrlsync') ctrlSel = Math.max(ctrlSel - 1, 0);
+  // ─── Screen registry ─────────────────────────────────────────────────────
+  // One descriptor per screen replaces the per-screen if/else chains that were
+  // duplicated across navUp/navDown/navTop/navBottom/actFbtnBottom and onKey —
+  // every screen registered here is uniformly navigable by gamepad AND
+  // keyboard, current and future. Each entry:
+  //   sel()/setSel(v) — accessors around the screen's selection $state;
+  //   len()           — row count (arcade/nes include their pinned BYO row);
+  //   activate(i)     — FBTN_BOTTOM / Enter / Space on row i;
+  //   move/top/bottom — optional overrides for non-uniform rows (oeimport
+  //                     skips its header rows).
+  const SCREEN_DEFS = {
+    dashboard: { sel: () => menuSel, setSel: (v) => (menuSel = v), len: () => MAIN_MENU.length, activate: (i) => pickMenu(i) },
+    games: { sel: () => gameSel, setSel: (v) => (gameSel = v), len: () => GAMES.length, activate: (i) => launchGame(GAMES[i].id) },
+    arcade: {
+      sel: () => arcadeSel, setSel: (v) => (arcadeSel = v),
+      len: () => arcadeGames.length + 1, // + pinned BYOB row
+      activate: (i) => { if (i >= arcadeGames.length) openArcadeByobPicker(); else launchArcade(arcadeGames[i]); },
+    },
+    tg16: { sel: () => tg16Sel, setSel: (v) => (tg16Sel = v), len: () => tg16Games.length, activate: (i) => launchTg16(tg16Games[i]?.file) },
+    psx: {
+      sel: () => psxSel, setSel: (v) => (psxSel = v), len: () => psxGames.length,
+      activate: (i) => { if (psxGames.length === 0) openByodPicker(); else launchPsx(psxGames[i]?.file); },
+    },
+    ps2: {
+      sel: () => ps2Sel, setSel: (v) => (ps2Sel = v), len: () => ps2Games.length,
+      activate: (i) => { if (ps2Games.length === 0) openPs2ByodPicker(); else launchPs2(ps2Games[i]); },
+    },
+    saturn: {
+      sel: () => saturnSel, setSel: (v) => (saturnSel = v), len: () => saturnGames.length,
+      activate: (i) => { if (saturnGames.length === 0) openSaturnByodPicker(); else launchSaturn(saturnGames[i]?.file); },
+    },
+    nes: {
+      sel: () => nesSel, setSel: (v) => (nesSel = v),
+      len: () => nesGames.length + 1, // + pinned BYOC row
+      activate: (i) => { if (i >= nesGames.length) openByocPicker(); else launchNes(nesGames[i]?.file); },
+    },
+    demos: { sel: () => demosSel, setSel: (v) => (demosSel = v), len: () => DEMOS.length, activate: (i) => launchDemo(DEMOS[i]?.url) },
+    cmgnet: { sel: () => cmgnetSel, setSel: (v) => (cmgnetSel = v), len: () => cmgnetVisible.length, activate: (i) => launchCmgnet(cmgnetVisible[i]) },
+    addgame: { sel: () => addSel, setSel: (v) => (addSel = v), len: () => addRows.length, activate: (i) => addActivate(i) },
+    settings: { sel: () => settingsSel, setSel: (v) => (settingsSel = v), len: () => SETTINGS_ITEMS.length, activate: (i) => activateSettings(i) },
+    oeimport: {
+      sel: () => oeSel, setSel: (v) => (oeSel = v), len: () => oeRows.length,
+      move: (dir) => oeMove(dir),
+      top: () => (oeSel = oeFirstSelectable()),
+      bottom: () => (oeSel = Math.max(oeRows.length - 1, 0)),
+      activate: (i) => oeToggle(i),
+    },
+    ctrlsync: { sel: () => ctrlSel, setSel: (v) => (ctrlSel = v), len: () => 2, activate: (i) => ctrlActivate(i) },
+  };
+
+  // Shared vertical nav. `fresh` marks a deliberate new press (gamepad edge /
+  // non-repeat keydown): those wrap at the list ends — SNES-class pads have no
+  // L2/R2 to jump with, so wrapping is their fast path to the far end — while
+  // hold-to-repeat clamps, so autoscroll parks at the edge instead of cycling.
+  function navMove(dir, fresh = false) {
+    const s = SCREEN_DEFS[screen];
+    if (!s) return;
+    if (s.move) s.move(dir);
+    else {
+      const max = Math.max(s.len() - 1, 0);
+      let next = s.sel() + dir;
+      if (next < 0) next = fresh && max > 0 ? max : 0;
+      else if (next > max) next = fresh && max > 0 ? 0 : max;
+      s.setSel(next);
+    }
     sfx.nav();
   }
-  function navDown() {
-    if (screen === 'dashboard') menuSel = Math.min(menuSel + 1, MAIN_MENU.length - 1);
-    else if (screen === 'games') gameSel = Math.min(gameSel + 1, GAMES.length - 1);
-    else if (screen === 'arcade') arcadeSel = Math.min(arcadeSel + 1, arcadeGames.length);
-    else if (screen === 'tg16') tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0));
-    else if (screen === 'psx') psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0));
-    else if (screen === 'ps2') ps2Sel = Math.min(ps2Sel + 1, Math.max(ps2Games.length - 1, 0));
-    else if (screen === 'saturn') saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0));
-    else if (screen === 'nes') nesSel = Math.min(nesSel + 1, nesGames.length);
-    else if (screen === 'demos') demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0));
-    else if (screen === 'cmgnet') cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetVisible.length - 1, 0));
-    else if (screen === 'addgame') addSel = Math.min(addSel + 1, addRows.length - 1);
-    else if (screen === 'settings') settingsSel = Math.min(settingsSel + 1, SETTINGS_ITEMS.length - 1);
-    else if (screen === 'oeimport') oeMove(1);
-    else if (screen === 'ctrlsync') ctrlSel = Math.min(ctrlSel + 1, 1);
-    sfx.nav();
-  }
+  function navUp(fresh = false) { navMove(-1, fresh); }
+  function navDown(fresh = false) { navMove(1, fresh); }
   function navTop() {
-    if (screen === 'dashboard') menuSel = 0;
-    else if (screen === 'games') gameSel = 0;
-    else if (screen === 'arcade') arcadeSel = 0;
-    else if (screen === 'tg16') tg16Sel = 0;
-    else if (screen === 'psx') psxSel = 0;
-    else if (screen === 'ps2') ps2Sel = 0;
-    else if (screen === 'saturn') saturnSel = 0;
-    else if (screen === 'nes') nesSel = 0;
-    else if (screen === 'demos') demosSel = 0;
-    else if (screen === 'cmgnet') cmgnetSel = 0;
-    else if (screen === 'addgame') addSel = 0;
-    else if (screen === 'settings') settingsSel = 0;
-    else if (screen === 'oeimport') oeSel = oeFirstSelectable();
-    else if (screen === 'ctrlsync') ctrlSel = 0;
+    const s = SCREEN_DEFS[screen];
+    if (!s) return;
+    if (s.top) s.top(); else s.setSel(0);
     sfx.nav();
   }
   function navBottom() {
-    if (screen === 'dashboard') menuSel = MAIN_MENU.length - 1;
-    else if (screen === 'games') gameSel = GAMES.length - 1;
-    else if (screen === 'arcade') arcadeSel = arcadeGames.length;
-    else if (screen === 'tg16') tg16Sel = Math.max(tg16Games.length - 1, 0);
-    else if (screen === 'psx') psxSel = Math.max(psxGames.length - 1, 0);
-    else if (screen === 'ps2') ps2Sel = Math.max(ps2Games.length - 1, 0);
-    else if (screen === 'saturn') saturnSel = Math.max(saturnGames.length - 1, 0);
-    else if (screen === 'nes') nesSel = nesGames.length;
-    else if (screen === 'demos') demosSel = Math.max(DEMOS.length - 1, 0);
-    else if (screen === 'cmgnet') cmgnetSel = Math.max(cmgnetVisible.length - 1, 0);
-    else if (screen === 'addgame') addSel = Math.max(addRows.length - 1, 0);
-    else if (screen === 'settings') settingsSel = SETTINGS_ITEMS.length - 1;
-    else if (screen === 'oeimport') oeSel = Math.max(oeRows.length - 1, 0);
-    else if (screen === 'ctrlsync') ctrlSel = 1;
+    const s = SCREEN_DEFS[screen];
+    if (!s) return;
+    if (s.bottom) s.bottom(); else s.setSel(Math.max(s.len() - 1, 0));
     sfx.nav();
   }
   function actFbtnBottom() {
     if (gameOn) return;
-    if (screen === 'dashboard') pickMenu(menuSel);
-    else if (screen === 'games') launchGame(GAMES[gameSel].id);
-    else if (screen === 'arcade') {
-      if (onArcadeByobRow) openArcadeByobPicker();
-      else launchArcade(arcadeGames[arcadeSel]);
-    }
-    else if (screen === 'tg16') launchTg16(tg16Games[tg16Sel]?.file);
-    else if (screen === 'psx') {
-      if (psxGames.length === 0) openByodPicker();
-      else launchPsx(psxGames[psxSel]?.file);
-    }
-    else if (screen === 'ps2') {
-      if (ps2Games.length === 0) openPs2ByodPicker();
-      else launchPs2(ps2Games[ps2Sel]);
-    }
-    else if (screen === 'saturn') {
-      if (saturnGames.length === 0) openSaturnByodPicker();
-      else launchSaturn(saturnGames[saturnSel]?.file);
-    }
-    else if (screen === 'nes') {
-      if (onNesByocRow) openByocPicker();
-      else launchNes(nesGames[nesSel]?.file);
-    }
-    else if (screen === 'demos') launchDemo(DEMOS[demosSel]?.url);
-    else if (screen === 'cmgnet') launchCmgnet(cmgnetVisible[cmgnetSel]);
-    else if (screen === 'addgame') addActivate(addSel);
-    else if (screen === 'settings') activateSettings(settingsSel);
-    else if (screen === 'oeimport') oeToggle(oeSel);
-    else if (screen === 'ctrlsync') ctrlActivate(ctrlSel);
+    const s = SCREEN_DEFS[screen];
+    if (s) s.activate(s.sel());
   }
   function actFbtnRight() {
     if (gameOn) closeGame();
@@ -3772,6 +3841,12 @@
     padDebugTick();
     const pads = (navigator.getGamepads && navigator.getGamepads()) || [];
     let pad = pickActivePad(pads);
+    const kindNow = !pad
+      ? 'none'
+      : SNES_PAD_RE.test(pad.id || '')
+        ? (IS_ANDROID ? 'snes-android' : 'snes')
+        : 'pad';
+    if (kindNow !== activePadKind) activePadKind = kindNow;
     // R3 anywhere — launcher or mid-game — asks for fullscreen. Latched on its
     // own so the early returns below (and the OSD branch) can't swallow it.
     if (pad) {
@@ -3779,6 +3854,20 @@
       if (r3 && !padState.r3Latched) requestFullscreenFromPad();
       padState.r3Latched = r3;
     } else padState.r3Latched = false;
+    // While the controller configurator or the mapping wizard is open, that
+    // panel owns pad input (driven from gamepad-support.js's poll hook) — the
+    // launcher must not also navigate/launch/open the Guide underneath it.
+    // Keep latching pressed buttons so the press that closes the panel doesn't
+    // read as a fresh edge (and, say, fire Back) the frame after it closes.
+    const gm = typeof window !== 'undefined' ? window.gamepadManager : null;
+    if (gm && ((gm.isConfiguratorOpen && gm.isConfiguratorOpen()) || gm.wizardActive)) {
+      const pressedNow = new Set();
+      if (pad) pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
+      padState.btn = pressedNow;
+      padState.axisDir = 0; padState.comboLatched = false;
+      osdNav.vDir = 0; osdNav.hDir = 0;
+      return;
+    }
     if (gameOn) {
       // While a game is up we yield input to gamepad-support.js (it dispatches
       // keys into #gameframe). Here we only watch for the OSD open-chord, and
@@ -3793,12 +3882,19 @@
 
       if (osdOpen) {
         // Vertical: D-pad 12/13 or left-stick Y → move selection (edge-latched).
+        // Ignored while SELECT is held — SELECT has no vertical-nav role in the
+        // Guide, and without this the still-held SELECT+Down OPEN chord feeds
+        // straight into nav (worse now that hold-to-repeat exists: holding the
+        // chord a beat too long would race the selection down the list).
         const dirs = readPadDirs(pad);
         const nowOsd = performance.now();
+        const selHeld = !!pad.buttons[8]?.pressed;
         let v = 0;
-        if (dirs.up) v = -1;
-        else if (dirs.down) v = 1;
-        else { const ay = pad.axes[1] ?? 0; if (ay < -PAD_DEADZONE) v = -1; else if (ay > PAD_DEADZONE) v = 1; }
+        if (!selHeld) {
+          if (dirs.up) v = -1;
+          else if (dirs.down) v = 1;
+          else { const ay = pad.axes[1] ?? 0; if (ay < -PAD_DEADZONE) v = -1; else if (ay > PAD_DEADZONE) v = 1; }
+        }
         // Shoulders mirror the launcher-list nav (L up, R/L2 down) — on
         // Android Chrome the SNES pad's D-pad doesn't report, so these are
         // the only way to move through the Guide there. Ignored while SELECT
@@ -3820,6 +3916,19 @@
         if (v !== 0 && v !== osdNav.vDir) {
           osdSel = Math.max(0, Math.min(osdItems.length - 1, osdSel + v));
           sfx.nav();
+          osdNav.vHeldSince = nowOsd;
+          osdNav.vLastNav = nowOsd;
+        } else if (v !== 0 && v === osdNav.vDir) {
+          // Hold-to-repeat, mirroring the launcher lists — without it a long
+          // Guide (many cheats/plugins) is a one-tap-per-row crawl.
+          if (
+            nowOsd - (osdNav.vHeldSince || 0) >= padState.initialDelayMs &&
+            nowOsd - (osdNav.vLastNav || 0) >= padState.repeatMs
+          ) {
+            osdSel = Math.max(0, Math.min(osdItems.length - 1, osdSel + v));
+            sfx.nav();
+            osdNav.vLastNav = nowOsd;
+          }
         }
         osdNav.vDir = v;
         // Horizontal: D-pad 14/15 or left-stick X → adjust the focused control.
@@ -3834,6 +3943,16 @@
         osdNav.hDir = h;
         if (justPressed(0)) { lastInput = 'pad'; activateOsd(osdSel); }  // FBTN_BOTTOM
         else if (justPressed(1) || justPressed(8)) osdBack(); // FBTN_RIGHT or Select (Cheats → root → close)
+        // FBTN_LEFT / FBTN_TOP (X/Y) adjust the focused slider/color row down/up.
+        // On Android Chrome + SNES the D-pad doesn't report and axes[0] is dead,
+        // so without these a slider could only ever increase (A clamps at max).
+        // X/Y exist on every SNES-class pad and are otherwise unused in the Guide.
+        if (justPressed(2) || justPressed(3)) {
+          const it = osdItems[osdSel];
+          if (it && (it.kind === 'slider' || it.kind === 'color')) {
+            adjustOsd(osdSel, justPressed(2) ? -1 : 1);
+          }
+        }
         padState.btn = pressedNow;
         return;
       }
@@ -3971,8 +4090,9 @@
     if (dir !== 0 && dir !== padState.axisDir) {
       // Edge-triggered nav, rate-limited: bounce trains with gaps past the
       // dropout window otherwise land as several distinct edges per tap.
+      // A fresh edge wraps at the list ends (see navMove).
       if (now - padState.lastNavAt >= 150 || padState.lastNavAt === 0) {
-        if (dir < 0) navUp(); else navDown();
+        if (dir < 0) navUp(true); else navDown(true);
         padState.lastNavAt = now;
       }
       padState.holdingSince = now;
@@ -4025,6 +4145,7 @@
     if (!gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard' && screen !== 'addgame' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       onKey({
         key: e.key === 'ArrowLeft' ? 'ArrowUp' : 'ArrowDown',
+        repeat: e.repeat, // preserved so held keys clamp instead of wrapping
         preventDefault: () => e.preventDefault(),
         stopImmediatePropagation: () => e.stopImmediatePropagation?.(),
       });
@@ -4059,74 +4180,10 @@
     if (musicOpen && (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B')) {
       closeMusic(); e.preventDefault(); return;
     }
-    if (screen === 'dashboard') {
-      if (e.key === 'ArrowDown') { menuSel = Math.min(menuSel + 1, MAIN_MENU.length - 1); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { menuSel = Math.max(menuSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') pickMenu(menuSel);
-    } else if (screen === 'games') {
-      if (e.key === 'ArrowDown') { gameSel = Math.min(gameSel + 1, GAMES.length - 1); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { gameSel = Math.max(gameSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') launchGame(GAMES[gameSel].id);
-      else if (e.key === 'Delete' && currentGame?.__cmgnet) cmgnetUninstall(currentGame);
-      else if (e.key === 'Delete' && currentGame?.__local) deleteLocalGame(currentGame);
-      else if ((e.key === 'u' || e.key === 'U') && (currentGame?.__cmgnet || currentGame?.__local)) actUpdate();
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'arcade') {
-      if (e.key === 'ArrowDown') { arcadeSel = Math.min(arcadeSel + 1, arcadeGames.length); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { arcadeSel = Math.max(arcadeSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') {
-        if (onArcadeByobRow) openArcadeByobPicker();
-        else launchArcade(arcadeGames[arcadeSel]);
-      }
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'tg16') {
-      if (e.key === 'ArrowDown') { tg16Sel = Math.min(tg16Sel + 1, Math.max(tg16Games.length - 1, 0)); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { tg16Sel = Math.max(tg16Sel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') launchTg16(tg16Games[tg16Sel]?.file);
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'psx') {
-      if (e.key === 'ArrowDown') { psxSel = Math.min(psxSel + 1, Math.max(psxGames.length - 1, 0)); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { psxSel = Math.max(psxSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') {
-        if (psxGames.length === 0) openByodPicker();
-        else launchPsx(psxGames[psxSel]?.file);
-      }
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'ps2') {
-      if (e.key === 'ArrowDown') { ps2Sel = Math.min(ps2Sel + 1, Math.max(ps2Games.length - 1, 0)); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { ps2Sel = Math.max(ps2Sel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') {
-        if (ps2Games.length === 0) openPs2ByodPicker();
-        else launchPs2(ps2Games[ps2Sel]);
-      }
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'saturn') {
-      if (e.key === 'ArrowDown') { saturnSel = Math.min(saturnSel + 1, Math.max(saturnGames.length - 1, 0)); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { saturnSel = Math.max(saturnSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') {
-        if (saturnGames.length === 0) openSaturnByodPicker();
-        else launchSaturn(saturnGames[saturnSel]?.file);
-      }
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'nes') {
-      if (e.key === 'ArrowDown') { nesSel = Math.min(nesSel + 1, nesGames.length); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { nesSel = Math.max(nesSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') {
-        if (onNesByocRow) openByocPicker();
-        else launchNes(nesGames[nesSel]?.file);
-      }
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'demos') {
-      if (e.key === 'ArrowDown') { demosSel = Math.min(demosSel + 1, Math.max(DEMOS.length - 1, 0)); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { demosSel = Math.max(demosSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') launchDemo(DEMOS[demosSel]?.url);
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'cmgnet') {
-      if (e.key === 'ArrowDown') { cmgnetSel = Math.min(cmgnetSel + 1, Math.max(cmgnetVisible.length - 1, 0)); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { cmgnetSel = Math.max(cmgnetSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') launchCmgnet(cmgnetVisible[cmgnetSel]);
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'addgame') {
+    // Screen-specific keys first, then the shared registry-driven nav —
+    // keyboard and gamepad route through the same navUp/navDown/activate so
+    // the two input paths cannot drift.
+    if (screen === 'addgame') {
       // A focused text field must keep normal typing (arrows move the caret,
       // characters insert) — only Enter (submit) and Escape (blur back to nav)
       // are intercepted while typing.
@@ -4137,27 +4194,25 @@
         else if (e.key === 'Escape') { el.blur(); e.preventDefault(); }
         return;
       }
-      if (e.key === 'ArrowDown') { addSel = Math.min(addSel + 1, addRows.length - 1); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { addSel = Math.max(addSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { if (addRows[addSel]?.kind === 'subdir') cycleAddSubdir(); }
-      else if (e.key === 'Enter' || e.key === ' ') addActivate(addSel);
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'settings') {
-      if (e.key === 'ArrowDown') { settingsSel = Math.min(settingsSel + 1, SETTINGS_ITEMS.length - 1); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { settingsSel = Math.max(settingsSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') activateSettings(settingsSel);
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'oeimport') {
-      if (e.key === 'ArrowDown') { oeMove(1); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { oeMove(-1); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') oeToggle(oeSel);
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
-    } else if (screen === 'ctrlsync') {
-      if (e.key === 'ArrowDown') { ctrlSel = Math.min(ctrlSel + 1, 1); sfx.nav(); }
-      else if (e.key === 'ArrowUp') { ctrlSel = Math.max(ctrlSel - 1, 0); sfx.nav(); }
-      else if (e.key === 'Enter' || e.key === ' ') ctrlActivate(ctrlSel);
-      else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C') goBack();
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (addRows[addSel]?.kind === 'subdir') cycleAddSubdir();
+        return;
+      }
     }
+    if (screen === 'games') {
+      if (e.key === 'Delete' && currentGame?.__cmgnet) { cmgnetUninstall(currentGame); return; }
+      if (e.key === 'Delete' && currentGame?.__local) { deleteLocalGame(currentGame); return; }
+      if ((e.key === 'u' || e.key === 'U') && (currentGame?.__cmgnet || currentGame?.__local)) { actUpdate(); return; }
+    }
+    const s = SCREEN_DEFS[screen];
+    if (!s) return;
+    if (e.key === 'ArrowDown') navDown(!e.repeat);
+    else if (e.key === 'ArrowUp') navUp(!e.repeat);
+    else if (e.key === 'Enter' || e.key === ' ') s.activate(s.sel());
+    else if (
+      screen !== 'dashboard' &&
+      (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'b' || e.key === 'B' || e.key === 'c' || e.key === 'C')
+    ) goBack();
   }
 
   // Inject a capture-phase OSD-trigger forwarder INTO a same-origin game frame.
@@ -4798,6 +4853,7 @@
   onDestroy(() => {
     if (clockTimer) clearInterval(clockTimer);
     if (bootTimer) clearTimeout(bootTimer);
+    if (toastTimer) clearTimeout(toastTimer);
     if (padRaf) cancelAnimationFrame(padRaf);
     document.removeEventListener('click', unlockAudio);
     window.removeEventListener('keydown', onKey);
@@ -4965,7 +5021,8 @@
                 <span class="name">{g.title}{g.submenu ? ' ›' : ''}</span>
                 {#if g.__cmgnet && cmgnetStatus[g.id]?.updateAvailable}
                   <span class="net-badge upd" role="button" tabindex="0"
-                        onclick={(e) => { e.stopPropagation(); cmgnetUpdate(g); }}>↻ UPDATE</span>
+                        onclick={(e) => { e.stopPropagation(); cmgnetUpdate(g); }}
+                        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); cmgnetUpdate(g); } }}>↻ UPDATE</span>
                 {:else}
                   <span class="sub">{g.sub}</span>
                 {/if}
@@ -5863,7 +5920,7 @@
   </div>
 
   {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
-    <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)}>
+    <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)} onkeydown={chipKeyHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
     </div>
@@ -5871,11 +5928,11 @@
   {#if screen === 'games' && currentGame?.__cmgnet}
     <div class="footer mid acts">
       {#if cmgnetStatus[currentGame.id]?.updateAvailable}
-        <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)}>
+        <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)} onkeydown={chipKeyHandler(actUpdate)}>
           <span class="btn-hint y">Y</span><span>Update</span>
         </span>
       {/if}
-      <span class="act" role="button" tabindex="0" onpointerup={tapHandler(() => cmgnetUninstall(currentGame))}>
+      <span class="act" role="button" tabindex="0" onpointerup={tapHandler(() => cmgnetUninstall(currentGame))} onkeydown={chipKeyHandler(() => cmgnetUninstall(currentGame))}>
         <span class="btn-hint x">X</span><span>Uninstall</span>
       </span>
     </div>
@@ -5883,16 +5940,16 @@
   {#if screen === 'games' && currentGame?.__local}
     <div class="footer mid acts">
       {#if currentGame.localSource === 'github' || currentGame.localSource === 'url'}
-        <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)}>
+        <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)} onkeydown={chipKeyHandler(actUpdate)}>
           <span class="btn-hint y">Y</span><span>Update</span>
         </span>
       {/if}
-      <span class="act" role="button" tabindex="0" onpointerup={tapHandler(() => deleteLocalGame(currentGame))}>
+      <span class="act" role="button" tabindex="0" onpointerup={tapHandler(() => deleteLocalGame(currentGame))} onkeydown={chipKeyHandler(() => deleteLocalGame(currentGame))}>
         <span class="btn-hint x">X</span><span>Delete</span>
       </span>
     </div>
   {/if}
-  <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actFbtnBottom)}>
+  <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actFbtnBottom)} onkeydown={chipKeyHandler(actFbtnBottom)}>
     <div class="btn-hint">A</div>
     <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'ps2' ? (ps2Games.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
   </div>
@@ -6016,7 +6073,12 @@
   <pre class="pad-debug">{padDebugText}</pre>
 {/if}
 
+{#if toastMsg}
+  <div class="cmg-toast" role="status">{toastMsg}</div>
+{/if}
+
 <Osd open={osdOpen} items={osdItems} sel={osdSel} theme={tweaks.theme}
      clock={clockStr} title={musicOpen ? musicTitle : (currentGame?.title || currentGame?.name || '')}
+     hint={osdHint}
      onactivate={activateOsd} onsetvalue={setOsdValue}
      onselect={(i) => (osdSel = i)} onclose={closeOsd} />

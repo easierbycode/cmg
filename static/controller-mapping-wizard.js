@@ -61,6 +61,7 @@ import { GamepadManager } from './gamepad-support.js';
 
   const AXIS_CAPTURE_DELTA = 0.6;   // how far an axis must move from baseline to count
   const NEUTRAL_DELTA = 0.35;       // how close to baseline counts as "released"
+  const HOLD_TO_ACT_MS = 1500;      // hold-any-control duration for skip (steps) / save (summary)
 
   class WizardMixin {
 
@@ -95,6 +96,8 @@ import { GamepadManager } from './gamepad-support.js';
       rest: null,         // resting snapshot of the untouched pad; every
                           // capture and release check compares against this
       awaitingNeutral: true,
+      pendingHold: null,  // optional-step press being held: { binding, start }
+      sum: null,          // summary-screen pad state: { save, back, holdStart }
       raf: 0,
     };
 
@@ -138,6 +141,10 @@ import { GamepadManager } from './gamepad-support.js';
             <div class="wizard-prompt" id="wizard-prompt"></div>
             <div class="wizard-hint" id="wizard-hint"></div>
             <div class="wizard-captured" id="wizard-captured"></div>
+            <div class="wizard-hold" id="wizard-hold" style="display:none;">
+              <div class="wizard-hold-track"><div class="wizard-hold-fill"></div></div>
+              <div class="wizard-hold-label">hold to skip&hellip;</div>
+            </div>
             <div class="wizard-progress" id="wizard-progress"></div>
           </div>
           <div class="wizard-footer">
@@ -207,6 +214,16 @@ import { GamepadManager } from './gamepad-support.js';
     if (snap.buttons.some(Boolean)) return false;
     for (let i = 0; i < snap.axes.length; i++) {
       const base = baseline && typeof baseline.axes[i] === 'number' ? baseline.axes[i] : snap.axes[i];
+      // Hat axes rest OUTSIDE the ±1 grid (e.g. 1.2857). When the baseline is
+      // a hat rest sentinel, "neutral" means the live value is back off-grid.
+      // The plain delta test would accept a held diagonal (NW = 1.0, delta
+      // 0.29 < NEUTRAL_DELTA) — and the rest refreshes that follow a passed
+      // neutral gate would then record that held diagonal as "rest",
+      // permanently corrupting every later hat capture.
+      if (Math.abs(base) > 1.05) {
+        if (Math.abs(snap.axes[i]) <= 1.05) return false;
+        continue;
+      }
       if (Math.abs(snap.axes[i] - base) > NEUTRAL_DELTA) return false;
     }
     return true;
@@ -225,7 +242,7 @@ import { GamepadManager } from './gamepad-support.js';
     }
     if (padIdEl) padIdEl.textContent = pad.id;
 
-    if (w.stepIndex >= STEPS.length) return; // summary screen; nothing to capture
+    if (w.stepIndex >= STEPS.length) { this._wizardSummaryTick(pad); return; }
 
     // First frame with a pre-selected pad: assume it's untouched and record
     // its resting snapshot. All captures diff against this rest state, and a
@@ -236,18 +253,182 @@ import { GamepadManager } from './gamepad-support.js';
       w.awaitingNeutral = true;
       return;
     }
+
+    // Optional steps capture on RELEASE: a short press commits the binding,
+    // while holding the control ~1.5s skips the step instead — the only
+    // pad-only way to skip (e.g. "press LEFT trigger" on a pad without one).
+    if (w.pendingHold) {
+      // Commit when the CAPTURED control is released, not when the whole pad
+      // is neutral: a trigger axis that rest-shifts after first use (reports
+      // 0 until touched, then rests at -1) never reads as neutral again, which
+      // silently turned a successful capture into an auto-skip.
+      // stick-axis bindings aren't a _wizardBindingPressed kind — test their
+      // release as the axis returning near its rest baseline.
+      const heldBinding = w.pendingHold.binding;
+      const heldReleased = heldBinding.kind === 'stick-axis'
+        ? Math.abs((((pad.axes || [])[heldBinding.index] ?? 0)) - ((w.rest.axes || [])[heldBinding.index] || 0)) < NEUTRAL_DELTA
+        : !this._wizardBindingPressed(pad, heldBinding);
+      if (heldReleased) {
+        const binding = w.pendingHold.binding;
+        w.pendingHold = null;
+        this._setWizardHold(0, false);
+        w.results[w.stepIndex] = binding;
+        this._flashCaptured(binding);
+        // Rebaseline the bound axis at its (possibly shifted) new rest so the
+        // following awaitingNeutral gate can actually clear.
+        if (binding.kind !== 'button' && typeof binding.index === 'number' && w.rest && w.rest.axes) {
+          const cur = (pad.axes || [])[binding.index];
+          if (typeof cur === 'number') w.rest.axes[binding.index] = cur;
+        }
+        w.stepIndex++;
+        w.awaitingNeutral = true;
+        this._renderWizardStep();
+      } else {
+        const frac = (performance.now() - w.pendingHold.start) / HOLD_TO_ACT_MS;
+        const step = STEPS[w.stepIndex];
+        // A long hold IN the prompted stick direction is a capture, not a
+        // skip — users naturally hold the stick "to make sure it takes", and
+        // auto-skipping here silently killed the stick for every game.
+        // Holding some other control (opposite direction, a D-pad axis on a
+        // stickless pad) still skips.
+        const holdCaptures = step.kind === 'stick-axis' &&
+          w.pendingHold.binding.kind === 'stick-axis' && !w.pendingHold.binding.invert;
+        if (frac >= 1) {
+          const binding = w.pendingHold.binding;
+          w.pendingHold = null;
+          this._setWizardHold(0, false);
+          if (holdCaptures) {
+            w.results[w.stepIndex] = binding;
+            this._flashCaptured(binding);
+            w.stepIndex++;
+            w.awaitingNeutral = true;
+            this._renderWizardStep();
+          } else {
+            this._wizardSkip();
+          }
+        } else {
+          this._setWizardHold(frac, true, holdCaptures
+            ? 'captured — release or keep holding'
+            : 'keep holding to skip · release to capture');
+        }
+      }
+      return;
+    }
+
     if (w.awaitingNeutral) {
       if (!this._padIsNeutral(pad, w.rest)) return;
       w.awaitingNeutral = false;
+      // Refresh the resting baseline now that the pad is provably neutral: if
+      // the wizard was opened by a pad press (A on "Run Button Wizard"), the
+      // first-frame snapshot recorded that held button as "at rest", which
+      // would mask the same button from ever being captured.
+      w.rest = this._snapshotPad(pad);
     }
 
-    const binding = this._detectBinding(pad, w.rest, STEPS[w.stepIndex]);
+    const step = STEPS[w.stepIndex];
+    const binding = this._detectBinding(pad, w.rest, step);
     if (binding) {
+      if (step.optional) {
+        w.pendingHold = { binding, start: performance.now() };
+        this._setWizardHold(0, true, 'keep holding to skip · release to capture');
+        return;
+      }
       w.results[w.stepIndex] = binding;
       this._flashCaptured(binding);
       w.stepIndex++;
       w.awaitingNeutral = true; // require release before the next step arms
       this._renderWizardStep();
+    }
+  }
+
+  // Summary screen, pad-operable: the wizard just proved which raw controls
+  // are FBTN_BOTTOM / FBTN_RIGHT, so those captured bindings become Save /
+  // Back. Pads where FBTN_BOTTOM wasn't captured fall back to
+  // hold-any-control-to-save.
+  _wizardSummaryTick(pad) {
+    const w = this._wizard;
+    if (!w.rest) { w.rest = this._snapshotPad(pad); w.awaitingNeutral = true; return; }
+    if (w.awaitingNeutral) {
+      if (!this._padIsNeutral(pad, w.rest)) return;
+      w.awaitingNeutral = false;
+      w.rest = this._snapshotPad(pad); // clean baseline (see _wizardTick)
+      w.sum = { save: false, back: false, holdStart: 0 };
+    }
+    if (!w.sum) w.sum = { save: false, back: false, holdStart: 0 };
+
+    const saveBinding = this._wizardResultForSlot(0);
+    const backBinding = this._wizardResultForSlot(1);
+
+    if (saveBinding) {
+      const p = this._wizardBindingPressed(pad, saveBinding);
+      if (p && !w.sum.save) { this._wizardSave(); return; }
+      w.sum.save = p;
+    } else {
+      // Fallback: hold anything ~1.5s to save.
+      if (!this._padIsNeutral(pad, w.rest)) {
+        if (!w.sum.holdStart) w.sum.holdStart = performance.now();
+        const frac = (performance.now() - w.sum.holdStart) / HOLD_TO_ACT_MS;
+        if (frac >= 1) { this._setWizardHold(0, false); this._wizardSave(); return; }
+        this._setWizardHold(frac, true, 'keep holding to save…');
+      } else {
+        w.sum.holdStart = 0;
+        this._setWizardHold(0, false);
+      }
+    }
+
+    if (backBinding) {
+      const p = this._wizardBindingPressed(pad, backBinding);
+      if (p && !w.sum.back) { this._wizardBack(); return; }
+      w.sum.back = p;
+    }
+  }
+
+  // Captured binding for a standard button slot, or null if skipped/missing.
+  _wizardResultForSlot(slot) {
+    const w = this._wizard;
+    if (!w) return null;
+    for (let i = 0; i < STEPS.length; i++) {
+      if (STEPS[i].kind === 'press' && STEPS[i].slot === slot) {
+        const r = w.results[i];
+        return r && !r.skipped ? r : null;
+      }
+    }
+    return null;
+  }
+
+  // Is a captured binding currently pressed on this raw pad? Prefers the
+  // compat plugin's canonical implementation; inline fallback matches it.
+  _wizardBindingPressed(pad, binding) {
+    if (!binding) return false;
+    try {
+      const compat = window.CMGGamepadCompat;
+      if (compat && typeof compat.bindingPressed === 'function') return !!compat.bindingPressed(pad, binding);
+    } catch (_) {}
+    if (binding.kind === 'button') {
+      const b = (pad.buttons || [])[binding.index];
+      return !!(b && b.pressed);
+    }
+    const v = (pad.axes || [])[binding.index];
+    if (typeof v !== 'number') return false;
+    if (binding.kind === 'hat') return !!this.decodeHat(v)[binding.dir];
+    if (binding.kind === 'axis') {
+      const base = typeof binding.baseline === 'number' ? binding.baseline : 0;
+      return binding.sign >= 0 ? v - base > 0.5 : base - v > 0.5;
+    }
+    return false;
+  }
+
+  // Progress bar for the hold-to-skip / hold-to-save gestures.
+  _setWizardHold(frac, show, label) {
+    const wrap = document.querySelector('.mapping-wizard #wizard-hold');
+    if (!wrap) return;
+    wrap.style.display = show ? '' : 'none';
+    if (!show) return;
+    const fill = wrap.querySelector('.wizard-hold-fill');
+    if (fill) fill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
+    if (label) {
+      const lab = wrap.querySelector('.wizard-hold-label');
+      if (lab && lab.textContent !== label) lab.textContent = label;
     }
   }
 
@@ -314,6 +495,8 @@ import { GamepadManager } from './gamepad-support.js';
   _wizardSkip() {
     const w = this._wizard;
     if (!w || w.stepIndex >= STEPS.length) return;
+    w.pendingHold = null;
+    this._setWizardHold(0, false);
     const step = STEPS[w.stepIndex];
     w.results[w.stepIndex] = { skipped: true };
     // Skipping the first step of a stick means "this pad has no such stick":
@@ -334,6 +517,9 @@ import { GamepadManager } from './gamepad-support.js';
   _wizardBack() {
     const w = this._wizard;
     if (!w || w.stepIndex === 0) return;
+    w.pendingHold = null;
+    w.sum = null;
+    this._setWizardHold(0, false);
     w.stepIndex--;
     const step = STEPS[w.stepIndex];
     if (step.stick) delete w.skippedSticks[step.stick];
@@ -356,18 +542,30 @@ import { GamepadManager } from './gamepad-support.js';
 
     backBtn.disabled = w.stepIndex === 0;
 
+    this._setWizardHold(0, false);
+
     if (w.stepIndex >= STEPS.length) {
       const captured = Object.values(w.results).filter(r => r && !r.skipped).length;
       sectionEl.textContent = 'All done';
       promptEl.textContent = `Mapped ${captured} controls.`;
-      hintEl.textContent = 'Save to translate this controller into a standard Xbox-style pad everywhere — launcher and all games.';
+      // Advertise the pad gestures that are actually available on this pad:
+      // the captured FBTN_BOTTOM / FBTN_RIGHT bindings act as Save / Back,
+      // with hold-anything as the fallback when FBTN_BOTTOM wasn't captured.
+      const saveBinding = this._wizardResultForSlot(0);
+      const backBinding = this._wizardResultForSlot(1);
+      const gesture = saveBinding
+        ? `Pad: BOTTOM face button saves${backBinding ? ' · RIGHT face button goes back' : ''}.`
+        : 'Pad: hold any control 1.5s to save.';
+      hintEl.textContent = `Save to translate this controller into a standard Xbox-style pad everywhere — launcher and all games. ${gesture}`;
       skipBtn.style.display = 'none';
       saveBtn.style.display = '';
     } else {
       const step = STEPS[w.stepIndex];
       sectionEl.textContent = step.section;
       promptEl.textContent = `Press ${step.label}`;
-      hintEl.textContent = step.hint || '';
+      hintEl.textContent = step.optional
+        ? `${step.hint ? `${step.hint} · ` : ''}Hold any control 1.5s to skip`
+        : (step.hint || '');
       skipBtn.style.display = '';
       skipBtn.textContent = step.optional ? 'Skip' : 'Skip (not recommended)';
       saveBtn.style.display = 'none';
@@ -428,6 +626,11 @@ import { GamepadManager } from './gamepad-support.js';
   for (const name of Object.getOwnPropertyNames(WizardMixin.prototype)) {
     if (name !== 'constructor') GamepadManager.prototype[name] = WizardMixin.prototype[name];
   }
+
+  // The wizard-active signal external pollers (e.g. the launcher Dashboard)
+  // check to yield pad input while the wizard captures raw presses. Make it a
+  // well-defined boolean from load, not undefined-until-first-open.
+  if (!('wizardActive' in window.gamepadManager)) window.gamepadManager.wizardActive = false;
 
   const wizardCSS = `
 .mapping-wizard {
@@ -566,6 +769,34 @@ import { GamepadManager } from './gamepad-support.js';
 @keyframes wizard-captured-flash {
   0% { text-shadow: 0 0 18px rgba(120, 255, 90, 1); transform: scale(1.15); }
   100% { text-shadow: none; transform: scale(1); }
+}
+
+/* hold-to-skip / hold-to-save progress */
+.wizard-hold {
+  margin: 0 auto 14px;
+  max-width: 280px;
+}
+
+.wizard-hold-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(140, 255, 110, .15);
+  border: 1px solid rgba(140, 255, 110, .3);
+  overflow: hidden;
+}
+
+.wizard-hold-fill {
+  height: 100%;
+  width: 0%;
+  background: #FFB13D;
+  transition: width 0.05s linear;
+}
+
+.wizard-hold-label {
+  margin-top: 6px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  color: rgba(255, 177, 61, .85);
 }
 
 .wizard-progress {

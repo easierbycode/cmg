@@ -102,6 +102,10 @@ class GamepadManager {
       this.scanGamepads();
       // Configurator hooks (present only when controller-configurator.js is loaded).
       if (this.handleDetectionTick) this.handleDetectionTick();
+      // Pad-driven navigation of the configurator panel / mapping wizard
+      // (present only when those modules are loaded). Runs before
+      // processInputs so nav presses are consumed instead of dispatched.
+      if (this.handleConfiguratorPadTick) this.handleConfiguratorPadTick();
       this.processInputs();
 
       if (this.isConfiguratorOpen && this.isConfiguratorOpen() && this.testingMode && this.updateTestingVisual) {
@@ -327,9 +331,10 @@ class GamepadManager {
           if (!swallow && groupName === 'special' && buttonName === 'start') {
             const handled = this.handleStartInGame();
             if (handled) {
-              // Latch state and skip default dispatch
+              // Latch state and skip default dispatch — continue (not return)
+              // so the rest of this group still edge-processes this frame.
               this.buttonState[controllerIndex][buttonName] = isPressed;
-              return;
+              continue;
             }
           }
           // While testing (for this controller), swallow inputs entirely (no actions)
@@ -341,7 +346,11 @@ class GamepadManager {
           else if (this.isConfiguratorOpen && this.isConfiguratorOpen() && groupName === 'face' && buttonName === 'btnRight') {
             try { this.closeConfigurator(); } catch (_) {}
             this.buttonState[controllerIndex].faceEast = true;
-            return;
+            // Latch the edge key too, or the still-held press re-fires as a
+            // fresh rising edge next frame (post-close) and leaks a keydown
+            // into the game.
+            this.buttonState[controllerIndex][buttonName] = isPressed;
+            continue;
           }
           // While overlays are open, don't forward most groups to the game
           else if (this.isAnyOverlayOpen && this.isAnyOverlayOpen() && (groupName === 'dpad' || groupName === 'face' || groupName === 'shoulder')) {

@@ -1112,3 +1112,31 @@ body.theme-xbox360 .game-row:hover:not(.sel) .game-bar {
     linear-gradient(180deg, rgba(255, 255, 255, .2), rgba(255, 255, 255, 0) 42%),
     linear-gradient(180deg, rgba(124, 255, 79, .24), rgba(10, 28, 14, .76));
 }
+
+/* ── Transient toast ─────────────────────────────────────────────────────────
+   Self-dismissing notice (Dashboard showToast) for actions the browser can't
+   honor from gamepad input — file pickers and text fields need a real
+   key/tap/click gesture. Sits above the Guide (103) and its close ✕ (104). */
+.cmg-toast {
+  position: fixed; left: 50%; bottom: 9vmin; transform: translateX(-50%);
+  z-index: 150; max-width: min(560px, 88vw);
+  padding: 12px 18px; border-radius: 10px; text-align: center;
+  font-family: 'Share Tech Mono', monospace; font-size: 13px; letter-spacing: .08em;
+  color: #eaffd2; background: rgba(8, 22, 10, .94);
+  border: 1px solid var(--tile-edge, rgba(140, 255, 110, .55));
+  box-shadow: 0 0 28px rgba(80, 220, 100, .35);
+  animation: toastIn .18s ease-out;
+  pointer-events: none;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%); } }
+
+/* Keyboard focus on the footer chips / update badge — they are role="button"
+   elements reachable with Tab, so give them a visible focus ring (the launcher
+   otherwise runs a selection-class model with no focus styling at all). */
+.footer.tap:focus-visible,
+.footer .act:focus-visible,
+.net-badge.upd:focus-visible {
+  outline: 2px solid var(--yellow, #F6FF4A);
+  outline-offset: 3px;
+  border-radius: 6px;
+}

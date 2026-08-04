@@ -17,9 +17,15 @@
   // "X-Box" is the Linux xpad driver's spelling.
   const XBOX_PAD_RE = /Xbox|X-Box|XInput|Microsoft|Legion/i;
   // Chrome on Android gets pad-layout tweaks of its own (see snesButtons).
-  const IS_ANDROID = /Android/i.test(
-    (root.navigator && root.navigator.userAgent) || "",
-  );
+  // userAgentData first: "Request desktop site" strips Android from the UA
+  // string, which would silently disable every Android pad accommodation.
+  const IS_ANDROID = (() => {
+    try {
+      const uad = root.navigator && root.navigator.userAgentData;
+      if (uad && uad.platform === "Android") return true;
+    } catch (_) { /* ignore */ }
+    return /Android/i.test((root.navigator && root.navigator.userAgent) || "");
+  })();
   const defaultOptions = {
     sourceParent: false,
     preferSinglePad: false,
@@ -213,6 +219,90 @@
     return out;
   }
 
+  // The joydev-family SNES pad reports its digital D-pad as full-deflection
+  // values on the low axes; once snesButtons has folded those into buttons
+  // 12-15, exposing them as axes too makes every analog consumer (EmulatorJS
+  // stick bindings, twin-stick passthrough) read phantom stick input. The pad
+  // has no analog sticks, so zero the four stick slots; higher axes (hat
+  // encodings) pass through for diagnostic readers. Standard-mapped SNES pads
+  // skip this (no family normalization ran, so axes were never folded).
+  function snesAxes(pad) {
+    const out = (pad.axes || []).slice();
+    for (let i = 0; i < 4 && i < out.length; i++) out[i] = 0;
+    return out;
+  }
+
+  // ==== Generic fallback for unrecognized non-standard pads ====
+  //
+  // A pad that is neither SNES-id nor wizard-profiled and reports a
+  // non-"standard" mapping gets zero normalization — on Chrome Android such
+  // pads commonly report the D-pad as AXIS_HAT_X/Y on axes 6/7 (or an encoded
+  // hat on axes[9]) and so have a dead D-pad in every consumer that reads
+  // buttons 12-15 (EmulatorJS, games). Rebuild 12-15 from those sources.
+  //
+  // Digital-pair reads on axes 6/7 are double-gated: the axis must have been
+  // observed at true neutral (≈0) at least once — trigger axes rest at ±1 and
+  // would otherwise decode as a stuck direction — AND must never have been
+  // observed at a non-digital intermediate value. True digital hat axes only
+  // ever report -1/0/+1; sticks and analog triggers sweep through
+  // intermediates at poll rate and get blacklisted before they can fabricate
+  // a press (an analog axis resting at 0 would pass the neutral gate alone).
+  // The hat decode on axes[9] is gated the same way in reverse: only after the
+  // axis has been seen at a hat REST sentinel (outside ±1.05, e.g. Chrome's
+  // 1.2857) — an analog axis 9 (HOTAS throttle) never leaves [-1, 1] and so
+  // never qualifies. Keyed by index:id, not object identity, so it survives
+  // browsers that hand out per-call snapshots.
+  const axisNeutralSeen = new Map(); // "index:id" -> Set(axisIndex, 9 = hat-rest)
+  const axisAnalogSeen = new Map(); // "index:id" -> Set(axisIndex)
+
+  function genericDirs(pad) {
+    const axes = pad.axes || [];
+    const key = pad.index + ":" + (pad.id || "");
+    let seen = axisNeutralSeen.get(key);
+    if (!seen) {
+      seen = new Set();
+      axisNeutralSeen.set(key, seen);
+    }
+    let analog = axisAnalogSeen.get(key);
+    if (!analog) {
+      analog = new Set();
+      axisAnalogSeen.set(key, analog);
+    }
+    for (const i of [6, 7]) {
+      const v = axes[i];
+      if (typeof v !== "number") continue;
+      if (Math.abs(v) < 0.01) seen.add(i);
+      if (!isDigitalValue(v) && Math.abs(v) <= 1.05) analog.add(i);
+    }
+    if (axes.length > 9 && typeof axes[9] === "number" && Math.abs(axes[9]) > 1.05) {
+      seen.add(9);
+    }
+    const dirs = decodeHat(seen.has(9) && axes.length > 9 ? axes[9] : NaN);
+    const digital = (i) =>
+      seen.has(i) && !analog.has(i) && isDigitalValue(axes[i]) ? axes[i] : 0;
+    const x = digital(6);
+    const y = digital(7);
+    if (x <= -0.99) dirs.left = true;
+    else if (x >= 0.99) dirs.right = true;
+    if (y <= -0.99) dirs.up = true;
+    else if (y >= 0.99) dirs.down = true;
+    return dirs;
+  }
+
+  function genericButtons(pad) {
+    const source = pad.buttons || [];
+    const out = new Array(Math.max(source.length, 16));
+    for (let i = 0; i < out.length; i++) {
+      out[i] = source[i] || button(false);
+    }
+    const dirs = genericDirs(pad);
+    if (dirs.up) out[12] = button(true);
+    if (dirs.down) out[13] = button(true);
+    if (dirs.left) out[14] = button(true);
+    if (dirs.right) out[15] = button(true);
+    return out;
+  }
+
   // ==== Custom mapping profiles (saved by the Button Mapping Wizard) ====
   //
   // A profile records, per standard-gamepad slot, which raw control this pad
@@ -331,8 +421,43 @@
     ].join(":");
   }
 
+  // Index-only shim for pads that are already fully normalized (see below):
+  // re-fronts .index as 0 without touching buttons/axes/mapping.
+  function wrapIndexOnly(pad) {
+    const key = "idx-shim";
+    if (wrapCache) {
+      const cachedForPad = wrapCache.get(pad);
+      if (cachedForPad && cachedForPad[key]) return cachedForPad[key];
+    }
+    const wrapped = new Proxy(pad, {
+      get(target, prop) {
+        if (prop === "__cmgGamepadCompatWrapped") return true;
+        if (prop === "index") return 0;
+        const value = target[prop];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    if (wrapCache) {
+      const next = wrapCache.get(pad) || {};
+      next[key] = wrapped;
+      wrapCache.set(pad, next);
+    }
+    return wrapped;
+  }
+
   function wrapPad(pad, opts) {
     if (!pad) return pad;
+
+    // Already normalized by another document's plugin — sourceParent frames
+    // read the parent launcher's PATCHED getGamepads, so the pads arriving
+    // here are proxies whose buttons/axes are the normalized view. Profile
+    // bindings index RAW controls; re-resolving them against the normalized
+    // view scrambles the mapping (raw hat axes are gone, raw button slots
+    // moved). Only the index shim may still be needed.
+    if (pad.__cmgGamepadCompatWrapped) {
+      if (opts.forceIndexZero && pad.index !== 0) return wrapIndexOnly(pad);
+      return pad;
+    }
 
     // A wizard-authored profile wins over the built-in SNES heuristics: the
     // user explicitly told us where every control lives on this pad.
@@ -345,7 +470,14 @@
     // a one-element array — a pad still wearing a browser index of 1+ sends
     // those lookups at a hole (dead input, or a crashed poll loop).
     const snes = isSnesPad(pad);
-    if (!snes && !(opts.forceIndexZero && pad.index !== 0)) return pad;
+    // Unrecognized non-standard pads get the conservative generic D-pad
+    // rebuild (hat / digital-pair axes → buttons 12-15). Skip pads without
+    // enough axes to carry either source — the wrap would be a no-op.
+    const generic = !snes && pad.mapping !== "standard" &&
+      (pad.axes || []).length >= 7;
+    if (!snes && !generic && !(opts.forceIndexZero && pad.index !== 0)) {
+      return pad;
+    }
 
     const key = cacheKey(opts);
     if (wrapCache) {
@@ -357,6 +489,12 @@
       get(target, prop) {
         if (prop === "__cmgGamepadCompatWrapped") return true;
         if (snes && prop === "buttons") return snesButtons(target);
+        if (generic && prop === "buttons") return genericButtons(target);
+        // Only when family normalization folded the D-pad out of the axes
+        // (non-standard mapping): hide the phantom stick deflections.
+        if (snes && prop === "axes" && target.mapping !== "standard") {
+          return snesAxes(target);
+        }
         if (prop === "index" && opts.forceIndexZero) return 0;
         if (snes && prop === "mapping" && opts.standardizeSnesMapping) {
           return "standard";
@@ -497,7 +635,7 @@
   }
 
   const api = {
-    version: "1.2.0",
+    version: "1.3.0",
     install,
     isSnesPad,
     decodeHat,

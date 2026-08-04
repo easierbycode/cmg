@@ -165,7 +165,9 @@
           }
         }, true);
 
-        // Top-level gamepad exit: hold SELECT + START for ~0.7s.
+        // Top-level gamepad exit: hold SELECT + START for ~0.7s. Reads the
+        // compat-plugin-patched getGamepads (installed above), so SNES-style
+        // pads arrive with Select/Start normalized to the standard 8/9 slots.
         if (topLevel) {
           var chordSince = 0;
           setInterval(function () {
@@ -183,6 +185,58 @@
             if (!chordSince) { chordSince = Date.now(); return; }
             if (Date.now() - chordSince > 700) exitToDashboard();
           }, 120);
+        }
+
+        // Top-level touch exit: the dashboard's two-corner gesture (bottom-left
+        // + top-right pressed at once). Without it a touch-only device — no
+        // keyboard, no pad — had no way back to the launcher at all. Exiting is
+        // destructive, so it matches the pad chord's deliberateness: both
+        // corners must be HELD ~700ms (a finger dragging out of its corner
+        // releases it, so stray swipes/pinches near the corners never fire).
+        if (topLevel) {
+          var cornersHeld = {}; // pointerId -> 'bl' | 'tr'
+          var cornerExitTimer = 0;
+          var cornerAt = function (x, y) {
+            var s = Math.min(0.13 * Math.min(innerWidth, innerHeight), 104);
+            if (x <= s && y >= innerHeight - s) return "bl";
+            if (x >= innerWidth - s && y <= s) return "tr";
+            return null;
+          };
+          var bothCorners = function () {
+            var bl = false, tr = false;
+            for (var k in cornersHeld) {
+              if (cornersHeld[k] === "bl") bl = true;
+              if (cornersHeld[k] === "tr") tr = true;
+            }
+            return bl && tr;
+          };
+          var cancelCornerExit = function () {
+            if (cornerExitTimer) { clearTimeout(cornerExitTimer); cornerExitTimer = 0; }
+          };
+          window.addEventListener("pointerdown", function (e) {
+            var c = cornerAt(e.clientX, e.clientY);
+            if (!c) return;
+            cornersHeld[e.pointerId] = c;
+            if (bothCorners() && !cornerExitTimer) {
+              cornerExitTimer = setTimeout(function () {
+                cornerExitTimer = 0;
+                if (bothCorners()) exitToDashboard();
+              }, 700);
+            }
+          }, true);
+          window.addEventListener("pointermove", function (e) {
+            if (cornersHeld[e.pointerId] &&
+                cornerAt(e.clientX, e.clientY) !== cornersHeld[e.pointerId]) {
+              delete cornersHeld[e.pointerId];
+              if (!bothCorners()) cancelCornerExit();
+            }
+          }, true);
+          var dropCorner = function (e) {
+            delete cornersHeld[e.pointerId];
+            if (!bothCorners()) cancelCornerExit();
+          };
+          window.addEventListener("pointerup", dropCorner, true);
+          window.addEventListener("pointercancel", dropCorner, true);
         }
 
         // First touch tells the parent to drop transient chrome (parity with

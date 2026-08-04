@@ -21,6 +21,10 @@
     theme = 'xbox',
     clock = '',
     title = '',
+    // Footer open-chord hint — supplied by the Dashboard so it can advertise
+    // the chord that actually works on the detected pad/platform (e.g.
+    // SELECT + L2 on Android, where the SNES pad's D-pad doesn't report).
+    hint = 'SELECT + ↓ · two-corner tap',
     onactivate = () => {},
     onsetvalue = () => {},
     onselect = () => {},
@@ -96,6 +100,18 @@
   // player slot, publishes its rect as --osd-music-* vars, and flags
   // body.osd-music-blade; dashboard.css lifts the sidebar into the slot. The
   // ResizeObserver keeps the rect fresh through the blade-expand transition.
+  // Keep the selected row visible as gamepad/keyboard nav moves it — both
+  // scrollable bodies (.osd-body in the panel skin, .blade-body in the 360
+  // skin) clip long lists (cheats/plugins) and short viewports, and selection
+  // is index-based rather than focus-based, so the browser won't scroll for us.
+  $effect(() => {
+    void sel;
+    void items;
+    if (!open) return;
+    const el = document.querySelector('.osd-body .sel, .blade-body .sel, .blade-tab.sel');
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
   let playerSlot = $state(null);
   $effect(() => {
     const el = playerSlot;
@@ -244,7 +260,7 @@
       <div class="osd-guide-foot">
         <span class="gf-btn"><b class="gf-a">A</b> Select</span>
         <span class="gf-btn"><b class="gf-b">B</b> Back</span>
-        <span class="gf-hint">SELECT + ↓ · two-corner tap</span>
+        <span class="gf-hint">{hint}</span>
       </div>
 
       <button type="button" class="osd-blades-x" aria-label="Close" onclick={onclose}>✕</button>
@@ -278,7 +294,7 @@
       <div class="osd-foot">
         <span><b>A</b> Select</span>
         <span><b>B</b> Close</span>
-        <span class="osd-foot-hint">SELECT + ↓ · two-corner tap</span>
+        <span class="osd-foot-hint">{hint}</span>
       </div>
     </div>
   {/if}
