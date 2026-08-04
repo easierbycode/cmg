@@ -244,14 +244,30 @@ is a file picker: choose a NAOMI/Atomiswave ROM set (`.zip` `.7z` `.lst` `.dat`)
 or a Dreamcast image (`.chd` `.gdi` `.cdi` `.cue` `.iso`) and it boots from the
 picked `File` without ever uploading it.
 
+Two things follow from flycast taking arcade ROM sets as archives:
+
+- **A `.zip`/`.7z` is a ROM set, and reaches the core intact.** EmulatorJS
+  normally unpacks archives before boot — which turns a board's chip dumps into
+  loose files nothing can load — so the player takes this core off that path,
+  exactly as the frontend does for its own arcade cores. A Dreamcast disc
+  therefore can't be handed over zipped; use `.chd`, or the descriptor with its
+  tracks.
+- **A `.gdi` or `.cue` needs its track files.** Those formats are text indexes,
+  so select the `.bin`/`.raw` tracks in the same dialog (or keep them beside the
+  descriptor in `static/Naomi/`); they are written into the emulated filesystem
+  next to it. A `.lst`'s chip files work the same way. If any are missing, the
+  player says which.
+
 **Local images** dropped in `static/Naomi/` are indexed by
 `deno task naomi:manifest` (also part of `deno task build`) into
-`static/Naomi/manifest.json`, which is what the dashboard lists. Since every
-packaging task starts with `deno task build` and embeds `static/` wholesale,
-those images ride along into `deno task desktop:*` and `deno task build:mac` /
-`build:linux` / `build:windows` binaries. The files themselves are gitignored —
-same policy as the PSX/Saturn/NES libraries, so the public deploy stays ROM-free
-and falls back to BYOD.
+`static/Naomi/manifest.json`, which is what the dashboard lists — BIOS dumps and
+the track files a descriptor names are folded into their game rather than listed
+as bootable rows of their own. Since every packaging task starts with
+`deno task build` and embeds `static/` wholesale, those images ride along into
+`deno task desktop:*` and `deno task build:mac` / `build:linux` /
+`build:windows` binaries. The files themselves are gitignored — same policy as
+the PSX/Saturn/NES libraries, so the public deploy stays ROM-free and falls back
+to BYOD.
 
 **BIOS is yours to supply.** NAOMI needs `naomi.zip` (`awbios.zip` for
 Atomiswave) and Dreamcast discs need `dc_boot.bin` / `dc_flash.bin`. Put them in

@@ -3466,15 +3466,19 @@
 
   // NAOMI BYOD — Bring Your Own Disc (or board).
   //
-  // flycast takes a NAOMI/Atomiswave ROM set (.zip/.7z/.lst/.dat) or a
-  // Dreamcast disc image (.chd/.gdi/.cdi/.cue/.iso) as ONE file, so there is
-  // nothing to bundle like the PSX/Saturn cue+bin path. What is different here
-  // is the BIOS: NAOMI can't boot without naomi.zip (awbios.zip for
-  // Atomiswave), and Dreamcast discs want dc_boot.bin/dc_flash.bin. Those can
-  // be selected in the same dialog as the game — anything picked under a known
-  // BIOS name rides along to play.html, which drops it into the emulated
-  // system directory. Files already in static/bios/ or static/Naomi/ are found
-  // by the player itself and need not be picked.
+  // Unlike the PSX/Saturn paths, nothing is bundled into a zip here: a zip IS
+  // a bootable format for this core (a NAOMI/Atomiswave ROM set), so wrapping
+  // a disc in one would be ambiguous. Everything the player needs beyond the
+  // image travels as its own File and is written into the emulated filesystem
+  // next to the game (see resolveBios/resolveCompanions in play.html):
+  //
+  //   · BIOS — NAOMI can't boot without naomi.zip (awbios.zip for Atomiswave),
+  //     and Dreamcast discs want dc_boot.bin/dc_flash.bin. Already in
+  //     static/bios/ or static/Naomi/? The player finds them; otherwise pick
+  //     them here.
+  //   · Tracks — a .gdi or .cue is a text index whose data lives in companion
+  //     .bin/.raw files, so those have to be selected with it. Single-file
+  //     images (.chd, .iso, a ROM-set .zip) need nothing extra.
   const NAOMI_BIOS_NAMES = ['naomi.zip', 'awbios.zip', 'dc_boot.bin', 'dc_flash.bin'];
   const NAOMI_ROM_RE = /\.(zip|7z|dat|lst|bin|chd|gdi|cdi|cue|iso|elf)$/i;
 
@@ -3504,10 +3508,14 @@
     }
 
     // Stash on window for the postMessage handoff (see onWindowMessage): the
-    // File has to reach play.html's realm for EmulatorJS to accept it.
+    // Files have to reach play.html's realm for EmulatorJS to accept them.
+    // Everything that isn't the image or a BIOS dump goes over as a track —
+    // the player only writes the ones its descriptor actually names, so a
+    // stray selection costs nothing.
     try {
       window.__naomiByodFile = main;
       window.__naomiByodBios = bios;
+      window.__naomiByodTracks = list.filter((f) => f !== main && !isBios(f));
       sessionStorage.setItem('naomi-byod', JSON.stringify({ name: main.name.replace(/\.[^.]+$/, '') }));
     } catch (e) {
       naomiByodError = 'BYOD handoff failed: ' + (e && e.message ? e.message : e);
@@ -4774,9 +4782,11 @@
         const raw = sessionStorage.getItem('naomi-byod');
         if (raw) name = JSON.parse(raw).name || name;
       } catch (_) {}
-      // BIOS dumps picked with the game ride along in the same clone.
+      // BIOS dumps and disc tracks picked with the game ride along in the
+      // same structured clone.
       const bios = window.__naomiByodBios || [];
-      try { e.source.postMessage({ type: 'naomi-byod-file', file, name, bios }, window.location.origin); } catch (_) {}
+      const tracks = window.__naomiByodTracks || [];
+      try { e.source.postMessage({ type: 'naomi-byod-file', file, name, bios, tracks }, window.location.origin); } catch (_) {}
     }
     else if (d.type === 'nes-byoc-ready') {
       const file = window.__nesByocFile;
@@ -5585,7 +5595,7 @@
                 type="file"
                 bind:this={naomiFileInput}
                 multiple
-                accept=".zip,.7z,.lst,.dat,.chd,.gdi,.cdi,.cue,.iso,.bin,.elf,application/octet-stream"
+                accept=".zip,.7z,.lst,.dat,.chd,.gdi,.cdi,.cue,.iso,.bin,.raw,.elf,application/octet-stream"
                 onchange={onNaomiByodChange}
                 class="byod-input"
               />
@@ -5600,7 +5610,8 @@
               </button>
               <div class="byod-hint">
                 NAOMI + Atomiswave ROM sets: .zip · .7z · .lst · .dat<br>
-                Dreamcast discs: .chd · .gdi · .cdi · .cue · .iso<br>
+                Dreamcast discs: .chd · .cdi · .iso load on their own;
+                .gdi / .cue need their track files selected together.<br>
                 Select the BIOS (<code>naomi.zip</code>, <code>awbios.zip</code>,
                 <code>dc_boot.bin</code>) with it, or drop it in
                 <code>static/bios/</code> — user-supplied either way.

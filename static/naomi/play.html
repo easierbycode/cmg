@@ -52,8 +52,11 @@
         opacity: 1 !important;
         pointer-events: auto !important;
       }
-      /* Hide cursor when a gamepad is connected */
-      body.pad-on, body.pad-on * {
+      /* Hide cursor when a gamepad is connected — except while the EmulatorJS
+         Control Settings screen is up (body.settings-open): that screen is
+         mouse-only, so the pointer must stay visible or it can't be driven. */
+      body.pad-on:not(.settings-open),
+      body.pad-on:not(.settings-open) * {
         cursor: none !important;
       }
     </style>
@@ -159,6 +162,56 @@
           });
         }
         refreshPadClass();
+
+        // ── First controller auto-select (ported from saturn/play.html) ─────
+        // EmulatorJS assigns a pad to the first free player when its
+        // GamepadHandler fires "connected" — but that handler polls
+        // synchronously in its own constructor, so a pad that is already
+        // connected when the emulator boots (the normal couch case) fires
+        // before EmulatorJS subscribes and is never assigned: the player had
+        // to open Control Settings and pick it by hand. Claim Player 1's slot
+        // ourselves whenever it is empty or stale.
+        setInterval(function () {
+          try {
+            var e = window.EJS_emulator;
+            if (!e || !e.gamepad || !e.gamepadSelection || !e.gamepadSelection.length) return;
+            var ids = [];
+            for (var i = 0; i < e.gamepad.gamepads.length; i++) {
+              var p = e.gamepad.gamepads[i];
+              if (p) ids.push(p.id + "_" + p.index);
+            }
+            // Drop selections whose pad is gone, then hand the first
+            // unclaimed pad to Player 1.
+            for (var j = 0; j < e.gamepadSelection.length; j++) {
+              if (e.gamepadSelection[j] && ids.indexOf(e.gamepadSelection[j]) < 0) {
+                e.gamepadSelection[j] = "";
+              }
+            }
+            if (!e.gamepadSelection[0]) {
+              for (var k = 0; k < ids.length; k++) {
+                if (e.gamepadSelection.indexOf(ids[k]) < 0) {
+                  e.gamepadSelection[0] = ids[k];
+                  if (e.gamepadLabels) e.updateGamepadLabels();
+                  break;
+                }
+              }
+            }
+          } catch (_) {}
+        }, 500);
+
+        // Control Settings (and its bind-a-button popups) are mouse-only —
+        // body.settings-open lifts the pad-on cursor hiding while any of
+        // them is up (see the <style> block).
+        setInterval(function () {
+          var open = false;
+          try {
+            var e = window.EJS_emulator;
+            open = !!(e &&
+              ((e.controlMenu && e.controlMenu.style.display !== "none") ||
+                e.currentPopup));
+          } catch (_) {}
+          document.body.classList.toggle("settings-open", open);
+        }, 250);
 
         // Only accept control / file messages from our own parent (same-origin).
         function isFromOwnParent(e) {
@@ -280,20 +333,121 @@
           return chain.then(function () { return out; });
         }
 
+        // ── Multi-file images ──────────────────────────────────────────────
+        // A .gdi, .cue or .lst is a plain-text index: the data lives in the
+        // track/chip files it names, side by side with it. EmulatorJS only ever
+        // loads the ONE file it is given, so those companions are collected
+        // here and written into the emulated filesystem next to the descriptor
+        // (the same EJS_externalFiles path the BIOS rides on) — flycast then
+        // resolves the names out of the descriptor as it would on disk.
+        var DESCRIPTOR_RE = /\.(gdi|cue|lst)$/i;
+
+        function refsInDescriptor(name, text) {
+          var out = [];
+          var seen = {};
+          var push = function (ref) {
+            var base = String(ref).split(/[\\/]/).pop();
+            if (!base || seen[base.toLowerCase()]) return;
+            seen[base.toLowerCase()] = true;
+            out.push(base);
+          };
+          var m;
+          if (/\.cue$/i.test(name)) {
+            // FILE "track01.bin" BINARY
+            var cueRe = /^\s*FILE\s+(?:"([^"]+)"|(\S+))/gim;
+            while ((m = cueRe.exec(text)) !== null) push(m[1] || m[2]);
+          } else if (/\.gdi$/i.test(name)) {
+            // <track> <lba> <type> <sector size> <file> <offset>
+            text.split(/\r?\n/).forEach(function (line) {
+              var g = line.match(/^\s*\d+\s+\d+\s+\d+\s+\d+\s+(?:"([^"]+)"|(\S+))/);
+              if (g) push(g[1] || g[2]);
+            });
+          } else {
+            // flycast's NAOMI .lst: quoted chip file names, one per ROM entry.
+            var lstRe = /"([^"]+)"/g;
+            while ((m = lstRe.exec(text)) !== null) push(m[1]);
+          }
+          return out;
+        }
+
+        // Read the descriptor (a picked File, or the hosted URL) as text.
+        function descriptorText(main) {
+          if (typeof main !== "string") return main.text();
+          return fetch("/Naomi/" + encodeURIComponent(main))
+            .then(function (r) { return r.ok ? r.text() : ""; })
+            .catch(function () { return ""; });
+        }
+
+        // -> { files: { "/track01.bin": url, … }, missing: ["track02.raw"] }
+        function resolveCompanions(main, picked) {
+          var name = typeof main === "string" ? main : main.name;
+          if (!DESCRIPTOR_RE.test(name)) {
+            return Promise.resolve({ files: {}, missing: [] });
+          }
+          var byName = {};
+          (picked || []).forEach(function (f) {
+            if (f && f.name) byName[f.name.toLowerCase()] = f;
+          });
+          return descriptorText(main).then(function (text) {
+            var refs = refsInDescriptor(name, text || "");
+            var files = {};
+            var missing = [];
+            var chain = Promise.resolve();
+            refs.forEach(function (ref) {
+              chain = chain.then(function () {
+                var local = byName[ref.toLowerCase()];
+                if (local) {
+                  files["/" + ref] = URL.createObjectURL(local);
+                  return;
+                }
+                // Hosted images keep their tracks in the same directory.
+                var url = "/Naomi/" + encodeURIComponent(ref);
+                return probe(url).then(function (ok) {
+                  if (ok) files["/" + ref] = url;
+                  else missing.push(ref);
+                });
+              });
+            });
+            return chain.then(function () {
+              return { files: files, missing: missing };
+            });
+          });
+        }
+
         function boot(gameUrl, title, picked) {
           document.title = title;
-          Promise.all([probe(CORE_DATA), resolveBios(picked)])
-            .then(function (res) {
-              if (!res[0]) {
-                fail(
-                  "The Flycast core is not installed.\n\n" +
-                  "Run `deno task naomi:core` to fetch it " +
-                  "(scripts/vendor-flycast-core.ts), then reload.",
-                );
-                return;
+          Promise.all([
+            probe(CORE_DATA),
+            resolveBios(picked),
+            resolveCompanions(byod ? gameUrl : rom, picked),
+          ]).then(function (res) {
+            if (!res[0]) {
+              fail(
+                "The Flycast core is not installed.\n\n" +
+                "Run `deno task naomi:core` to fetch it " +
+                "(scripts/vendor-flycast-core.ts), then reload.",
+              );
+              return;
+            }
+            var companions = res[2];
+            if (companions.missing.length) {
+              fail(
+                "This image is missing track files:\n\n" +
+                companions.missing.join("  ·  ") + "\n\n" +
+                (byod
+                  ? "Select them in the same dialog as the .gdi / .cue."
+                  : "Put them next to the image in static/Naomi/."),
+              );
+              return;
+            }
+            var externalFiles = res[1];
+            for (var k in companions.files) {
+              if (Object.prototype.hasOwnProperty.call(companions.files, k)) {
+                externalFiles[k] = companions.files[k];
               }
-              start(gameUrl, title, res[1]);
-            });
+            }
+            start(gameUrl, title, externalFiles);
+          });
         }
 
         function start(gameUrl, title, externalFiles) {
@@ -345,6 +499,28 @@
           window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
           window.EJS_startOnLoaded = true;
           window.EJS_color = "#7CFF4F";
+          // ── Hand the archive to the core, don't unpack it ────────────────
+          // A NAOMI/Atomiswave ROM set is a MAME-style zip of chip dumps that
+          // flycast opens itself; EmulatorJS unpacks archives before boot
+          // unless the core is on its `dontExtractIfCore` list, which covers
+          // its own arcade cores and (of course) not this one. Left alone, a
+          // board zip arrives as a pile of loose .bin chips and nothing boots.
+          // EJS_dontExtractRom is the config knob for this, but the shipped
+          // frontend parses it without using it, so the list itself is patched
+          // as soon as the emulator instance exists — long before the ROM is
+          // fetched (the core download and wasm init come first). Disc images
+          // are unaffected: .chd/.gdi/.cue/.cdi aren't archives.
+          window.EJS_dontExtractRom = true;
+          var keepArchiveTimer = setInterval(function () {
+            try {
+              var e = window.EJS_emulator;
+              if (!e || !e.downloadType || !e.downloadType.rom) return;
+              var list = e.downloadType.rom.dontExtractIfCore || [];
+              if (list.indexOf("flycast") < 0) list.push("flycast");
+              e.downloadType.rom.dontExtractIfCore = list;
+              clearInterval(keepArchiveTimer);
+            } catch (_) {}
+          }, 10);
           window.EJS_ready = function () {
             if (hookExitButton()) return;
             var mo = new MutationObserver(function () {
@@ -361,11 +537,11 @@
         }
 
         if (byod) {
-          // BYOD: the parent (Dashboard) sends the picked image — and any BIOS
-          // files picked with it — via postMessage, so EmulatorJS sees a File
-          // from *this* realm (a parent-realm File fails its `instanceof File`
-          // check). We boot only after the file arrives, and only accept the
-          // message from our own parent.
+          // BYOD: the parent (Dashboard) sends the picked image — plus every
+          // other file picked with it, BIOS dumps and disc tracks alike — via
+          // postMessage, so EmulatorJS sees Files from *this* realm (a
+          // parent-realm File fails its `instanceof File` check). We boot only
+          // after they arrive, and only accept the message from our own parent.
           var booted = false;
           window.addEventListener("message", function (ev) {
             if (booted) return;
@@ -374,7 +550,8 @@
             if (!ev.data.file) return;
             booted = true;
             var t = ev.data.name || ev.data.file.name.replace(/\.[^.]+$/, "");
-            boot(ev.data.file, t, ev.data.bios || []);
+            var extras = [].concat(ev.data.bios || [], ev.data.tracks || []);
+            boot(ev.data.file, t, extras);
           });
           postParent("naomi-byod-ready");
           setTimeout(function () {
