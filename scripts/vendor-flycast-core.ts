@@ -83,6 +83,21 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+// The report records which tag produced the bundle beside it, so pointing
+// CMG_FLYCAST_TAG at a different release refetches instead of silently
+// packaging (and shipping) the core that is already on disk.
+const BUILD_ID = `flycast-${TAG}`;
+
+async function cachedIsCurrent(): Promise<boolean> {
+  if (!(await exists(DATA_PATH)) || !(await exists(REPORT_PATH))) return false;
+  try {
+    const report = JSON.parse(await Deno.readTextFile(REPORT_PATH));
+    return report.buildStart === BUILD_ID;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const r = await fetch(url, { redirect: "follow" });
   if (!r.ok) throw new Error(`HTTP ${r.status} fetching ${url}`);
@@ -197,10 +212,10 @@ async function makeZip(entries: ZipEntry[]): Promise<Uint8Array> {
 
 // ─── Main ──────────────────────────────────────────────────────────────────
 
-if (!FORCE && await exists(DATA_PATH) && await exists(REPORT_PATH)) {
+if (!FORCE && await cachedIsCurrent()) {
   console.log(
-    `[flycast-core] ${DATA_PATH.replace(ROOT_PATH, "")} (cached) - set ` +
-      "CMG_FLYCAST_FORCE_VENDOR=1 to refetch",
+    `[flycast-core] ${DATA_PATH.replace(ROOT_PATH, "")} (cached, ${TAG}) - ` +
+      "set CMG_FLYCAST_FORCE_VENDOR=1 to refetch",
   );
 } else {
   try {
@@ -226,11 +241,11 @@ if (!FORCE && await exists(DATA_PATH) && await exists(REPORT_PATH)) {
     // defaultWebGL2 must be true: flycast renders through WebGL2 (the build is
     // MIN_WEBGL_VERSION=2), and a false here makes the frontend ask for a
     // "-legacy" bundle that does not exist. buildStart doubles as the core
-    // cache key, so it tracks the pinned tag.
+    // cache key — both EmulatorJS's and, via cachedIsCurrent() above, ours.
     await Deno.writeTextFile(
       REPORT_PATH,
       JSON.stringify(
-        { buildStart: `flycast-${TAG}`, options: { defaultWebGL2: true } },
+        { buildStart: BUILD_ID, options: { defaultWebGL2: true } },
         null,
         2,
       ) + "\n",
