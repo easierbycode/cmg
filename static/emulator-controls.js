@@ -1,4 +1,5 @@
-// Gamepad defaults for the EmulatorJS-based players (Saturn, PSX, NES, TG16).
+// Gamepad defaults for the EmulatorJS-based players (Saturn, PSX, NES, TG16,
+// NAOMI/Dreamcast).
 //
 // EmulatorJS ships one control table for every core, written for Xbox-labelled
 // standard pads, and it stores whatever the player last used in localStorage.
@@ -89,13 +90,18 @@
     psx: {},
     nes: {},
     mednafen_pce: {},
+    // NAOMI / Dreamcast. flycast's RetroPad mapping already lands the
+    // Dreamcast's A/B/X/Y and the NAOMI cabinet's buttons 1-4 on the face
+    // buttons, so there is no core default — this is here for per-game
+    // overrides (a fighter that wants its own button row, say).
+    flycast: {},
   };
 
   function gameKey(name) {
     if (!name) return "";
     return String(name)
       .split(/[\\/]/).pop()
-      .replace(/\.(chd|iso|bin|cue|m3u|zip|7z|nes|pce|sgx|cue|img)$/i, "")
+      .replace(/\.(chd|iso|bin|cue|m3u|zip|7z|nes|pce|sgx|cue|img|gdi|cdi|lst|dat|elf)$/i, "")
       .trim()
       .toLowerCase();
   }

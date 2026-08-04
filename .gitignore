@@ -47,6 +47,11 @@ static/Nintendo/*
 static/TurboGrafx-16/*
 !static/TurboGrafx-16/manifest.json
 static/arcade/*.zip
+# NAOMI / Dreamcast images (and any BIOS zips dropped in beside them). Same
+# policy: local-only, embedded into `deno task desktop:*` / `build:mac` builds
+# by the manifest in this directory, never committed.
+static/Naomi/*
+!static/Naomi/manifest.json
 
 # PSX BIOS (copyrighted). Keep out of public git by default — commit
 # explicitly if your deployment target needs them.
@@ -57,6 +62,11 @@ static/bios/
 # without committing bulky/runtime-local artifacts.
 static/arcade/emularity/engine/
 static/arcade/cfg/
+
+# Downloaded by deno task naomi:core (part of deno task build) — the Flycast
+# WASM core, ~10 MB of binaries packed into an EmulatorJS core bundle. Same
+# policy as the arcade core above.
+static/naomi/core/
 
 # Downloaded by deno task 2028-ai:bgm (first step of deno task build) — bulky
 # runtime-local audio, same policy as the arcade core above.
