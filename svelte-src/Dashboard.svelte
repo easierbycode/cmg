@@ -18,6 +18,7 @@
   const PSX_ID  = '__psx__';
   const PS2_ID  = '__ps2__';
   const SATURN_ID = '__saturn__';
+  const NAOMI_ID = '__naomi__';
   const NES_ID = '__nes__';
   const DEMOS_ID = '__demos__';
   const CMGNET_ID = '__cmgnet__';
@@ -51,6 +52,7 @@
     { id: ADDGAME_ID,                                              name: 'Add Game',            title: 'ADD GAME',            sub: 'ZIP · URL · GITHUB', icon: null,                                size: '— MB',    date: 'ADD',     submenu: true },
     { id: CMGNET_ID,                                               name: 'CMG Network',         title: 'CMG NETWORK',         sub: 'NET // e-shop',   icon: null,                                   size: '— MB',    date: 'NET',     submenu: true },
     { id: ARCADE_ID,                                               name: 'Arcade',              title: 'ARCADE',              sub: 'MAME // submenu', icon: null,                                   size: '— MB',    date: 'MAME',    submenu: true },
+    { id: NAOMI_ID,                                                name: 'NAOMI',               title: 'NAOMI',               sub: 'DREAMCAST // submenu', icon: '/icons/naomi-reindeer.png',       size: '— MB',    date: 'DC',      submenu: true },
     { id: NES_ID,                                                  name: 'Nintendo',            title: 'NINTENDO',            sub: 'NES // submenu',  icon: null,                                   size: '— MB',    date: 'NES',     submenu: true },
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
     { id: PS2_ID,                                                  name: 'PlayStation 2',       title: 'PLAYSTATION 2',       sub: 'PS2 // submenu',  icon: null,                                   size: '— MB',    date: 'PS2',     submenu: true },
@@ -85,7 +87,7 @@
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
 
-  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'ps2' | 'saturn' | 'demos' | 'cmgnet' | 'addgame' | 'settings' | 'oeimport' | 'ctrlsync'
+  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'ps2' | 'saturn' | 'naomi' | 'demos' | 'cmgnet' | 'addgame' | 'settings' | 'oeimport' | 'ctrlsync'
   let menuSel = $state(1);           // start on Games
   let gameSel = $state(0);
   let clockStr = $state('--:--:--');
@@ -165,6 +167,14 @@
   let saturnByodError = $state('');
   let saturnFileInput = $state(null);
   let saturnByodBtnEl = $state(null);
+  // NAOMI / Dreamcast (flycast-wasm). BYOD takes a NAOMI ROM set or a
+  // Dreamcast disc image, plus any BIOS dumps picked with it.
+  let naomiGames = $state([]);
+  let naomiSel = $state(0);
+  let naomiRowEls = $state([]);
+  let naomiByodError = $state('');
+  let naomiFileInput = $state(null);
+  let naomiByodBtnEl = $state(null);
   // NES — preloaded ROMs (manifest) plus an always-present BYOC ("Bring Your
   // Own Cartridge") row pinned after them at index nesGames.length.
   let nesGames = $state([]);
@@ -1254,6 +1264,12 @@
   });
 
   $effect(() => {
+    if (screen !== 'naomi') return;
+    const el = naomiRowEls[naomiSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  $effect(() => {
     if (screen !== 'nes') return;
     const el = nesRowEls[nesSel];
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -1323,6 +1339,11 @@
     queueMicrotask(() => { try { saturnByodBtnEl?.focus(); } catch (_) {} });
   });
 
+  $effect(() => {
+    if (screen !== 'naomi' || naomiGames.length !== 0) return;
+    queueMicrotask(() => { try { naomiByodBtnEl?.focus(); } catch (_) {} });
+  });
+
   let currentGame = $derived(GAMES[gameSel]);
   let currentTg16 = $derived(tg16Games[tg16Sel]);
   let currentArcade = $derived(arcadeGames[arcadeSel]);
@@ -1330,6 +1351,7 @@
   let currentPsx = $derived(psxGames[psxSel]);
   let currentPs2 = $derived(ps2Games[ps2Sel]);
   let currentSaturn = $derived(saturnGames[saturnSel]);
+  let currentNaomi = $derived(naomiGames[naomiSel]);
   // undefined when nesSel is on the pinned BYOC row (index === nesGames.length).
   let currentNes = $derived(nesGames[nesSel]);
   let onNesByocRow = $derived(nesSel >= nesGames.length);
@@ -1363,6 +1385,11 @@
     saturnGames.length === 0
       ? '00 / 00'
       : String(saturnSel + 1).padStart(2, '0') + ' / ' + String(saturnGames.length).padStart(2, '0')
+  );
+  let naomiCounterText = $derived(
+    naomiGames.length === 0
+      ? '00 / 00'
+      : String(naomiSel + 1).padStart(2, '0') + ' / ' + String(naomiGames.length).padStart(2, '0')
   );
   let nesCounterText = $derived(
     onNesByocRow
@@ -1454,7 +1481,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
+    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
     else if (screen === 'oeimport' || screen === 'ctrlsync') screen = 'settings';
     else screen = 'dashboard';
   }
@@ -1762,6 +1789,11 @@
       screen = 'saturn';
       return;
     }
+    if (id === NAOMI_ID) {
+      sfx.enter();
+      screen = 'naomi';
+      return;
+    }
     if (id === NES_ID) {
       sfx.enter();
       screen = 'nes';
@@ -1948,6 +1980,17 @@
     sfx.enter();
     chromeDismissed = false;
     gameSrc = '/saturn/play.html?rom=' + encodeURIComponent(file);
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  // NAOMI / Dreamcast — flycast-wasm through EmulatorJS, in the ordinary game
+  // iframe (the core is single-threaded and needs no SharedArrayBuffer, so
+  // unlike the PS2 player it doesn't have to take over the whole tab).
+  function launchNaomi(file) {
+    if (!file) return;
+    sfx.enter();
+    chromeDismissed = false;
+    gameSrc = '/naomi/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
   }
 
@@ -3016,6 +3059,18 @@
     }
   }
 
+  async function loadNaomiList() {
+    try {
+      const r = await fetch('/Naomi/manifest.json');
+      if (!r.ok) return;
+      const list = await r.json();
+      naomiGames = Array.isArray(list) ? list : [];
+      if (naomiSel >= naomiGames.length) naomiSel = 0;
+    } catch (_e) {
+      naomiGames = [];
+    }
+  }
+
   async function loadSaturnList() {
     try {
       const r = await fetch('/SegaSaturn/manifest.json');
@@ -3409,6 +3464,74 @@
     pickerGestureHint();
   }
 
+  // NAOMI BYOD — Bring Your Own Disc (or board).
+  //
+  // flycast takes a NAOMI/Atomiswave ROM set (.zip/.7z/.lst/.dat) or a
+  // Dreamcast disc image (.chd/.gdi/.cdi/.cue/.iso) as ONE file, so there is
+  // nothing to bundle like the PSX/Saturn cue+bin path. What is different here
+  // is the BIOS: NAOMI can't boot without naomi.zip (awbios.zip for
+  // Atomiswave), and Dreamcast discs want dc_boot.bin/dc_flash.bin. Those can
+  // be selected in the same dialog as the game — anything picked under a known
+  // BIOS name rides along to play.html, which drops it into the emulated
+  // system directory. Files already in static/bios/ or static/Naomi/ are found
+  // by the player itself and need not be picked.
+  const NAOMI_BIOS_NAMES = ['naomi.zip', 'awbios.zip', 'dc_boot.bin', 'dc_flash.bin'];
+  const NAOMI_ROM_RE = /\.(zip|7z|dat|lst|bin|chd|gdi|cdi|cue|iso|elf)$/i;
+
+  async function handleNaomiByodFiles(files) {
+    naomiByodError = '';
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+
+    const isBios = (f) => NAOMI_BIOS_NAMES.includes(basename(f.name).toLowerCase());
+    const bios = list.filter(isBios);
+    // Prefer a disc image, then an arcade ROM set — a pick of "game.zip +
+    // naomi.zip" must not boot the BIOS.
+    const order = [/\.(chd|gdi|cdi|cue|iso)$/i, /\.(zip|7z|lst|dat)$/i, /\.(bin|elf)$/i];
+    let main = null;
+    for (const re of order) {
+      main = list.find((f) => !isBios(f) && re.test(f.name));
+      if (main) break;
+    }
+    if (!main) {
+      main = list.find((f) => !isBios(f) && NAOMI_ROM_RE.test(f.name));
+    }
+    if (!main) {
+      naomiByodError = bios.length
+        ? 'That is a BIOS dump — pick the game as well (.zip / .chd / .gdi / .cdi / .cue).'
+        : 'Pick a NAOMI ROM set (.zip / .7z / .lst / .dat) or a Dreamcast image (.chd / .gdi / .cdi / .cue / .iso).';
+      return;
+    }
+
+    // Stash on window for the postMessage handoff (see onWindowMessage): the
+    // File has to reach play.html's realm for EmulatorJS to accept it.
+    try {
+      window.__naomiByodFile = main;
+      window.__naomiByodBios = bios;
+      sessionStorage.setItem('naomi-byod', JSON.stringify({ name: main.name.replace(/\.[^.]+$/, '') }));
+    } catch (e) {
+      naomiByodError = 'BYOD handoff failed: ' + (e && e.message ? e.message : e);
+      return;
+    }
+
+    sfx.enter();
+    chromeDismissed = false;
+    gameSrc = '/naomi/play.html?byod=1';
+    setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function onNaomiByodChange(e) {
+    const input = e.currentTarget;
+    handleNaomiByodFiles(input.files);
+    setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
+  }
+
+  function openNaomiByodPicker() {
+    try { naomiByodBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
+    try { naomiFileInput?.click(); } catch (_) {}
+    pickerGestureHint();
+  }
+
   // BYOC — Bring Your Own Cartridge (NES).
   //
   // NES cartridges are single-file ROMs (.nes / .fds / .unif / a lone .zip), so
@@ -3758,6 +3881,10 @@
       sel: () => saturnSel, setSel: (v) => (saturnSel = v), len: () => saturnGames.length,
       activate: (i) => { if (saturnGames.length === 0) openSaturnByodPicker(); else launchSaturn(saturnGames[i]?.file); },
     },
+    naomi: {
+      sel: () => naomiSel, setSel: (v) => (naomiSel = v), len: () => naomiGames.length,
+      activate: (i) => { if (naomiGames.length === 0) openNaomiByodPicker(); else launchNaomi(naomiGames[i]?.file); },
+    },
     nes: {
       sel: () => nesSel, setSel: (v) => (nesSel = v),
       len: () => nesGames.length + 1, // + pinned BYOC row
@@ -3820,7 +3947,7 @@
     // owns the in-game toggle) isn't reachable without a game. Closes the
     // topmost overlay first.
     else if (musicOpen) closeMusic();
-    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
+    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
   }
   // CMG Network only: pull the latest build from GitHub for the selected game,
   // when one is installed and an update was detected.
@@ -4639,6 +4766,18 @@
       } catch (_) {}
       try { e.source.postMessage({ type: 'saturn-byod-file', file, name }, window.location.origin); } catch (_) {}
     }
+    else if (d.type === 'naomi-byod-ready') {
+      const file = window.__naomiByodFile;
+      if (!file) return;
+      let name = file.name.replace(/\.[^.]+$/, '');
+      try {
+        const raw = sessionStorage.getItem('naomi-byod');
+        if (raw) name = JSON.parse(raw).name || name;
+      } catch (_) {}
+      // BIOS dumps picked with the game ride along in the same clone.
+      const bios = window.__naomiByodBios || [];
+      try { e.source.postMessage({ type: 'naomi-byod-file', file, name, bios }, window.location.origin); } catch (_) {}
+    }
     else if (d.type === 'nes-byoc-ready') {
       const file = window.__nesByocFile;
       if (!file) return;
@@ -4703,6 +4842,7 @@
     loadPsxList();
     loadPs2List();
     loadSaturnList();
+    loadNaomiList();
     loadNesList();
     registerCmgSw();
     loadCmgnetList();
@@ -4993,12 +5133,13 @@
               onmouseenter={() => { if (i !== gameSel) { gameSel = i; sfx.nav(); } }}
               onclick={() => launchGame(g.id)}
             >
-              {#if g.submenu}
+              {#if g.submenu && !g.icon}
                 <!-- Category rows get a folder-of-discs instead of the single
                      glass disc, so "a collection of games" reads at a glance and
                      the leading submenu block is visually distinct from the game
                      rows under it. Purely decorative — the row's title carries
-                     the name — hence aria-hidden. -->
+                     the name — hence aria-hidden. A submenu that carries its own
+                     icon (NAOMI's Utopia reindeer) shows that instead. -->
                 <div class="submenu-icon" aria-hidden="true">
                   <span class="submenu-art">
                     <span class="folder"></span>
@@ -5394,6 +5535,87 @@
                 class="game-row {i === saturnSel ? 'sel' : ''}"
                 onmouseenter={() => { if (i !== saturnSel) { saturnSel = i; sfx.nav(); } }}
                 onclick={() => launchSaturn(g.file)}
+              >
+                <div class="game-icon">
+                  <div class="glass">
+                    <span class="ph">{initial(g.name)}</span>
+                  </div>
+                </div>
+                <div class="game-bar">
+                  <span class="name">{g.name.toUpperCase()}</span>
+                  <span class="sub">{g.size}</span>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="games-screen {screen === 'naomi' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // flycast</span>
+        <span>emulatorjs</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{currentNaomi ? currentNaomi.name : '—'}</b></div>
+          <div><span class="k">size</span><b>{currentNaomi ? currentNaomi.size : '—'}</b></div>
+          <div><span class="k">type</span><b>{currentNaomi && currentNaomi.kind === 'dc' ? 'DREAMCAST / DISC' : 'NAOMI / BOARD'}</b></div>
+          <div><span class="k">date</span><b>{currentNaomi ? currentNaomi.date : '—'}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">NAOMI</div>
+          <div class="counter">{naomiCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#if naomiGames.length === 0}
+            <div class="byod">
+              <div class="byod-title">BYOD — Bring Your Own Disc</div>
+              <div class="byod-sub">No NAOMI images in <code>static/Naomi/</code>. Pick a board or disc from disk:</div>
+              <input
+                type="file"
+                bind:this={naomiFileInput}
+                multiple
+                accept=".zip,.7z,.lst,.dat,.chd,.gdi,.cdi,.cue,.iso,.bin,.elf,application/octet-stream"
+                onchange={onNaomiByodChange}
+                class="byod-input"
+              />
+              <button
+                type="button"
+                class="byod-btn"
+                bind:this={naomiByodBtnEl}
+                onclick={() => { try { naomiFileInput?.click(); } catch (_) {} }}
+              >
+                <span class="byod-btn-icon">⬆</span>
+                <span>Choose board / disc…</span>
+              </button>
+              <div class="byod-hint">
+                NAOMI + Atomiswave ROM sets: .zip · .7z · .lst · .dat<br>
+                Dreamcast discs: .chd · .gdi · .cdi · .cue · .iso<br>
+                Select the BIOS (<code>naomi.zip</code>, <code>awbios.zip</code>,
+                <code>dc_boot.bin</code>) with it, or drop it in
+                <code>static/bios/</code> — user-supplied either way.
+              </div>
+              {#if naomiByodError}
+                <div class="byod-err">{naomiByodError}</div>
+              {/if}
+            </div>
+          {:else}
+            {#each naomiGames as g, i (g.file)}
+              <div
+                bind:this={naomiRowEls[i]}
+                class="game-row {i === naomiSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== naomiSel) { naomiSel = i; sfx.nav(); } }}
+                onclick={() => launchNaomi(g.file)}
               >
                 <div class="game-icon">
                   <div class="glass">
@@ -5919,7 +6141,7 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
+  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)} onkeydown={chipKeyHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -5951,7 +6173,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actFbtnBottom)} onkeydown={chipKeyHandler(actFbtnBottom)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'ps2' ? (ps2Games.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'ps2' ? (ps2Games.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'naomi' ? (naomiGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
   </div>
 </div>
 
