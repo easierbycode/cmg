@@ -123,14 +123,17 @@
         // in-memory) and MAME warns they are "not officially supported" on
         // Capcom ZN boards — they do restore correctly on sfex2, verified
         // save → advance → load.
-        var QS_SAVE_BTN = 8;  // Share / Select / Create / View
-        var QS_LOAD_BTN = 16; // Home / Guide / PS / Stadia (absent on many pads)
+        // Home / Guide / PS / Stadia. Select is deliberately NOT watched: it
+        // used to save on a tap and insert a coin at the same time, which made
+        // every stray Select press write a state. It now does nothing at all —
+        // and no coin is needed, since the boards we ship run on Free Play.
+        // The cost is that SNES-class pads, which have no Home button, have no
+        // quick save/load gesture; nothing else about them changes.
+        var QS_LOAD_BTN = 16;
         var QS_SLOT = { code: "Digit0", key: "0", keyCode: 48 };
         var QS_TAP_MS = 500;
-        // SNES-class pads have no Home/Guide button at all, so quick-load gets
-        // a second gesture that exists everywhere: a Select DOUBLE-tap. To keep
-        // the single tap as save, the save is deferred by this window and the
-        // second tap supersedes it as a load instead.
+        // Tap saves; a second tap inside this window supersedes it as a load,
+        // so the save is deferred by exactly this long.
         var QS_DOUBLE_MS = 350;
         var qsPendingSave = 0;
         var qsLastTapAt = 0;
@@ -164,22 +167,34 @@
           }, 400);
         }
 
-        // ── Start / Select → START1 / INSERT COIN ──────────────────────────
-        // The cfg binds START1 to JOYCODE_1_BUTTON10 (Gamepad-API index 9),
-        // which works for pads the joystick layer sees in full (Stadia). But
-        // SDL registers each pad with the RAW button count from the browser's
-        // gamepadconnected event — the compat plugin can only patch
-        // getGamepads(), not the event's pad object — so on SNES-class pads
-        // whose raw report ends at 8 buttons (Select/Start at raw 6/7, the
-        // joydev family), the normalized Select/Start slots (8/9) sit past
-        // the registered end and are never polled: Start can't start the
-        // game. Drive both as keystrokes instead, the same proven path
-        // quick-save uses: Start mirrors its held state into KEYCODE_1
-        // (START1's stock key, kept in the shipped cfg), and a clean Select
-        // tap fires KEYCODE_5 (COIN1's stock key) — free-play boards ignore
-        // the coin, coin-mode boards get their credit. On pads whose Start
-        // DOES reach MAME, key and joycode press the same input port, so
-        // nothing double-fires.
+        // ── Start → START1 ─────────────────────────────────────────────────
+        // Start is mirrored into KEYCODE_1 (START1's stock key, kept in the
+        // shipped cfg) rather than left to the cfg's JOYCODE binding, because
+        // the joycode path fails in two independent ways:
+        //
+        //   1. Button count. SDL registers each pad with the RAW button count
+        //      from the browser's gamepadconnected event — the compat plugin
+        //      can only patch getGamepads(), not the event's pad object — so
+        //      on SNES-class pads whose raw report ends at 8 buttons
+        //      (Select/Start at raw 6/7, the joydev family), the normalized
+        //      Start slot (9) sits past the registered end and is never
+        //      polled.
+        //
+        //   2. Joystick NUMBER. JOYCODE_n is the pad's Gamepad-API index + 1,
+        //      so a pad at index 1 is Joystick 2 and matches none of the
+        //      JOYCODE_1_* bindings the cfgs use. That is not hypothetical:
+        //      with a SNES pad and a DualShock both connected, the SNES pad
+        //      takes index 0 and the DualShock lands at index 1 — Start (and
+        //      every other button) silently dies on the DualShock, while the
+        //      same pad works fine when it is the only one plugged in.
+        //      preferSinglePad picks one pad for everything reading
+        //      getGamepads(), but SDL enumerated the pads before that and
+        //      keeps its own numbering, so it cannot rescue this.
+        //
+        // Reading the compat plugin's chosen pad here and pressing the KEY
+        // sidesteps both: it is index-agnostic and count-agnostic. On pads
+        // whose Start does reach MAME, key and joycode press the same input
+        // port, so nothing double-fires.
         var START_BTN = 9;
         var startKeyDown = false;
 
@@ -189,26 +204,94 @@
           qsKey("Digit1", "1", 49, down ? "keydown" : "keyup", false);
         }
 
-        function insertCoin() {
-          qsKey("Digit5", "5", 53, "keydown", false);
-          setTimeout(function () { qsKey("Digit5", "5", 53, "keyup", false); }, 60);
+        // ── D-pad → arrow keys ─────────────────────────────────────────────
+        // default.cfg binds the D-pad to JOYCODE_1_BUTTON13-16 (Gamepad-API
+        // 12-15), which is right for a standard-mapping pad but cannot work on
+        // the Nintendo-HID SNES pad: there, raw 12-15 are the Home/Capture/ZR
+        // bits and the real D-pad is an encoded HAT on axes[9]. The compat
+        // plugin folds that hat into standard buttons 12-15 — but only in
+        // getGamepads(), which MAME's SDL layer never reads. So the joycode
+        // path sees no D-pad at all, and the axis-switch fallback in the cfg
+        // points at axes 0/1, which are flat on this pad.
+        //
+        // Mirroring into the arrow keys fixes it for every pad at once:
+        // default.cfg already binds KEYCODE_UP/DOWN/LEFT/RIGHT to
+        // P1_JOYSTICK_* and to the UI_* menu ports, and a key is immune to
+        // both the joystick-numbering and raw-button-count problems described
+        // above.
+        var DPAD = [
+          { btn: 12, code: "ArrowUp", key: "ArrowUp", keyCode: 38 },
+          { btn: 13, code: "ArrowDown", key: "ArrowDown", keyCode: 40 },
+          { btn: 14, code: "ArrowLeft", key: "ArrowLeft", keyCode: 37 },
+          { btn: 15, code: "ArrowRight", key: "ArrowRight", keyCode: 39 },
+        ];
+        var dpadDown = [false, false, false, false];
+
+        function setDpadKey(i, down) {
+          if (down === dpadDown[i]) return;
+          dpadDown[i] = down;
+          var d = DPAD[i];
+          qsKey(d.code, d.key, d.keyCode, down ? "keydown" : "keyup", false);
         }
 
-        // Tap = pressed and released inside QS_TAP_MS with no other button
-        // touched meanwhile. That keeps Share free for the launcher's
-        // SELECT + Down chord (which opens the OSD): holding Share to reach the
-        // OSD is not a tap, so it never fires a save.
-        var qsWatch = {};
-        qsWatch[QS_SAVE_BTN] = { down: 0, dirty: false, shift: true };
-        qsWatch[QS_LOAD_BTN] = { down: 0, dirty: false, shift: false };
+        // Every pad we are willing to read, normalized to the standard layout.
+        //
+        // getGamepads() is installed with preferSinglePad, so it returns just
+        // ONE pad — and padPriority ranks a SNES pad above everything else. With
+        // a SNES pad and a DualShock both connected the DualShock is therefore
+        // invisible here, which is exactly why Start stopped working on it while
+        // continuing to work on the SNES pad. Reading the other connected pads
+        // too lets either controller drive the game.
+        //
+        // Only standard-mapping pads are added from the raw list: their indices
+        // already ARE the standard layout, so they need no normalization. A
+        // non-standard pad (the SNES family) is only safe to read through the
+        // plugin, and the plugin's chosen pad is already included.
+        function inputPads() {
+          var out = [];
+          var seen = {};
+          var norm = (navigator.getGamepads && navigator.getGamepads()) || [];
+          for (var i = 0; i < norm.length; i++) {
+            var p = norm[i];
+            if (!p || !p.connected) continue;
+            seen[p.id] = true;
+            out.push(p);
+          }
+          var raw = [];
+          try {
+            raw = (window.CMGGamepadCompat && window.CMGGamepadCompat.raw()) || [];
+          } catch (_) { raw = []; }
+          for (var j = 0; j < raw.length; j++) {
+            var r = raw[j];
+            if (!r || !r.connected) continue;
+            if (seen[r.id]) continue;
+            if (r.mapping !== "standard") continue;
+            out.push(r);
+          }
+          return out;
+        }
+
+        function anyPressed(pads, idx) {
+          for (var i = 0; i < pads.length; i++) {
+            var b = pads[i].buttons && pads[i].buttons[idx];
+            if (b && b.pressed) return true;
+          }
+          return false;
+        }
+
+        // Quick save/load lives on Home/Guide only: tap saves, double-tap
+        // loads. It used to sit on Select, but Select now does nothing at all
+        // (see above), which also retires the coin it used to insert — every
+        // board we ship runs on Free Play.
+        var qsHome = { down: 0, dirty: false };
 
         function qsPoll() {
-          var pads = (navigator.getGamepads && navigator.getGamepads()) || [];
-          var pad = null;
-          for (var i = 0; i < pads.length; i++) {
-            if (pads[i] && pads[i].connected) { pad = pads[i]; break; }
+          var pads = inputPads();
+          if (!pads.length) {
+            setStartKey(false);
+            for (var d = 0; d < DPAD.length; d++) setDpadKey(d, false);
+            return;
           }
-          if (!pad) { setStartKey(false); return; }
           var osdOpen = false;
           try {
             osdOpen = !!(window.parent && window.parent !== window &&
@@ -219,52 +302,48 @@
             qsLastTapAt = 0;
             if (qsPendingSave) { clearTimeout(qsPendingSave); qsPendingSave = 0; }
           }
-          // Start mirrors into KEYCODE_1 while the OSD is closed; opening the
-          // OSD mid-hold releases the key.
-          setStartKey(!osdOpen && !!(pad.buttons[START_BTN] && pad.buttons[START_BTN].pressed));
-          var anyOther = false;
-          for (var b = 0; b < pad.buttons.length; b++) {
-            if (b === QS_SAVE_BTN || b === QS_LOAD_BTN) continue;
-            if (pad.buttons[b] && pad.buttons[b].pressed) { anyOther = true; break; }
+          // Start and the D-pad mirror into keys while the OSD is closed;
+          // opening the OSD mid-hold releases them.
+          setStartKey(!osdOpen && anyPressed(pads, START_BTN));
+          for (var k = 0; k < DPAD.length; k++) {
+            setDpadKey(k, !osdOpen && anyPressed(pads, DPAD[k].btn));
           }
-          for (var key in qsWatch) {
-            var idx = Number(key);
-            var w = qsWatch[key];
-            var pressed = !!(pad.buttons[idx] && pad.buttons[idx].pressed);
-            if (pressed) {
-              // A press starting within 400ms of the Guide being seen open is
-              // the Guide-close press — never a save/load gesture.
-              if (!w.down) { w.down = Date.now(); w.dirty = osdOpen || (w.down - qsOsdSeenAt < 400); }
-              if (anyOther || osdOpen) w.dirty = true;
-            } else if (w.down) {
-              var held = Date.now() - w.down;
-              w.down = 0;
-              if (!w.dirty && held < QS_TAP_MS) {
-                if (idx === QS_SAVE_BTN) {
-                  // Every clean Select tap is also INSERT COIN (see above);
-                  // the save/load gesture rides on top of it.
-                  insertCoin();
-                  var nowTap = Date.now();
-                  if (nowTap - qsLastTapAt <= QS_DOUBLE_MS) {
-                    // Second clean tap inside the window → quick-LOAD.
-                    qsLastTapAt = 0;
-                    if (qsPendingSave) { clearTimeout(qsPendingSave); qsPendingSave = 0; }
-                    qsRun(false);
-                  } else {
-                    // First tap: schedule the save; a second tap cancels it.
-                    qsLastTapAt = nowTap;
-                    if (qsPendingSave) clearTimeout(qsPendingSave);
-                    qsPendingSave = setTimeout(function () {
-                      qsPendingSave = 0;
-                      qsRun(true);
-                    }, QS_DOUBLE_MS);
-                  }
-                } else {
-                  qsRun(w.shift);
-                }
-              }
-              w.dirty = false;
+
+          var anyOther = false;
+          for (var b = 0; b < 20; b++) {
+            if (b === QS_LOAD_BTN) continue;
+            if (anyPressed(pads, b)) { anyOther = true; break; }
+          }
+          var pressed = anyPressed(pads, QS_LOAD_BTN);
+          if (pressed) {
+            // A press starting within 400ms of the Guide being seen open is
+            // the Guide-close press — never a save/load gesture.
+            if (!qsHome.down) {
+              qsHome.down = Date.now();
+              qsHome.dirty = osdOpen || (qsHome.down - qsOsdSeenAt < 400);
             }
+            if (anyOther || osdOpen) qsHome.dirty = true;
+          } else if (qsHome.down) {
+            var held = Date.now() - qsHome.down;
+            qsHome.down = 0;
+            if (!qsHome.dirty && held < QS_TAP_MS) {
+              var nowTap = Date.now();
+              if (nowTap - qsLastTapAt <= QS_DOUBLE_MS) {
+                // Second clean tap inside the window → quick-LOAD.
+                qsLastTapAt = 0;
+                if (qsPendingSave) { clearTimeout(qsPendingSave); qsPendingSave = 0; }
+                qsRun(false);
+              } else {
+                // First tap: schedule the save; a second tap cancels it.
+                qsLastTapAt = nowTap;
+                if (qsPendingSave) clearTimeout(qsPendingSave);
+                qsPendingSave = setTimeout(function () {
+                  qsPendingSave = 0;
+                  qsRun(true);
+                }, QS_DOUBLE_MS);
+              }
+            }
+            qsHome.dirty = false;
           }
         }
         setInterval(qsPoll, 50);
@@ -272,7 +351,7 @@
         // timers throttle to ≥1s there), so tap timing can't be driven through
         // the real poll loop — tests call poll() directly against a stubbed
         // navigator.getGamepads.
-        window.__cmgArcadeInput = { poll: qsPoll, insertCoin: insertCoin };
+        window.__cmgArcadeInput = { poll: qsPoll, pads: inputPads };
 
         function postParent(type) {
           try { window.parent.postMessage({ type: type }, window.location.origin); } catch (_) {}
