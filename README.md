@@ -18,6 +18,26 @@ This will watch the project directory and restart as necessary.
 
 # cmg
 
+Icon capture system — .icons store, capture chain (keep blank-gated!), libretro covers, icons:auto pipeline; ARM64 astral→findChrome, vite-dev player-page injection gap
+
+Input origin rule & remote updates — mapped keys need same-origin gameframe; cmg-net .cmg-* markers; /api/app-update; shmup-party-ps2 re-vendor procedure + ARM64 gotchas
+
+Scene-script architecture — player title/intro scripts: editor → 2028-ai/2019-turbo flow, two-copy sync rule, bundle rebuild command
+
+2019-turbo testing — hidden Browser pane pauses Phaser; pump game.loop.step via javascript_tool and assert on scene state (drive scene.time directly for delayedCall timers)
+
+Phaser versions & repo workflow — 4.2.1 pins, the vendored-build gotcha, generated files, Windows/git friction, branch & push rules
+
+Voxel 3D export — SAVE AS VOXEL 3D: voxelize atlas (pitch/yaw 10), Phaser 4.2.1 Mesh2D dual-mode runtime, publish to /games/voxel-<slug>
+
+Editor/viewer bridge — cmg-theme/cmg-tweaks launcher sync keys, editorBossData/atlas bridge, attackPattern override, boss-viewer v2 is Phaser-free
+
+SpacetimeDB JSON reducer args — goofy-game-st: reducer int args must be JSON numbers, but idKey() stringifies PKs — Number() before CallReducer (the coin-collect bug); failed calls come back with request_id 0, so correlate by reducer_name
+
+cmg gamepad testing — committed tests in tests/e2e/ (launcher_pad_harness); astral headless + fake getGamepads shim; hidden pane pauses rAF/pollPad
+
+Voland Switch section — Voland ships no WASM build (Aug 2026); /switch is a PS2-style top-level player + BYOC; COOP/COEP must be synced in BOTH main.ts and vite.config.ts; prod.keys rides into compiled launchers
+
 ## Games, demos & OTA updates
 
 The game list **and the Games → Demos list** are delivered over-the-air. The
