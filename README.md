@@ -276,6 +276,100 @@ dialog alongside the game — the player writes whatever it finds into the
 emulated system directory before boot. Nothing copyrighted is shipped or fetched
 by any task here.
 
+## Gamepads — read this before debugging any input bug
+
+Nearly every input bug in this repo has the same shape: **three layers see a
+different pad, and we can only patch one of them.**
+
+| Layer | What it sees | Patchable? |
+| --- | --- | --- |
+| Browser Gamepad API | The raw report. Varies by pad, OS, browser and cable-vs-Bluetooth. | No |
+| `CMGGamepadCompat` | Patches `navigator.getGamepads()` to the standard layout. Everything in JS reads this. | Yes |
+| MAME's SDL (arcade only) | Its **own** enumeration, taken from the `gamepadconnected` event. | **No** |
+
+That third row is the one that surprises people. The plugin can only replace
+`navigator.getGamepads()`; it cannot touch the event object MAME already used to
+register the pad. So in the arcade player, **JS and MAME genuinely disagree about
+what the pad is**, and a fix that works in JS can do nothing for MAME.
+
+### The standard layout
+
+Everything is normalized to this. MAME's cfg token is the **index + 1**, so
+`JOYCODE_1_BUTTON13` is Gamepad-API index 12.
+
+| Index | Standard slot | Xbox · PlayStation · Nintendo | MAME |
+| --- | --- | --- | --- |
+| 0 | face bottom | A · Cross · B | `BUTTON1` |
+| 1 | face right | B · Circle · A | `BUTTON2` |
+| 2 | face left | X · Square · Y | `BUTTON3` |
+| 3 | face top | Y · Triangle · X | `BUTTON4` |
+| 4 / 5 | L1 / R1 | | `BUTTON5` / `BUTTON6` |
+| 6 / 7 | L2 / R2 | | `BUTTON7` / `BUTTON8` |
+| 8 / 9 | Select / Start | Share · Options | `BUTTON9` / `BUTTON10` |
+| 10 / 11 | L3 / R3 | | `BUTTON11` / `BUTTON12` |
+| 12–15 | D-pad U / D / L / R | | `BUTTON13`–`BUTTON16` |
+| 16 | Home / Guide | PS · Stadia | — (absent on many pads) |
+
+Face buttons are named by **position**, never by letter: index 0 is Xbox A but
+Nintendo B, so "press A" is ambiguous and `FBTN_BOTTOM` is not.
+
+### The traps, and what they look like
+
+1. **A pad's index is part of its MAME identity.** `JOYCODE_n` = index + 1, so a
+   pad at index 1 is *Joystick 2* and matches none of the `JOYCODE_1_*` bindings
+   every cfg uses. Plug in a second controller and the newcomer is silently
+   dead — the same pad works perfectly when it is the only one connected.
+2. **`preferSinglePad` hides the other pads.** `padPriority` ranks SNES `3` >
+   Xbox `2` > everything else `1`, and the winner is the *only* pad
+   `getGamepads()` returns. With a SNES pad plus a DualShock, JS never sees the
+   DualShock at all. Poll every connected pad if any of them should be able to
+   drive the game.
+3. **MAME registers the raw button *count*.** A SNES joydev pad reports 8 raw
+   buttons, so normalized slots 8/9 (Select/Start) sit past the end and are
+   never polled, no matter what the cfg says.
+4. **The SNES pad is two different pads.** Fingerprinted by axis count:
+   *joydev* (few axes; D-pad as real buttons 12–15, top/left faces swapped) and
+   *Nintendo HID* (~10 axes; **raw 12–15 are Home/Capture/ZR, not directions** —
+   the D-pad is an encoded hat on `axes[9]`). Reading raw 12–15 on the latter
+   gives a stuck D-pad-right from ZR.
+5. **Editing a shipped `.cfg` wipes the emulator's saved state.** The
+   `fileSystemKey` is an FNV-1a hash of the cfg bytes, so any edit starts a fresh
+   IndexedDB store. That is deliberate — it is how updated control maps reach
+   players who already ran the game — but it also **unmasks latent input bugs**
+   the old store was papering over. An unrelated-looking cfg edit "breaking" the
+   D-pad is this.
+
+### The escape hatch: mirror to a keystroke
+
+When a binding has to work on every pad, **don't fight the joycode — send the
+key**. `default.cfg` already binds the keyboard for directions, Start and coin,
+and a keystroke is immune to both the joystick-numbering (trap 1, 2) and
+raw-button-count (trap 3, 4) problems at once. That is why
+[`static/arcade/play.html`](static/arcade/play.html) drives Start as `KEYCODE_1`
+and the D-pad as arrow keys rather than trusting `JOYCODE_1_*`.
+
+### MAME's `P1_BUTTONn` is not the game's button order
+
+`P1_BUTTON1` is **not** necessarily Light Punch. For `sfex2` the ports are:
+
+| Port | `BUTTON1` | `BUTTON2` | `BUTTON3` | `BUTTON4` | `BUTTON5` | `BUTTON6` |
+| --- | --- | --- | --- | --- | --- | --- |
+| Action | HP | LK | HK | LP | MP | MK |
+
+Map a fighter by **what each port does in game**, not by its number — going by
+the number is what produced a scrambled six-button layout once already. The
+shipped result is the standard arrangement: `LP MP HP` = face-left, face-top, R1
+and `LK MK HK` = face-bottom, face-right, R2.
+
+### Testing
+
+A hidden Browser pane pauses `requestAnimationFrame` and throttles intervals to
+≥1s, so the real poll loop can't be driven there. Stub `navigator.getGamepads`
+and call the exposed hook directly — `window.__cmgArcadeInput.poll()` for the
+arcade player — and remember to reproduce **pad indices**, since that is the
+variable most bugs hide in. The committed suites live in `tests/e2e/`
+(`launcher_pad_harness.ts`).
+
 ## Importing an OpenEmu game library
 
 `deno task openemu:import` copies every game from OpenEmu's library
