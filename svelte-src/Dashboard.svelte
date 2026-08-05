@@ -5041,10 +5041,15 @@
 
   // ── Cursor policy ────────────────────────────────────────────────────────
   // The pointer only belongs on a keyboard-and-mouse desk. A touchscreen or a
-  // gamepad means it is dead weight parked over the game, so hide it. The one
-  // exception lives in CSS: body.cfg-mouse, set while the Controller Layout was
-  // opened by an actual mouse click — that panel has no gamepad path, so the
-  // pointer has to come back or it can't be driven at all.
+  // gamepad means it is dead weight parked over the game, so hide it. A pad
+  // counts from the moment it is seen at all — pollPad sets padConnected on the
+  // first frame a pad object appears, which in Chrome is the first button
+  // press, since it withholds the pad until then.
+  //
+  // The exception lives in CSS: body.cfg-mouse, set while the Controller Layout
+  // was reached by an actual mouse click. It is scoped to the no-pad case —
+  // body.pad-on overrides it — so once a gamepad is connected the pointer stays
+  // hidden even there, and that panel is driven by its own pad path instead.
   $effect(() => {
     document.body.classList.toggle('no-cursor', isTouch || padConnected);
   });

@@ -33,11 +33,20 @@ body {
    parked arrow is just litter over the game. body.no-cursor carries that
    verdict (set in Dashboard.svelte).
 
-   body.cfg-mouse is the single exception — the Controller Layout panel was
-   opened by an actual mouse click. That panel has no gamepad path, so the
-   pointer has to come back for as long as it is up. */
+   body.cfg-mouse is the one exception — the Controller Layout panel reached by
+   an actual mouse click. It only applies while NO pad is connected, which in
+   practice means a keyboard-and-mouse desk: a touchscreen that also hides the
+   cursor still gets the pointer back for that panel.
+
+   A connected gamepad overrides it (body.pad-on, also set in Dashboard.svelte).
+   Once a pad is in play the pointer stays gone everywhere, the Controller
+   Layout panel included — that panel has its own gamepad path
+   (handleConfiguratorPadTick in controller-configurator.js drives it with the
+   D-pad), so nothing becomes unreachable. */
 body.no-cursor:not(.cfg-mouse),
-body.no-cursor:not(.cfg-mouse) * { cursor: none !important; }
+body.no-cursor:not(.cfg-mouse) *,
+body.no-cursor.pad-on,
+body.no-cursor.pad-on * { cursor: none !important; }
 
 /* === Background mesh === */
 .field { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }

@@ -19,10 +19,12 @@ import { GamepadManager } from './gamepad-support.js';
   // Authored in class syntax for readability, then mixed into the prototype.
   class ConfiguratorMixin {
   // opts.byMouse — the caller reached this panel with a real mouse click, so the
-  // cursor must be visible while it is up even on a pad/touch device that
-  // otherwise hides it (body.no-cursor). A pad-opened panel keeps the cursor
-  // hidden: the pad drives it directly via handleConfiguratorPadTick (D-pad
-  // moves focus, A activates, B closes).
+  // cursor must be visible while it is up on a touch device that otherwise
+  // hides it (body.no-cursor). This only takes effect while NO gamepad is
+  // connected: body.pad-on beats body.cfg-mouse in dashboard.css, so a pad
+  // keeps the pointer hidden here however the panel was opened. Either way the
+  // pad can drive it directly via handleConfiguratorPadTick (D-pad moves focus,
+  // A activates, B closes).
   openControllerConfigurator(opts) {
     document.body.classList.toggle('cfg-mouse', !!(opts && opts.byMouse));
     this.createConfiguratorUI();
