@@ -1,0 +1,6 @@
+# Shell scripts must keep LF endings. core.autocrlf=true is set on the Windows
+# dev machine, which would otherwise check these out with CRLF — and bash then
+# fails on the shebang with "bad interpreter: /usr/bin/env bash^M". This
+# matters for scripts/build-voland-core.sh in particular: it is meant to run
+# under WSL, where CRLF would break it outright.
+*.sh text eol=lf

@@ -44,6 +44,13 @@ static/SegaSaturn/*
 !static/SegaSaturn/manifest.json
 static/Nintendo/*
 !static/Nintendo/manifest.json
+static/NintendoSwitch/*
+!static/NintendoSwitch/manifest.json
+
+# Self-built Voland core (static/switch/play.html prints the recipe). Upstream
+# publishes no WASM build, so this is a local emscripten artifact — bulky and
+# GPL-2.0 — while the player page itself stays tracked.
+static/switch/core/
 static/TurboGrafx-16/*
 !static/TurboGrafx-16/manifest.json
 static/arcade/*.zip
@@ -53,8 +60,10 @@ static/arcade/*.zip
 static/Naomi/*
 !static/Naomi/manifest.json
 
-# PSX BIOS (copyrighted). Keep out of public git by default — commit
-# explicitly if your deployment target needs them.
+# Console BIOS/firmware + key material (copyrighted): PSX/Saturn BIOS dumps
+# and the Switch prod.keys Voland decrypts cartridges with. Keep out of public
+# git by default — these must never reach a deploy or a release artifact.
+# Commit explicitly only if your deployment target legitimately needs them.
 static/bios/
 
 # Generated during Mac/AppImage builds (deno task arcade:bundle) so the arcade

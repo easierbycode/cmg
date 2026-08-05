@@ -43,16 +43,19 @@ function goofyDevWs(): Plugin {
   };
 }
 
-// Dev parity for the PS2 player's cross-origin isolation. In production the
-// /ps2/* COOP+COEP headers come from the main.ts middleware, but Vite serves
-// static files itself in dev, bypassing the Fresh app — without this shim
-// Play! has no SharedArrayBuffer under `deno task dev`.
-function ps2IsolationHeaders(): Plugin {
+// Dev parity for the cross-origin-isolated players. In production these
+// COOP+COEP headers come from the main.ts middleware, but Vite serves static
+// files itself in dev, bypassing the Fresh app — without this shim Play! (PS2)
+// and Voland (Switch) have no SharedArrayBuffer under `deno task dev`. Keep
+// this list in sync with ISOLATED_PLAYERS in main.ts.
+const ISOLATED_PLAYERS = ["/ps2/", "/switch/"];
+
+function playerIsolationHeaders(): Plugin {
   return {
-    name: "ps2-isolation-headers",
+    name: "player-isolation-headers",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (req.url && req.url.startsWith("/ps2/")) {
+        if (req.url && ISOLATED_PLAYERS.some((p) => req.url!.startsWith(p))) {
           res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
           res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
         }
@@ -63,7 +66,7 @@ function ps2IsolationHeaders(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [fresh(), goofyDevWs(), ps2IsolationHeaders()],
+  plugins: [fresh(), goofyDevWs(), playerIsolationHeaders()],
   server: {
     // Allow ngrok tunnels (and any other host) to reach the dev server.
     // Dev-only — production builds aren't served by Vite.

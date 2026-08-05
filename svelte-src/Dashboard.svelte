@@ -20,6 +20,7 @@
   const SATURN_ID = '__saturn__';
   const NAOMI_ID = '__naomi__';
   const NES_ID = '__nes__';
+  const SWITCH_ID = '__switch__';
   const DEMOS_ID = '__demos__';
   const CMGNET_ID = '__cmgnet__';
   const ARCADE_ID = '__arcade__';
@@ -54,6 +55,7 @@
     { id: ARCADE_ID,                                               name: 'Arcade',              title: 'ARCADE',              sub: 'MAME // submenu', icon: null,                                   size: '— MB',    date: 'MAME',    submenu: true },
     { id: NAOMI_ID,                                                name: 'NAOMI',               title: 'NAOMI',               sub: 'DREAMCAST // submenu', icon: '/icons/naomi-reindeer.png',       size: '— MB',    date: 'DC',      submenu: true },
     { id: NES_ID,                                                  name: 'Nintendo',            title: 'NINTENDO',            sub: 'NES // submenu',  icon: null,                                   size: '— MB',    date: 'NES',     submenu: true },
+    { id: SWITCH_ID,                                               name: 'Nintendo Switch',     title: 'NINTENDO SWITCH',     sub: 'NSW // submenu',  icon: null,                                   size: '— MB',    date: 'NSW',     submenu: true },
     { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
     { id: PS2_ID,                                                  name: 'PlayStation 2',       title: 'PLAYSTATION 2',       sub: 'PS2 // submenu',  icon: null,                                   size: '— MB',    date: 'PS2',     submenu: true },
     { id: SATURN_ID,                                               name: 'Sega Saturn',         title: 'SEGA SATURN',         sub: 'SS // submenu',   icon: null,                                   size: '— MB',    date: 'SS',      submenu: true },
@@ -87,7 +89,7 @@
   // manifest's `demos`. Same OTA path as GAMES.
   let DEMOS = $state(SEED_DEMOS);
 
-  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'psx' | 'ps2' | 'saturn' | 'naomi' | 'demos' | 'cmgnet' | 'addgame' | 'settings' | 'oeimport' | 'ctrlsync'
+  let screen = $state('dashboard'); // 'dashboard' | 'games' | 'arcade' | 'tg16' | 'nes' | 'switch' | 'psx' | 'ps2' | 'saturn' | 'naomi' | 'demos' | 'cmgnet' | 'addgame' | 'settings' | 'oeimport' | 'ctrlsync'
   let menuSel = $state(1);           // start on Games
   let gameSel = $state(0);
   let clockStr = $state('--:--:--');
@@ -182,6 +184,16 @@
   let nesRowEls = $state([]);
   let nesByocError = $state('');
   let nesFileInput = $state(null);
+  // Nintendo Switch (Voland) — no bundled cartridges: the library directory is
+  // gitignored and Voland ships no games or keys, so the list is empty until
+  // you drop .xci/.nsp/.nro files in static/NintendoSwitch/. Until then the
+  // screen is the BYOC ("Bring Your Own Cartridge") empty state.
+  let switchGames = $state([]);
+  let switchSel = $state(0);
+  let switchRowEls = $state([]);
+  let switchByocError = $state('');
+  let switchFileInput = $state(null);
+  let switchByocBtnEl = $state(null);
   let demosSel = $state(0);
   let demosRowEls = $state([]);
   let cmgnetGames = $state([]);
@@ -1276,6 +1288,12 @@
   });
 
   $effect(() => {
+    if (screen !== 'switch') return;
+    const el = switchRowEls[switchSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  $effect(() => {
     if (screen !== 'demos') return;
     const el = demosRowEls[demosSel];
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -1344,6 +1362,11 @@
     queueMicrotask(() => { try { naomiByodBtnEl?.focus(); } catch (_) {} });
   });
 
+  $effect(() => {
+    if (screen !== 'switch' || switchGames.length !== 0) return;
+    queueMicrotask(() => { try { switchByocBtnEl?.focus(); } catch (_) {} });
+  });
+
   let currentGame = $derived(GAMES[gameSel]);
   let currentTg16 = $derived(tg16Games[tg16Sel]);
   let currentArcade = $derived(arcadeGames[arcadeSel]);
@@ -1355,6 +1378,7 @@
   // undefined when nesSel is on the pinned BYOC row (index === nesGames.length).
   let currentNes = $derived(nesGames[nesSel]);
   let onNesByocRow = $derived(nesSel >= nesGames.length);
+  let currentSwitch = $derived(switchGames[switchSel]);
   let currentDemo = $derived(DEMOS[demosSel]);
   let currentCmgnet = $derived(cmgnetVisible[cmgnetSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
@@ -1395,6 +1419,11 @@
     onNesByocRow
       ? 'BYOC'
       : String(nesSel + 1).padStart(2, '0') + ' / ' + String(nesGames.length).padStart(2, '0')
+  );
+  let switchCounterText = $derived(
+    switchGames.length === 0
+      ? '00 / 00'
+      : String(switchSel + 1).padStart(2, '0') + ' / ' + String(switchGames.length).padStart(2, '0')
   );
   let demosCounterText = $derived(
     String(demosSel + 1).padStart(2, '0') + ' / ' + String(DEMOS.length).padStart(2, '0')
@@ -1481,7 +1510,7 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
+    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'switch' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
     else if (screen === 'oeimport' || screen === 'ctrlsync') screen = 'settings';
     else screen = 'dashboard';
   }
@@ -1799,6 +1828,11 @@
       screen = 'nes';
       return;
     }
+    if (id === SWITCH_ID) {
+      sfx.enter();
+      screen = 'switch';
+      return;
+    }
     if (id === DEMOS_ID) {
       sfx.enter();
       screen = 'demos';
@@ -2000,6 +2034,17 @@
     chromeDismissed = false;
     gameSrc = '/nes/play.html?rom=' + encodeURIComponent(file);
     setTimeout(() => { gameOn = true; }, 30);
+  }
+
+  function launchSwitch(file) {
+    if (!file) return;
+    sfx.enter();
+    // Top-level navigation, not the game iframe — same constraint as PS2:
+    // Voland keeps guest RAM in a shared WebAssembly.Memory and needs
+    // crossOriginIsolated (SharedArrayBuffer), which only /switch/* responses
+    // carry (COOP+COEP — see main.ts). An iframe can only isolate when the
+    // embedding page is isolated too. Backquote / SELECT+START goes back.
+    location.href = '/switch/play.html?rom=' + encodeURIComponent(file);
   }
 
   // ─── CMG Network (e-shop: stream first, then run offline from cache) ────────
@@ -3083,6 +3128,18 @@
     }
   }
 
+  async function loadSwitchList() {
+    try {
+      const r = await fetch('/NintendoSwitch/manifest.json');
+      if (!r.ok) return;
+      const list = await r.json();
+      switchGames = Array.isArray(list) ? list : [];
+      if (switchSel >= switchGames.length) switchSel = 0;
+    } catch (_e) {
+      switchGames = [];
+    }
+  }
+
   async function loadNesList() {
     try {
       const r = await fetch('/Nintendo/manifest.json');
@@ -3591,6 +3648,60 @@
     pickerGestureHint();
   }
 
+  // Switch BYOC — Bring Your Own Cartridge. Cartridge containers are single
+  // files (.xci dumps, .nsp packages, .nro homebrew), so there is nothing to
+  // bundle like the PSX/Saturn cue+bin path. The player is a top-level
+  // navigation (see launchSwitch), so the File can't ride a postMessage
+  // handshake — park it in IndexedDB (Files are structured-cloneable) for
+  // play.html to collect, the same handoff the PS2 path uses.
+  async function handleSwitchByocFiles(files) {
+    switchByocError = '';
+    const list = Array.from(files || []);
+    if (list.length === 0) return;
+    const main = list.find((f) => /\.(xci|nsp|nro)$/i.test(f.name));
+    if (!main) {
+      // Call out compressed dumps by name — they look like valid cartridges,
+      // and Voland's docs rule them out explicitly (docs/DUMP.md).
+      const compressed = list.find((f) => /\.(nsz|xcz)$/i.test(f.name));
+      switchByocError = compressed
+        ? 'Voland can’t read compressed ' + compressed.name.split('.').pop().toUpperCase() +
+          ' dumps — decompress to .xci or .nsp first.'
+        : 'Pick a .xci, .nsp, or .nro cartridge file.';
+      return;
+    }
+    try {
+      await new Promise((resolve, reject) => {
+        const open = indexedDB.open('cmg-switch-byoc', 1);
+        open.onupgradeneeded = () => { open.result.createObjectStore('files'); };
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction('files', 'readwrite');
+          tx.objectStore('files').put(main, 'cartridge');
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => { db.close(); reject(tx.error); };
+        };
+      });
+    } catch (e) {
+      switchByocError = 'BYOC handoff failed: ' + (e && e.message ? e.message : e);
+      return;
+    }
+    sfx.enter();
+    location.href = '/switch/play.html?byoc=1';
+  }
+
+  function onSwitchByocChange(ev) {
+    const input = ev.currentTarget;
+    handleSwitchByocFiles(input.files);
+    setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
+  }
+
+  function openSwitchByocPicker() {
+    try { switchByocBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
+    try { switchFileInput?.click(); } catch (_) {}
+    pickerGestureHint();
+  }
+
   function closeGame() {
     // TG16 persists a save state on exit. Ask the iframe to snapshot, then hold
     // the unmount until it acks (tg16-save-state-done) so removing the iframe
@@ -3898,6 +4009,10 @@
       len: () => nesGames.length + 1, // + pinned BYOC row
       activate: (i) => { if (i >= nesGames.length) openByocPicker(); else launchNes(nesGames[i]?.file); },
     },
+    switch: {
+      sel: () => switchSel, setSel: (v) => (switchSel = v), len: () => switchGames.length,
+      activate: (i) => { if (switchGames.length === 0) openSwitchByocPicker(); else launchSwitch(switchGames[i]?.file); },
+    },
     demos: { sel: () => demosSel, setSel: (v) => (demosSel = v), len: () => DEMOS.length, activate: (i) => launchDemo(DEMOS[i]?.url) },
     cmgnet: { sel: () => cmgnetSel, setSel: (v) => (cmgnetSel = v), len: () => cmgnetVisible.length, activate: (i) => launchCmgnet(cmgnetVisible[i]) },
     addgame: { sel: () => addSel, setSel: (v) => (addSel = v), len: () => addRows.length, activate: (i) => addActivate(i) },
@@ -3955,7 +4070,7 @@
     // owns the in-game toggle) isn't reachable without a game. Closes the
     // topmost overlay first.
     else if (musicOpen) closeMusic();
-    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
+    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'switch' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
   }
   // CMG Network only: pull the latest build from GitHub for the selected game,
   // when one is installed and an update was detected.
@@ -4853,6 +4968,7 @@
     loadPs2List();
     loadSaturnList();
     loadNaomiList();
+    loadSwitchList();
     loadNesList();
     registerCmgSw();
     loadCmgnetList();
@@ -5722,6 +5838,83 @@
     </div>
   </div>
 
+  <div class="games-screen {screen === 'switch' ? 'shown' : ''}">
+    <div class="games-panel">
+      <div class="strip-top">
+        <span>core // switch</span>
+        <span>voland</span>
+        <span>{clockShort}</span>
+      </div>
+
+      <div class="disc-col">
+        <div class="disc"></div>
+        <div class="meta">
+          <div><span class="k">name</span><b>{currentSwitch ? currentSwitch.name : '—'}</b></div>
+          <div><span class="k">size</span><b>{currentSwitch ? currentSwitch.size : '—'}</b></div>
+          <div><span class="k">type</span><b>NSW / CART</b></div>
+          <div><span class="k">date</span><b>{currentSwitch ? currentSwitch.date : '—'}</b></div>
+        </div>
+      </div>
+
+      <div class="games-right">
+        <div class="games-header">
+          <div class="title-bar">NINTENDO SWITCH</div>
+          <div class="counter">{switchCounterText}</div>
+        </div>
+        <div class="games-list">
+          {#if switchGames.length === 0}
+            <div class="byod">
+              <div class="byod-title">BYOC — Bring Your Own Cartridge</div>
+              <div class="byod-sub">No cartridges in <code>static/NintendoSwitch/</code>. Pick one from disk:</div>
+              <input
+                type="file"
+                bind:this={switchFileInput}
+                accept=".xci,.nsp,.nro,application/octet-stream"
+                onchange={onSwitchByocChange}
+                class="byod-input"
+              />
+              <button
+                type="button"
+                class="byod-btn"
+                bind:this={switchByocBtnEl}
+                onclick={() => { try { switchFileInput?.click(); } catch (_) {} }}
+              >
+                <span class="byod-btn-icon">⬆</span>
+                <span>Choose cartridge…</span>
+              </button>
+              <div class="byod-hint">
+                .xci dumps · .nsp packages, from hardware you own — .nro homebrew needs no keys.<br>
+                Everything else decrypts with your own <code>prod.keys</code> in <code>static/bios/</code>.
+              </div>
+              {#if switchByocError}
+                <div class="byod-err">{switchByocError}</div>
+              {/if}
+            </div>
+          {:else}
+            {#each switchGames as g, i (g.file)}
+              <div
+                bind:this={switchRowEls[i]}
+                class="game-row {i === switchSel ? 'sel' : ''}"
+                onmouseenter={() => { if (i !== switchSel) { switchSel = i; sfx.nav(); } }}
+                onclick={() => launchSwitch(g.file)}
+              >
+                <div class="game-icon">
+                  <div class="glass">
+                    <span class="ph">{initial(g.name)}</span>
+                  </div>
+                </div>
+                <div class="game-bar">
+                  <span class="name">{g.name.toUpperCase()}</span>
+                  <span class="sub">{g.size}</span>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="games-screen {screen === 'demos' ? 'shown' : ''}">
     <div class="games-panel">
       <div class="strip-top">
@@ -6152,7 +6345,7 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
+  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'switch' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)} onkeydown={chipKeyHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
@@ -6184,7 +6377,7 @@
   {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actFbtnBottom)} onkeydown={chipKeyHandler(actFbtnBottom)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'ps2' ? (ps2Games.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'naomi' ? (naomiGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
+    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'ps2' ? (ps2Games.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'naomi' ? (naomiGames.length === 0 ? 'Browse' : 'Launch') : screen === 'switch' ? (switchGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
   </div>
 </div>
 
