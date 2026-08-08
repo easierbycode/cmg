@@ -35,6 +35,7 @@
     "arcade:core": "deno run -A scripts/vendor-arcade-core.ts",
     "arcade:configs": "deno run -A scripts/convert-mame-configs.ts",
     "arcade:bundle": "deno task arcade:core && deno task arcade:configs",
+    "icons:auto": "deno run -A scripts/auto-icons.ts",
     "record": "deno run -A tools/game-recorder/main.ts",
     "record:post": "deno run -A tools/game-recorder/post.ts",
     "record:slides": "deno run -A tools/game-recorder/slides/main.ts",

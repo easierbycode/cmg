@@ -1,6 +1,9 @@
 import { App, staticFiles } from "fresh";
 import { define, type State } from "./utils.ts";
-import { injectLauncherMarker } from "./lib/launcher-inject.ts";
+import {
+  injectCaptureAgent,
+  injectLauncherMarker,
+} from "./lib/launcher-inject.ts";
 
 export const app = new App<State>();
 
@@ -42,13 +45,23 @@ app.use(async (ctx) => {
 // frames the client-side stamp in Dashboard.svelte can't reach. Validator
 // headers are dropped along with content-length: a 304 against a
 // pre-injection cached copy would otherwise keep serving unstamped HTML.
+// The icon-capture agent (same file) rides along, and is ALSO stamped into
+// the embedded emulator player pages (/nes, /psx, … play.html) — they never
+// get the marker, but their WebGL canvases need the agent's armed
+// preserveDrawingBuffer patch to be capturable, and it must run before the
+// emulator boots. PS2 and Switch are top-level navigations with no parent
+// frame, so the agent would be inert there and they are left out.
+const PLAYER_PAGES = /^\/(nes|psx|saturn|turbografx16|arcade|naomi)\/play\.html$/i;
 app.use(async (ctx) => {
   const res = await ctx.next();
   if (ctx.req.method !== "GET" || res.status !== 200) return res;
-  if (!/^\/(games|demos)(\/|$)/.test(new URL(ctx.req.url).pathname)) return res;
+  const path = new URL(ctx.req.url).pathname;
+  const isGameDoc = /^\/(games|demos)(\/|$)/.test(path);
+  if (!isGameDoc && !PLAYER_PAGES.test(path)) return res;
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("text/html")) return res;
-  const html = injectLauncherMarker(await res.text());
+  let html = injectCaptureAgent(await res.text());
+  if (isGameDoc) html = injectLauncherMarker(html);
   const headers = new Headers(res.headers);
   headers.delete("content-length");
   headers.delete("etag");

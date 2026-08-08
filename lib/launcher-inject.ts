@@ -35,6 +35,63 @@ export const LAUNCHER_MARKER = `\n<script id="cmg-launcher-marker">(function(){
   } catch(_){}
 })();</script>\n`;
 
+// Icon-capture agent, stamped alongside the marker (and into the emulator
+// player pages, which don't get the marker). Two jobs, both inert unless the
+// launcher is involved:
+//
+//   1. Arming — when the dashboard has a local icon store it sets
+//      sessionStorage "cmg-icon-capture" = "1" (same-origin frames share the
+//      tab's sessionStorage), and this script — which runs before any game
+//      script — patches getContext to force preserveDrawingBuffer on WebGL
+//      contexts so a later canvas readback sees real pixels instead of a
+//      cleared back buffer. This is the fix for the launcher repo's
+//      "dataUrl is black rectangle" bug, applied at the right time.
+//   2. Capture responder — when the frame is CROSS-origin (a packaged
+//      launcher running games off the deploy), the dashboard can't reach in,
+//      so it asks over postMessage; the agent lazy-loads /icon-capture.js
+//      from its own origin and answers with a PNG data URL. Parent-only.
+export const CAPTURE_AGENT = `\n<script id="cmg-icon-capture-agent">(function(){
+  try {
+    var armed = false;
+    try { armed = sessionStorage.getItem("cmg-icon-capture") === "1"; } catch(_){}
+    if (armed && window.HTMLCanvasElement) {
+      var getCtx = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+        if (type === "webgl" || type === "webgl2" || type === "experimental-webgl") {
+          attrs = Object.assign({}, attrs, { preserveDrawingBuffer: true });
+        }
+        return getCtx.call(this, type, attrs);
+      };
+    }
+    if (window.parent === window) return;
+    window.addEventListener("message", function(ev) {
+      var d = ev.data;
+      if (!d || d.type !== "cmg-icon-capture-request") return;
+      if (ev.source !== window.parent) return;
+      import(new URL("/icon-capture.js", location.origin).href).then(function(mod){
+        return mod.captureGameDocument(window, { maxDim: d.maxDim || 512 });
+      }).then(function(dataUrl){
+        ev.source.postMessage({ type: "cmg-icon-capture-result", token: d.token, dataUrl: dataUrl }, "*");
+      }).catch(function(e){
+        try { ev.source.postMessage({ type: "cmg-icon-capture-result", token: d.token, error: String(e && e.message || e) }, "*"); } catch(_){}
+      });
+    });
+  } catch(_){}
+})();</script>\n`;
+
+function injectAfterHead(html: string, snippet: string): string {
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (m) => m + snippet);
+  }
+  if (/^<!doctype[^>]*>/i.test(html)) {
+    return html.replace(/^<!doctype[^>]*>/i, (m) => m + snippet);
+  }
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html[^>]*>/i, (m) => m + snippet);
+  }
+  return snippet + html;
+}
+
 // Insert the marker right after <head> so it runs before the game's own
 // scripts. Fallback anchors mirror the upstream injector: after <!doctype>,
 // after <html>, else prepended to fragment-only documents. Idempotent: a
@@ -42,14 +99,11 @@ export const LAUNCHER_MARKER = `\n<script id="cmg-launcher-marker">(function(){
 // middleware in main.ts and a route-level injector) is returned unchanged.
 export function injectLauncherMarker(html: string): string {
   if (html.includes('id="cmg-launcher-marker"')) return html;
-  if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (m) => m + LAUNCHER_MARKER);
-  }
-  if (/^<!doctype[^>]*>/i.test(html)) {
-    return html.replace(/^<!doctype[^>]*>/i, (m) => m + LAUNCHER_MARKER);
-  }
-  if (/<html[^>]*>/i.test(html)) {
-    return html.replace(/<html[^>]*>/i, (m) => m + LAUNCHER_MARKER);
-  }
-  return LAUNCHER_MARKER + html;
+  return injectAfterHead(html, LAUNCHER_MARKER);
+}
+
+// Same anchors and idempotency for the capture agent.
+export function injectCaptureAgent(html: string): string {
+  if (html.includes('id="cmg-icon-capture-agent"')) return html;
+  return injectAfterHead(html, CAPTURE_AGENT);
 }

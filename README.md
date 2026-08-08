@@ -18,25 +18,16 @@ This will watch the project directory and restart as necessary.
 
 # cmg
 
-Icon capture system — .icons store, capture chain (keep blank-gated!), libretro covers, icons:auto pipeline; ARM64 astral→findChrome, vite-dev player-page injection gap
-
-Input origin rule & remote updates — mapped keys need same-origin gameframe; cmg-net .cmg-* markers; /api/app-update; shmup-party-ps2 re-vendor procedure + ARM64 gotchas
-
-Scene-script architecture — player title/intro scripts: editor → 2028-ai/2019-turbo flow, two-copy sync rule, bundle rebuild command
-
-2019-turbo testing — hidden Browser pane pauses Phaser; pump game.loop.step via javascript_tool and assert on scene state (drive scene.time directly for delayedCall timers)
-
-Phaser versions & repo workflow — 4.2.1 pins, the vendored-build gotcha, generated files, Windows/git friction, branch & push rules
-
-Voxel 3D export — SAVE AS VOXEL 3D: voxelize atlas (pitch/yaw 10), Phaser 4.2.1 Mesh2D dual-mode runtime, publish to /games/voxel-<slug>
-
-Editor/viewer bridge — cmg-theme/cmg-tweaks launcher sync keys, editorBossData/atlas bridge, attackPattern override, boss-viewer v2 is Phaser-free
-
-SpacetimeDB JSON reducer args — goofy-game-st: reducer int args must be JSON numbers, but idKey() stringifies PKs — Number() before CallReducer (the coin-collect bug); failed calls come back with request_id 0, so correlate by reducer_name
-
-cmg gamepad testing — committed tests in tests/e2e/ (launcher_pad_harness); astral headless + fake getGamepads shim; hidden pane pauses rAF/pollPad
-
-Voland Switch section — Voland ships no WASM build (Aug 2026); /switch is a PS2-style top-level player + BYOC; COOP/COEP must be synced in BOTH main.ts and vite.config.ts; prod.keys rides into compiled launchers
+- [Icon capture system](docs/icon-capture-system.md) — .icons store, capture chain (keep blank-gated!), libretro covers, icons:auto pipeline; ARM64 astral→findChrome, vite-dev player-page injection gap
+- [Input origin rule & remote updates](docs/cmg-input-origin-and-updates.md) — mapped keys need same-origin gameframe; cmg-net .cmg-* markers; /api/app-update; shmup-party-ps2 re-vendor procedure + ARM64 gotchas
+- [Scene-script architecture](docs/scene-script-architecture.md) — player title/intro scripts: editor → 2028-ai/2019-turbo flow, two-copy sync rule, bundle rebuild command
+- [2019-turbo testing](docs/2019-turbo-testing.md) — hidden Browser pane pauses Phaser; pump game.loop.step via javascript_tool and assert on scene state (drive scene.time directly for delayedCall timers)
+- [Phaser versions & repo workflow](docs/phaser-versions-and-repos.md) — 4.2.1 pins, the vendored-build gotcha, generated files, Windows/git friction, branch & push rules
+- [Voxel 3D export](docs/voxel3d-export.md) — SAVE AS VOXEL 3D: voxelize atlas (pitch/yaw 10), Phaser 4.2.1 Mesh2D dual-mode runtime, publish to /games/voxel-<slug>
+- [Editor/viewer bridge](docs/editor-viewer-bridge.md) — cmg-theme/cmg-tweaks launcher sync keys, editorBossData/atlas bridge, attackPattern override, boss-viewer v2 is Phaser-free
+- [SpacetimeDB JSON reducer args](docs/spacetimedb-json-reducer-args.md) — goofy-game-st: reducer int args must be JSON numbers, but idKey() stringifies PKs — Number() before CallReducer (the coin-collect bug); failed calls come back with request_id 0, so correlate by reducer_name
+- [cmg gamepad testing](docs/cmg-gamepad-testing.md) — committed tests in tests/e2e/ (launcher_pad_harness); astral headless + fake getGamepads shim; hidden pane pauses rAF/pollPad
+- [Voland Switch section](docs/voland-switch-section.md) — Voland ships no WASM build (Aug 2026); /switch is a PS2-style top-level player + BYOC; COOP/COEP must be synced in BOTH main.ts and vite.config.ts; prod.keys rides into compiled launchers
 
 ## Games, demos & OTA updates
 
@@ -103,6 +94,61 @@ and the same game always produces the same file. Per-game capture hints
 (`startWhen`, `stopWhen`, `durationMs`, …) go in an optional `recorder` key on
 the catalog entry. See
 [`tools/game-recorder/README.md`](tools/game-recorder/README.md).
+
+## Game icons — capture in game, fetch boxart, or let it fill itself
+
+A game tile's art resolves in this order: the **local icon store** (icons you
+captured or fetched on this machine), the entry's own `icon` field (OTA
+manifest, a local game's `thumbnail.png`, or a console-manifest cover), and —
+for console ROMs — **hotlinked libretro boxart** guessed from the ROM's
+filename, degrading to the initials placeholder when everything misses.
+
+**Capture in game.** The in-game Guide has a **Capture Icon** row on any local
+launcher. One capture engine ([`static/icon-capture.js`](static/icon-capture.js))
+covers every game type, most-faithful strategy first: EmulatorJS's own
+`gameManager.screenshot()`, Phaser's `renderer.snapshot()`, a rAF-synchronized
+readback of the largest visible canvas (shadow-DOM aware, so Ruffle's player
+canvas is found), and an SVG `foreignObject` rasterization for canvas-less DOM
+games. Every strategy is gated by a blank-frame detector — the old launcher's
+"black rectangle" WebGL captures can't be saved. WebGL readback works because
+the launcher stamps a capture agent into game/player HTML
+([`lib/launcher-inject.ts`](lib/launcher-inject.ts)) that forces
+`preserveDrawingBuffer` before any game script runs (armed via the
+`cmg-icon-capture` sessionStorage flag); cross-origin frames answer the same
+agent over postMessage instead. While you play, a game with no art is captured
+silently after ~20s — playing a game is all it takes to give it an icon.
+
+**Icon store.** Captures land in `GAMES_DIR/.icons/` (override:
+`CMG_ICONS_DIR`) — named by a slug + hash of the game id, indexed in
+`index.json`, served back by `GET /api/icons/<file>.png`. `GET /api/icons`
+maps ids to URLs; `POST /api/icons` `{ id, dataUrl }` saves;
+`DELETE /api/icons` `{ id }` removes. Mutations are guarded exactly like
+`/api/games/*` (local launcher only, cross-site refused); on Deno Deploy the
+store reads empty and refuses writes, so the hosted app quietly shows OTA
+icons + hotlinked covers.
+
+**Auto icons.** Settings → **AUTO ICONS** fills everything still showing
+initials, in the background while you keep playing: console ROMs get boxart
+via `POST /api/icons/fetch` (libretro-thumbnails, keyless — exact
+No-Intro/Redump filename first, display name second, then a fuzzy scan of the
+system shelf's index, RetroArch's own matching order), and catalog games get a
+headless capture via `POST /api/icons/auto` where available. That endpoint
+spawns `tools/game-recorder/icon-cli.ts` — the recorder's deterministic
+virtual-clock boot ([`tools/game-recorder/record/icon.ts`](tools/game-recorder/record/icon.ts)),
+one frame instead of a reel — so it needs the dev checkout (`deno` CLI + tool
+sources on disk); the dashboard probes and hides what can't run. An installed
+Chrome/Edge/Brave is preferred over astral's pinned download (which doesn't
+start on Windows ARM64).
+
+**Pipeline.** `deno task icons:auto` does the same headless work at build
+time: captures catalog games missing an `icon` into `static/icons/auto/` (and
+stamps `data/games.json` with `--write` — commit the pair and the icons ship
+OTA), and `--systems=nes,psx,…` downloads console covers into
+`static/<SystemDir>/covers/` (gitignored, like the ROMs beside them — rerun
+`deno task <sys>:manifest` and the builders stamp `icon` fields the dashboard
+renders). `--list` shows coverage; see `--help` for the rest. Switch has no
+libretro shelf — its art needs a keyed provider (TheGamesDB/SteamGridDB),
+which is the natural next addition behind an env key.
 
 ## Launcher detection — hiding a game's own chrome
 

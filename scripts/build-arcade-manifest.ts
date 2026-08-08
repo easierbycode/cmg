@@ -10,6 +10,7 @@ interface ArcadeRom {
   size: string;
   date: string;
   bios: string[];
+  icon?: string;
 }
 
 const GAME_ZIP = /\.zip$/i;
@@ -42,6 +43,17 @@ function prettyName(rom: string, file: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Cover art (fetched by a separate pipeline) lives in covers/ beside the
+// ROM zips — return the served URL when <rom>.png exists.
+async function coverIcon(rom: string): Promise<string | undefined> {
+  try {
+    await Deno.stat(new URL(`covers/${rom}.png`, dirUrl));
+    return `/arcade/covers/${encodeURIComponent(rom)}.png`;
+  } catch {
+    return undefined;
+  }
+}
+
 const games: ArcadeRom[] = [];
 try {
   for await (const entry of Deno.readDir(dirUrl)) {
@@ -57,6 +69,7 @@ try {
       String(d.getDate()).padStart(2, "0")
     }.${String(d.getFullYear()).slice(-2)}`;
 
+    const icon = await coverIcon(rom);
     games.push({
       file: entry.name,
       rom,
@@ -65,6 +78,7 @@ try {
       size: `${sizeMb} MB`,
       date,
       bios: BIOS_BY_ROM[rom] ?? [],
+      ...(icon ? { icon } : {}),
     });
   }
 } catch (e) {

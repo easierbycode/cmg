@@ -1,0 +1,17 @@
+# Phaser versions & repo workflow
+
+**Phaser is 4.2.1 across cmg + 2019-turbo (upgraded 2026-07-16).** Pins live in: 2019-turbo `index.html` import map (the single functional pin — every `import Phaser from 'phaser'` in src/ resolves through it) + two AGENTS.md mentions; cmg's five demo routes (`routes/demos/*.tsx` CDN `<script>`, titles, header comments), their `static/demos/*.js` comments, `data/demos.json` labels, and `svelte-src/Dashboard.svelte`'s hardcoded offline-fallback list (a **second copy** of the demo labels — edit in lockstep with data/demos.json).
+
+**Gotcha — the vendored build is not what the text says.** `cmg/static/games/2028-ai/lib/phaser.min.js` is a committed UMD binary that was **4.0.0-rc.7** while every text reference claimed 4.1.0. Always verify it empirically (`grep -o 'VERSION:"[^"]*"'`) rather than trusting docs. Re-vendor from the npm tarball: `curl -sL https://registry.npmjs.org/phaser/-/phaser-<v>.tgz | tar -xz package/dist/phaser.min.js`.
+
+**Never sed `4.1.0` repo-wide in 2019-turbo** — the legacy `?pixi=1` build (`js/pixi.js`, `js/pixi.min.js.map`) carries its own `@deprecated since version 4.1.0/4.2.0` JSDoc whose numbers collide with Phaser's. Bump per-line.
+
+**Generated, do not hand-edit:** `static/games.manifest.json` (`deno task games:manifest`), `static/games/2028-ai/game.bundle.js` (`deno run -A scripts/build-2028-ai.ts`). `static/dashboard.bundle.js` is **gitignored** — built at deploy, never committed.
+
+**Windows/git friction:** `deno fmt --check` reports "Text differed by line endings" on files nobody touched (CRLF); `git diff` shows tracked build artifacts as modified with an *empty* diff for the same reason — compare `| tr -d '\r' | sha256sum` to tell a real change from line-ending churn. `deno lint .` over the whole repo takes >2min — lint specific files. Never wrap a `git stash push` and its `pop` in one long shell command: if it times out mid-way the pop never runs and the work sits in the stash. In tests, never build filesystem paths with `new URL(...).pathname` — on Windows it yields `/C:/…`, which `Deno.stat`/`serveDir` reject (os error 123); use `fromFileUrl` from `@std/path` (fixed in music_player_sound_shim_test 2026-08-04; astral tests also need `CHROME_PATH` to an installed Chrome — the bundled win64 build fails to spawn with "side-by-side configuration is incorrect").
+
+**`globalThis.__PHASER_GAME__` is the canonical game handle** (added 2026-07-16) — set by every `Phaser.Game` site in both repos: 2019-turbo `src/main.js`, cmg `scripts/2028-ai/boot-entry.js`, the four `static/demos/*.js`, `static/demos/softmod.js`, `static/editor/boss-viewer.html`. Set it in any new game. It exists because `static/gamepad-support.js` and `static/controller-configurator.js` look it up to start a scene in an embedded game. Per-game legacy names are **aliases kept for real callers** — `__PHASER_4_GAME__` (2028-ai host page's audio-unlock/canvas-fit), `__game` (2019-turbo how-to modal), `__currentGame` (demos) — do not rename them away.
+
+**Git workflow:** cmg commits straight to `main`. **2019-turbo works on `claude/*` feature branches → PR → main**; its local `main` is typically stale, so `git push origin main` there pushes the wrong (local) ref and is correctly rejected — push the current feature branch instead.
+
+Related: [Scene-script architecture](scene-script-architecture.md), [2019-turbo testing](2019-turbo-testing.md)

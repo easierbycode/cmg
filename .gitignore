@@ -60,6 +60,10 @@ static/arcade/*.zip
 static/Naomi/*
 !static/Naomi/manifest.json
 
+# Fetched cover art (the wholesale-ignored ROM dirs above already cover theirs)
+static/PlayStation2/covers/
+static/arcade/covers/
+
 # Console BIOS/firmware + key material (copyrighted): PSX/Saturn BIOS dumps
 # and the Switch prod.keys Voland decrypts cartridges with. Keep out of public
 # git by default — these must never reach a deploy or a release artifact.

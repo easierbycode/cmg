@@ -13,6 +13,7 @@ interface SwitchRom {
   url: string;
   size: string;
   date: string;
+  icon?: string;
 }
 
 // The three containers Voland accepts (docs/DUMP.md): .xci cartridge dumps,
@@ -36,6 +37,18 @@ function cleanName(file: string): string {
   return name || file.replace(SWITCH_EXT, "");
 }
 
+// Cover art (fetched by a separate pipeline) lives in covers/ beside the
+// cartridges — return the served URL when <basename>.png exists.
+async function coverIcon(file: string): Promise<string | undefined> {
+  const base = file.replace(SWITCH_EXT, "");
+  try {
+    await Deno.stat(new URL(`covers/${base}.png`, dirUrl));
+    return `/NintendoSwitch/covers/${encodeURIComponent(base)}.png`;
+  } catch {
+    return undefined;
+  }
+}
+
 const games: SwitchRom[] = [];
 try {
   for await (const entry of Deno.readDir(dirUrl)) {
@@ -52,12 +65,14 @@ try {
     const date = `${String(d.getMonth() + 1).padStart(2, "0")}.${
       String(d.getDate()).padStart(2, "0")
     }.${String(d.getFullYear()).slice(-2)}`;
+    const icon = await coverIcon(entry.name);
     games.push({
       file: entry.name,
       name: cleanName(entry.name),
       url: `/NintendoSwitch/${encodeURIComponent(entry.name)}`,
       size,
       date,
+      ...(icon ? { icon } : {}),
     });
   }
 } catch (e) {

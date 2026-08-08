@@ -9,6 +9,7 @@ interface PsxRom {
   url: string;
   size: string;
   date: string;
+  icon?: string;
 }
 
 // .zip = a cue/bin game packed by scripts/import-openemu.ts — EmulatorJS
@@ -30,6 +31,18 @@ function cleanName(file: string): string {
   return name || file.replace(PSX_EXT, "");
 }
 
+// Cover art (fetched by a separate pipeline) lives in covers/ beside the
+// ROMs — return the served URL when <basename>.png exists.
+async function coverIcon(file: string): Promise<string | undefined> {
+  const base = file.replace(PSX_EXT, "");
+  try {
+    await Deno.stat(new URL(`covers/${base}.png`, dirUrl));
+    return `/PlayStation/covers/${encodeURIComponent(base)}.png`;
+  } catch {
+    return undefined;
+  }
+}
+
 const games: PsxRom[] = [];
 try {
   for await (const entry of Deno.readDir(dirUrl)) {
@@ -41,12 +54,14 @@ try {
     const date = `${String(d.getMonth() + 1).padStart(2, "0")}.${
       String(d.getDate()).padStart(2, "0")
     }.${String(d.getFullYear()).slice(-2)}`;
+    const icon = await coverIcon(entry.name);
     games.push({
       file: entry.name,
       name: cleanName(entry.name),
       url: `/PlayStation/${encodeURIComponent(entry.name)}`,
       size: `${sizeMb} MB`,
       date,
+      ...(icon ? { icon } : {}),
     });
   }
 } catch (e) {

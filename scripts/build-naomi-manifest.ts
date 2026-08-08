@@ -18,6 +18,8 @@ interface NaomiRom {
   date: string;
   /** "naomi" = arcade ROM set, "dc" = Dreamcast disc image. */
   kind: "naomi" | "dc";
+  /** Cover art URL (covers/<basename>.png); omitted when no art exists. */
+  icon?: string;
 }
 
 // Formats flycast accepts (config/core.json in the flycast-wasm release).
@@ -66,6 +68,18 @@ function refsInDescriptor(name: string, text: string): string[] {
 
 const dirUrl = new URL("../static/Naomi/", import.meta.url);
 const manifestPath = new URL("manifest.json", dirUrl);
+
+// Cover art (fetched by a separate pipeline) lives in covers/ beside the
+// ROMs — return the served URL when <basename>.png exists.
+async function coverIcon(file: string): Promise<string | undefined> {
+  const base = file.replace(NAOMI_EXT, "");
+  try {
+    await Deno.stat(new URL(`covers/${base}.png`, dirUrl));
+    return `/Naomi/covers/${encodeURIComponent(base)}.png`;
+  } catch {
+    return undefined;
+  }
+}
 
 // Pass one: every file present, and the companions the descriptors claim.
 const present: string[] = [];
@@ -116,6 +130,7 @@ for (const name of present) {
       .replace(NAOMI_EXT, "")
       .replace(/\s*\((USA|U|US|NTSC|J|JP|E|EU|PAL|World|W)\)\s*$/i, "")
       .trim();
+    const icon = await coverIcon(name);
     games.push({
       file: name,
       name: display,
@@ -123,6 +138,7 @@ for (const name of present) {
       size: `${sizeMb} MB`,
       date,
       kind: DISC_EXT.test(name) ? "dc" : "naomi",
+      ...(icon ? { icon } : {}),
     });
   } catch (e) {
     console.error(

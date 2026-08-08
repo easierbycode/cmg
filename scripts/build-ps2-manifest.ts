@@ -13,6 +13,8 @@ interface Ps2Rom {
   date: string;
   /** "web" rows launch a browser build in the game iframe instead of Play! */
   kind?: "web";
+  /** Cover art URL (covers/<basename>.png); omitted when no art exists. */
+  icon?: string;
 }
 
 // Formats Play! accepts (single-file): ISO, CSO, CHD, ISZ, BIN, ELF.
@@ -20,6 +22,18 @@ const PS2_EXT = /\.(iso|cso|chd|isz|bin|elf)$/i;
 
 const dirUrl = new URL("../static/PlayStation2/", import.meta.url);
 const manifestPath = new URL("manifest.json", dirUrl);
+
+// Cover art (fetched by a separate pipeline) lives in covers/ beside the
+// ROMs — return the served URL when <basename>.png exists.
+async function coverIcon(file: string): Promise<string | undefined> {
+  const base = file.replace(PS2_EXT, "");
+  try {
+    await Deno.stat(new URL(`covers/${base}.png`, dirUrl));
+    return `/PlayStation2/covers/${encodeURIComponent(base)}.png`;
+  } catch {
+    return undefined;
+  }
+}
 
 const games: Ps2Rom[] = [];
 try {
@@ -36,12 +50,14 @@ try {
       .replace(PS2_EXT, "")
       .replace(/\s*\((USA|U|US|NTSC|J|JP|E|EU|PAL)\)\s*$/i, "")
       .trim();
+    const icon = await coverIcon(entry.name);
     games.push({
       file: entry.name,
       name: display,
       url: `/PlayStation2/${encodeURIComponent(entry.name)}`,
       size: `${sizeMb} MB`,
       date,
+      ...(icon ? { icon } : {}),
     });
   }
 } catch (e) {
@@ -57,7 +73,10 @@ try {
 const webListUrl = new URL("../data/ps2-web.json", import.meta.url);
 try {
   const web = JSON.parse(await Deno.readTextFile(webListUrl)) as Ps2Rom[];
-  for (const row of web) games.push({ ...row, kind: "web" });
+  for (const row of web) {
+    const icon = await coverIcon(row.file);
+    games.push({ ...row, kind: "web", ...(icon ? { icon } : {}) });
+  }
 } catch (e) {
   if (!(e instanceof Deno.errors.NotFound)) {
     console.error(
