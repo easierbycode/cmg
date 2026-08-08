@@ -76,6 +76,15 @@ export const DEFAULTS = {
     manifestKey: "custom-bgm-manifest",
     baseUrlElementId: "baseUrl",
   },
+  // Where the level editor publishes its working atlas, keyed per atlas
+  // ("atlas:game_asset", "atlas:game_ui"), so which atlas the editor happens
+  // to have open does not decide what the game gets.
+  editorAtlas: {
+    enabled: true,
+    dbName: "editorViewerBridge",
+    store: "assets",
+    keyPrefix: "atlas:",
+  },
 };
 
 function deepClone(value) {
@@ -129,6 +138,79 @@ export function openCustomAudioDB(dbName, store) {
     };
     req.onsuccess = (e) => resolve(e.target.result);
     req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+function loadImage(src) {
+  if (typeof Image === "undefined") {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    const isBlob = typeof Blob !== "undefined" && src instanceof Blob;
+    const url = isBlob ? URL.createObjectURL(src) : src;
+    const img = new Image();
+    const done = (value) => {
+      if (isBlob) URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    img.onload = () => done(img);
+    img.onerror = () => done(null);
+    img.src = url;
+  });
+}
+
+// Read the editor's published atlas record. Resolves null whenever there is
+// nothing usable — no IndexedDB, no bridge, no record for this atlas.
+function readEditorAtlasBridge(atlasKey, opts) {
+  const o = opts || DEFAULTS.editorAtlas;
+  if (o.enabled === false || typeof indexedDB === "undefined") {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    let req;
+    try {
+      // Open without a version so an existing bridge is read at whatever
+      // version the editor made it.
+      req = indexedDB.open(o.dbName);
+    } catch (_e) {
+      resolve(null);
+      return;
+    }
+    // Opening a database that does not exist creates it. If that happens here
+    // — the editor has never run in this browser — the empty database we just
+    // made would be left behind for the editor to trip over, so throw our
+    // accidental creation away.
+    let created = false;
+    req.onupgradeneeded = () => {
+      created = true;
+    };
+    req.onerror = () => resolve(null);
+    req.onsuccess = (e) => {
+      const db = e.target.result;
+      if (created || !db.objectStoreNames.contains(o.store)) {
+        try {
+          db.close();
+          if (created) indexedDB.deleteDatabase(o.dbName);
+        } catch (_e) { /* nothing to undo */ }
+        resolve(null);
+        return;
+      }
+      try {
+        const tx = db.transaction(o.store, "readonly");
+        const recordReq = tx.objectStore(o.store).get(o.keyPrefix + atlasKey);
+        tx.oncomplete = () => {
+          const record = recordReq.result;
+          resolve(
+            record && record.frames && record.blob
+              ? { frames: record.frames, blob: record.blob }
+              : null,
+          );
+        };
+        tx.onerror = () => resolve(null);
+      } catch (_e) {
+        resolve(null);
+      }
+    };
   });
 }
 
@@ -268,81 +350,111 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
     // level frames (enemies) resolve from one texture. Resolves once merged (or
     // immediately, if the level carries no atlas).
     mergeAtlas(levelData, atlasKey) {
-      const scene = this.scene;
       if (!levelData || !levelData.atlasImageDataURL || !levelData.atlasFrames) {
         return Promise.resolve(false);
       }
-
-      return new Promise((resolve) => {
-        const fbImg = new Image();
-        fbImg.onload = () => {
-          try {
-            const localAtlas = scene.textures.get(atlasKey);
-            const localSource = localAtlas && localAtlas.source && localAtlas.source[0]
-              ? localAtlas.source[0].image
-              : null;
-            const localFrames = localAtlas ? localAtlas.frames : {};
-            if (!localSource) {
-              resolve(false);
-              return;
-            }
-
-            const localW = localSource.width;
-            const localH = localSource.height;
-            const mergedCanvas = document.createElement("canvas");
-            mergedCanvas.width = Math.max(localW, fbImg.width);
-            mergedCanvas.height = localH + fbImg.height;
-            const mctx = mergedCanvas.getContext("2d");
-            mctx.drawImage(localSource, 0, 0);
-            mctx.drawImage(fbImg, 0, localH);
-
-            const mergedFrameMap = {};
-            for (const lk in localFrames) {
-              if (lk === "__BASE") continue;
-              const lf = localFrames[lk];
-              if (lf && lf.cutX !== undefined) {
-                mergedFrameMap[lk] = {
-                  frame: { x: lf.cutX, y: lf.cutY, w: lf.cutWidth, h: lf.cutHeight },
-                };
-              }
-            }
-            // Level frames are offset down by the local atlas height.
-            for (const fname in levelData.atlasFrames) {
-              const decodedName = decodeFirebaseKey(fname);
-              const fd = levelData.atlasFrames[fname];
-              if (fd && fd.frame) {
-                const frameData = {
-                  frame: { x: fd.frame.x, y: fd.frame.y + localH, w: fd.frame.w, h: fd.frame.h },
-                };
-                mergedFrameMap[decodedName] = frameData;
-                // Let a .png replacement also satisfy a .gif lookup (and vice
-                // versa) so animations find the swapped-in frames.
-                let altName = null;
-                if (decodedName.endsWith(".png")) {
-                  altName = decodedName.slice(0, -4) + ".gif";
-                } else if (decodedName.endsWith(".gif")) {
-                  altName = decodedName.slice(0, -4) + ".png";
-                }
-                if (altName && mergedFrameMap[altName]) {
-                  mergedFrameMap[altName] = frameData;
-                }
-              }
-            }
-
-            scene.textures.remove(atlasKey);
-            scene.textures.addAtlas(atlasKey, mergedCanvas, { frames: mergedFrameMap });
-            resolve(true);
-          } catch (atlasErr) {
-            console.warn("Failed to merge level atlas:", atlasErr);
-            resolve(false);
-          }
-        };
-        fbImg.onerror = () => {
+      return loadImage(levelData.atlasImageDataURL).then((img) => {
+        if (!img) {
           console.warn("Level atlas image failed to load, using local atlas");
-          resolve(false);
-        };
-        fbImg.src = levelData.atlasImageDataURL;
+          return false;
+        }
+        return this._stackAtlas(img, levelData.atlasFrames, atlasKey);
       });
+    }
+
+    // Stack `image` beneath the loaded atlas and rebuild the frame map so both
+    // sets resolve from one texture. Incoming frames win on a name collision —
+    // they are the customization — and .gif/.png spellings of the same name are
+    // treated as the same frame, since the editor and Firebase disagree on the
+    // suffix.
+    //
+    // Stacking rather than replacing matters: the incoming atlas may be missing
+    // frames the runtime needs (player00.gif and friends), and those keep
+    // resolving from the local copy instead of disappearing.
+    _stackAtlas(image, frames, atlasKey) {
+      const scene = this.scene;
+      try {
+        const localAtlas = scene.textures.get(atlasKey);
+        const localSource = localAtlas && localAtlas.source && localAtlas.source[0]
+          ? localAtlas.source[0].image
+          : null;
+        const localFrames = localAtlas ? localAtlas.frames : {};
+        if (!localSource) {
+          return false;
+        }
+
+        const localW = localSource.width;
+        const localH = localSource.height;
+        const mergedCanvas = document.createElement("canvas");
+        mergedCanvas.width = Math.max(localW, image.width);
+        mergedCanvas.height = localH + image.height;
+        const mctx = mergedCanvas.getContext("2d");
+        mctx.drawImage(localSource, 0, 0);
+        mctx.drawImage(image, 0, localH);
+
+        const mergedFrameMap = {};
+        for (const lk in localFrames) {
+          if (lk === "__BASE") continue;
+          const lf = localFrames[lk];
+          if (lf && lf.cutX !== undefined) {
+            mergedFrameMap[lk] = {
+              frame: { x: lf.cutX, y: lf.cutY, w: lf.cutWidth, h: lf.cutHeight },
+            };
+          }
+        }
+        // Incoming frames are offset down by the local atlas height.
+        for (const fname in frames) {
+          const decodedName = decodeFirebaseKey(fname);
+          const fd = frames[fname];
+          if (fd && fd.frame) {
+            const frameData = {
+              frame: { x: fd.frame.x, y: fd.frame.y + localH, w: fd.frame.w, h: fd.frame.h },
+            };
+            mergedFrameMap[decodedName] = frameData;
+            // Let a .png replacement also satisfy a .gif lookup (and vice
+            // versa) so animations find the swapped-in frames.
+            let altName = null;
+            if (decodedName.endsWith(".png")) {
+              altName = decodedName.slice(0, -4) + ".gif";
+            } else if (decodedName.endsWith(".gif")) {
+              altName = decodedName.slice(0, -4) + ".png";
+            }
+            if (altName && mergedFrameMap[altName]) {
+              mergedFrameMap[altName] = frameData;
+            }
+          }
+        }
+
+        scene.textures.remove(atlasKey);
+        scene.textures.addAtlas(atlasKey, mergedCanvas, { frames: mergedFrameMap });
+        return true;
+      } catch (atlasErr) {
+        console.warn("Failed to merge atlas:", atlasErr);
+        return false;
+      }
+    }
+
+    // The level EDITOR's working atlas, which it republishes to IndexedDB on
+    // every change (one record per atlas key). An editor "play" hands over a
+    // recipe of texture *names* through localStorage but no art, so without
+    // this every frame the editor added — an uploaded sprite, a Dezaemon
+    // import, the default player's own frames — resolves to the local atlas's
+    // frame 0. Resolves false (never rejects) when there is nothing to merge.
+    mergeEditorAtlas(opts) {
+      const o = opts || {};
+      const atlasKey = o.atlasKey || DEFAULTS.atlasKey;
+      const bridge = Object.assign({}, DEFAULTS.editorAtlas, o.editorAtlas || {});
+      return readEditorAtlasBridge(atlasKey, bridge)
+        .then((record) => {
+          if (!record) return false;
+          return loadImage(record.blob).then((img) =>
+            img ? this._stackAtlas(img, record.frames, atlasKey) : false
+          );
+        })
+        .catch((err) => {
+          console.warn("Editor atlas bridge unavailable, using on-disk art:", err);
+          return false;
+        });
     }
 
     // ---- Recipe merge -----------------------------------------------------
@@ -655,7 +767,8 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
         }
       };
 
-      // 1) Editor draft (localStorage) — skips the network entirely.
+      // 1) Editor draft (localStorage) — skips the network entirely. Its art
+      //    comes from the editor's IndexedDB atlas bridge, not from the record.
       const editorPlay = this.readEditorPlayRequest(o);
       if (editorPlay && editorPlay.recipe) {
         const recipe = deepClone(editorPlay.recipe);
@@ -666,16 +779,18 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
         } catch (_e) { /* ignore */ }
         const stageId = parseStageId(editorPlay.stageId, o.maxStage);
         const info = { stageId, bossRush, source: "editor", hasCustomEnemies };
-        prime(recipe, info);
-        return Promise.resolve({
-          recipe,
-          stageId,
-          hasCustomEnemies,
-          showTitle: false,
-          bossRush,
-          source: "editor",
-          levelName: null,
-          bgmSourceURLs: {},
+        return this.mergeEditorAtlas(o).then(() => {
+          prime(recipe, info);
+          return {
+            recipe,
+            stageId,
+            hasCustomEnemies,
+            showTitle: false,
+            bossRush,
+            source: "editor",
+            levelName: null,
+            bgmSourceURLs: {},
+          };
         });
       }
 

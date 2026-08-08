@@ -226,7 +226,7 @@ Deno.test({
           occupied: cells.length,
           withArt: withArt.length,
           validation: g.Dezaemon.validateGameJson(g.buildRuntimeRecipe()),
-          // A save carries no player, so the import supplies the Mutoid
+          // A save carries no player, so the import supplies the Duke
           // character — and its frames are not in the stock game_asset atlas,
           // so they only resolve if the import carried the pixels in too.
           player: (() => {
@@ -296,14 +296,18 @@ Deno.test({
       );
       assert(applied.notes.includes("nothing dropped"), applied.notes);
 
-      // The player the save does not have: the Mutoid character, art and all.
+      // The player the save does not have: the Duke character, art and all.
       assertEquals(applied.player.texture, [
-        "cyberLiberty0.png",
-        "cyberLiberty1.png",
+        "duke_0",
+        "duke_1",
+        "duke_2",
+        "duke_3",
       ]);
       assertEquals(applied.player.shootNormal, [
-        "hadoken0.png",
-        "hadoken1.png",
+        "bigProjectile_0.png",
+        "bigProjectile_1.png",
+        "bigProjectile_2.png",
+        "bigProjectile_3.png",
       ]);
       assertEquals(applied.player.shootBig, [
         "bigProjectile0.png",
@@ -317,7 +321,7 @@ Deno.test({
         "every frame the player references reached the atlas",
       );
       assert(
-        applied.notes.includes("Player and bullets: the Mutoid character"),
+        applied.notes.includes("Player and bullets: the Duke character"),
         applied.notes,
       );
     } finally {
