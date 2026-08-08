@@ -232,7 +232,12 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .games-screen.shown { opacity: 1; transform: scale(1); filter: blur(0); pointer-events: auto; }
 
 .games-panel { position: relative; width: min(92vw, 2400px); height: min(92vh, 1500px); display: grid; grid-template-columns: 24vmin 1fr; grid-template-rows: 1fr; gap: 3vmin; overflow: hidden; }
+/* The catalog panel carries the emulator strip across the top, so it grows a
+   second row. Every other games-screen (Demos, CMG Network, Add Game, Settings,
+   …) keeps the single-row grid above and its absolutely-positioned .strip-top. */
+.games-panel.with-strip { grid-template-rows: auto 1fr; gap: 2.6vmin 3vmin; height: min(88vh, 1500px); }
 .disc-col { display: flex; flex-direction: column; align-items: center; gap: 2.4vmin; padding-top: 4vmin; }
+.games-panel.with-strip .disc-col { padding-top: 0; min-height: 0; }
 .disc {
   width: 19vmin; height: 19vmin; max-width: 220px; max-height: 220px; min-width: 140px; min-height: 140px;
   border-radius: 50%; position: relative;
@@ -269,6 +274,10 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   padding: 0 4vmin;
 }
 .counter { font-family: 'Share Tech Mono'; font-size: clamp(11px, 1.5vmin, 16px); letter-spacing: .14em; color: rgba(220, 255, 180, .7); text-transform: uppercase; min-width: 5em; text-align: right; flex-shrink: 0; }
+/* The catalog header carries a third element (the Add button), so the title
+   gives back a little size and the row can shrink further before it wraps. */
+.games-panel.with-strip .games-header { min-height: 56px; }
+.games-panel.with-strip .title-bar { font-size: clamp(13px, 3.2vmin, 38px); }
 
 .games-list { position: relative; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 1.4vmin; overflow-x: visible; overflow-y: auto; padding: 2vmin 1vmin 2vmin max(1.6vmin, 32px); scroll-behavior: smooth; scrollbar-width: none; -ms-overflow-style: none; mask-image: linear-gradient(180deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%); -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%); }
 .games-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
@@ -393,6 +402,119 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .uninstall-btn:hover { filter: brightness(1.1); }
 .uninstall-btn:active { transform: scale(.9); }
 .game-row.sel .uninstall-btn { box-shadow: 0 0 16px rgba(255, 110, 110, .7), inset -1px -2px 6px rgba(0, 0, 0, .4); }
+
+/* === Emulator strip ======================================================
+   A horizontal shelf of console tiles across the top of the catalog panel.
+   Selecting a tile swaps the list underneath in place — the console libraries
+   used to be submenu rows that pushed to their own screen.
+
+   Two focus states matter here: .cmg-strip.on means the cursor is IN the strip
+   (yellow edge, tile labels visible, the section title below dims to say "not
+   here"), and .strip-tile.sel is the tile that cursor is on. A tile stays the
+   selected SECTION after the cursor drops into the list — it just stops
+   glowing, which is why .sel is only applied while the strip has focus. */
+.strip-block { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 1vmin; min-width: 0; }
+.strip-head {
+  display: flex; align-items: baseline; gap: 2em;
+  font-family: 'Share Tech Mono', monospace; font-size: clamp(11px, 1.4vmin, 15px);
+  letter-spacing: .26em; text-transform: uppercase; color: rgba(220, 255, 180, .6);
+  padding: 0 .4vmin;
+}
+.strip-head .strip-label { transition: color .2s ease, text-shadow .2s ease; }
+.strip-head .strip-label.on { color: #fff36a; text-shadow: 0 0 14px rgba(255, 240, 90, .5); }
+.strip-head .strip-core { color: rgba(220, 255, 180, .42); letter-spacing: .22em; }
+.strip-head .strip-core:first-of-type { margin-left: auto; }
+
+.cmg-strip {
+  display: flex; align-items: flex-start; gap: 2.2vmin;
+  overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth;
+  scrollbar-width: none; -ms-overflow-style: none;
+  padding: 1.6vmin max(1.6vmin, 24px) 1vmin;
+  touch-action: pan-x; cursor: grab;
+  border: 1px solid rgba(140, 255, 110, .3);
+  background: linear-gradient(180deg, rgba(70, 180, 90, .1), rgba(12, 40, 20, .55));
+  box-shadow: inset 0 2px 0 rgba(180, 255, 140, .12);
+  transition: border-color .25s ease, box-shadow .25s ease;
+  mask-image: linear-gradient(90deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%);
+}
+.cmg-strip::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.cmg-strip:active { cursor: grabbing; }
+.cmg-strip.on {
+  border-color: rgba(255, 240, 90, .5);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 220, .18), 0 0 30px rgba(255, 240, 90, .16);
+}
+
+.strip-tile {
+  flex-shrink: 0; width: clamp(96px, 13vmin, 150px);
+  display: flex; flex-direction: column; align-items: center; gap: .9vmin;
+  cursor: pointer; scroll-margin: 0 3vmin;
+  animation: tileBreathe calc(4.6s / var(--breathe-mult, 1)) ease-in-out infinite;
+}
+@keyframes tileBreathe { 50% { transform: translateY(-.6%); } }
+
+.strip-disc {
+  width: 100%; aspect-ratio: 1 / 1; position: relative; border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, #061a0b 25%, transparent 26%),
+    conic-gradient(from 30deg, rgba(140, 255, 90, .7), rgba(60, 180, 80, .25), rgba(140, 255, 90, .7) 60%, rgba(60, 180, 80, .25), rgba(140, 255, 90, .7));
+  box-shadow: 0 0 18px rgba(120, 255, 90, .5), inset 0 0 14px rgba(0, 0, 0, .55);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .22s cubic-bezier(.2, .8, .2, 1.08), box-shadow .22s ease;
+}
+.strip-disc .glass {
+  position: absolute; inset: 11%; border-radius: 50%; background: #0a1a0e;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  box-shadow: inset 0 0 12px rgba(120, 255, 90, .4), 0 0 0 2px rgba(140, 255, 110, .75);
+}
+.strip-disc .glass img { width: 82%; height: 82%; object-fit: contain; filter: drop-shadow(0 0 6px rgba(120, 255, 90, .55)); }
+.strip-disc .mark {
+  font-weight: 800; font-size: clamp(18px, 2.9vmin, 32px); letter-spacing: .04em;
+  color: #bdf48c; text-shadow: 0 0 10px rgba(120, 255, 90, .7);
+}
+/* A four-letter mark (MAME) has to shrink or it breaks the glass. */
+.strip-disc .mark.long { font-size: clamp(14px, 2.1vmin, 24px); }
+
+/* The tile name only shows for the tile under the cursor — eight labels at once
+   is noise, and the section title bar below already names the selected one. */
+.strip-name {
+  font-family: 'Share Tech Mono', monospace; font-size: clamp(10px, 1.3vmin, 14px);
+  letter-spacing: .16em; text-transform: uppercase; white-space: nowrap;
+  color: #fff36a; text-shadow: 0 0 12px rgba(255, 240, 90, .6);
+  opacity: 0; transition: opacity .2s ease; width: max-content;
+}
+.strip-tile.sel .strip-disc {
+  transform: scale(1.06);
+  box-shadow: 0 0 34px rgba(255, 240, 90, .75), inset 0 0 14px rgba(0, 0, 0, .55);
+}
+.strip-tile.sel .strip-disc .glass {
+  background: radial-gradient(circle at 50% 30%, #123a17, #0a1a0e 70%);
+  box-shadow: inset 0 0 14px rgba(255, 240, 90, .5), 0 0 0 2px rgba(255, 240, 90, .9);
+}
+.strip-tile.sel .strip-disc .mark { color: #fff8b0; text-shadow: 0 0 16px rgba(255, 240, 90, .85); }
+.strip-tile.sel .strip-name { opacity: 1; }
+.strip-tile:hover:not(.sel) .strip-disc { transform: scale(1.03); }
+
+/* While the cursor is up in the strip the section title steps back, so the two
+   halves never both look active. */
+.title-bar.dim { color: rgba(223, 255, 196, .55); border-color: rgba(140, 255, 110, .28); }
+
+/* Section header action: Add Game on the catalog, the section's own BYOD/BYOC
+   picker on a console. Same pill as .byod-btn, sized to sit in the header row. */
+.add-btn {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 10px;
+  font-family: 'Orbitron', sans-serif; font-weight: 700; letter-spacing: .18em;
+  text-transform: uppercase; font-size: clamp(11px, 1.2vmin, 13px);
+  color: #051208;
+  background: linear-gradient(180deg, rgba(160, 255, 110, .95), rgba(90, 220, 60, .9));
+  border: 1px solid rgba(180, 255, 140, 1);
+  padding: 12px 22px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  box-shadow: 0 0 24px rgba(120, 255, 90, .45), inset 0 -2px 0 rgba(0, 0, 0, .15);
+  transition: transform .15s ease, box-shadow .2s ease;
+}
+.add-btn:hover { transform: translateY(-1px); box-shadow: 0 0 32px rgba(120, 255, 90, .7), inset 0 -2px 0 rgba(0, 0, 0, .15); }
+.add-btn:active { transform: translateY(0) scale(.98); }
+.add-btn-icon { font-size: 1.2em; }
 
 /* clock/info top right */
 .strip-top {
@@ -686,6 +808,14 @@ body.theme-xbox360.osd-music-blade .music-hd {
   .orb-wrap { height: 38vmin; }
   .menu { padding: 0 6vmin; }
   .games-panel { grid-template-columns: 1fr; grid-template-rows: auto 1fr; padding: max(8vmin, 40px) 2vmin 2vmin max(8vmin, 40px); }
+  /* One column here, so the catalog panel's three children stack: strip, then
+     the disc/meta bar, then the list taking the rest. (Without the third track
+     the list falls into an implicit auto row and collapses to nothing.) */
+  .games-panel.with-strip { grid-template-rows: auto auto 1fr; padding-top: max(6vmin, 28px); }
+  /* Three things share the header row and the title needs most of it, so the
+     action drops to its glyph — ＋ / ⬆ still reads as add-something. */
+  .add-btn { padding: 10px; gap: 0; }
+  .add-btn span:not(.add-btn-icon) { display: none; }
   .disc-col { flex-direction: row; justify-content: flex-start; padding: 0; gap: 2vmin; }
   .disc { width: 14vmin; height: 14vmin; }
   .meta { flex: 1; }
@@ -929,6 +1059,43 @@ body.theme-nintendo .game-row.sel .game-bar { color: #fff; background: none; bor
 body.theme-nintendo .game-row.sel .game-bar .sub { color: #49c2ff; }
 body.theme-nintendo .uninstall-btn { position: absolute; top: 10px; right: 10px; z-index: 2; }
 
+/* Emulator strip — cabinet plastic over navy, matching the coverflow cards.
+   Note the coverflow row below is also horizontal, so on THIS screen left/right
+   drives the strip and the cards keep up/down (see navHasH in Dashboard.svelte);
+   two horizontal lists sharing one axis would be unnavigable. */
+body.theme-nintendo .games-panel.with-strip { grid-template-columns: 1fr; }
+body.theme-nintendo .strip-head { color: rgba(139, 160, 194, .75); }
+body.theme-nintendo .strip-head .strip-label.on { color: #49c2ff; text-shadow: none; }
+body.theme-nintendo .strip-head .strip-core { color: rgba(139, 160, 194, .55); }
+body.theme-nintendo .cmg-strip {
+  background: #0f1622; border: 1px solid #1f2a3c; border-radius: 16px;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .35);
+}
+body.theme-nintendo .cmg-strip.on { border-color: #49c2ff; box-shadow: 0 0 0 2px rgba(73, 194, 255, .3), 0 10px 22px rgba(0, 0, 0, .35); }
+body.theme-nintendo .strip-tile { animation: none; transform: scale(.92); transition: transform .22s ease; }
+body.theme-nintendo .strip-tile.sel { transform: scale(1); }
+body.theme-nintendo .strip-disc {
+  background: #05080c; border: 1px solid #1f2a3c; box-shadow: none;
+  border-radius: 14px; overflow: hidden; transform: none;
+}
+body.theme-nintendo .strip-disc::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 10px; z-index: 1;
+  background: var(--nintendo-red, #e4000f);
+}
+body.theme-nintendo .strip-disc .glass { inset: 0; border-radius: 0; background: transparent; box-shadow: none; }
+body.theme-nintendo .strip-disc .glass img { width: 100%; height: 100%; object-fit: cover; filter: none; }
+body.theme-nintendo .strip-disc .mark { color: #fff; text-shadow: none; }
+body.theme-nintendo .strip-tile.sel .strip-disc { border-color: #49c2ff; box-shadow: 0 0 0 2px rgba(73, 194, 255, .35); transform: none; }
+body.theme-nintendo .strip-tile.sel .strip-disc .glass { background: transparent; box-shadow: none; }
+body.theme-nintendo .strip-tile.sel .strip-disc .mark { color: #fff; text-shadow: none; }
+body.theme-nintendo .strip-name { color: #e9ecf1; text-shadow: none; }
+body.theme-nintendo .title-bar.dim { color: rgba(233, 236, 241, .55); border-color: #1f2a3c; }
+body.theme-nintendo .add-btn {
+  background: #49c2ff; border-color: #49c2ff; color: #04283b;
+  border-radius: 12px; box-shadow: 0 8px 18px rgba(0, 0, 0, .35);
+}
+body.theme-nintendo .add-btn:hover { box-shadow: 0 10px 22px rgba(0, 0, 0, .45); }
+
 /* NES-cabinet bottom bar (markup rendered by Dashboard.svelte in this theme).
    Sits above the scanline/vignette overlays so the plastic reads solid. */
 .nes-bar { position: fixed; left: 0; right: 0; bottom: 0; height: 132px; z-index: 60; display: flex; flex-direction: column; pointer-events: none; }
@@ -945,6 +1112,8 @@ body.theme-nintendo .uninstall-btn { position: absolute; top: 10px; right: 10px;
      sticks to the top; a single `1fr` row lets it fill so the coverflow list
      (align-items:center) centers vertically. Balanced padding keeps it centered. */
   body.theme-nintendo .games-panel { grid-template-rows: 1fr; padding: 2vmin; }
+  /* …except the catalog panel, which still needs its strip row on top. */
+  body.theme-nintendo .games-panel.with-strip { grid-template-rows: auto 1fr; }
   .nes-logo { margin-left: 20px; }
   .nes-box { right: 20px; }
 }
@@ -1120,6 +1289,44 @@ body.theme-xbox360 .game-row:hover:not(.sel) .game-bar {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, .2), rgba(255, 255, 255, 0) 42%),
     linear-gradient(180deg, rgba(124, 255, 79, .24), rgba(10, 28, 14, .76));
+}
+/* Emulator strip — the blade treatment: rounded, glossy, one unified green.
+   Selection is a lit blade edge (#d9ffa6) rather than the base theme's yellow. */
+body.theme-xbox360 .cmg-strip {
+  border-radius: 14px; border: 1px solid rgba(140, 255, 110, .25);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, rgba(124, 255, 79, .1), rgba(8, 22, 10, .72));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(200, 255, 170, .22);
+}
+body.theme-xbox360 .cmg-strip.on {
+  border-color: rgba(217, 255, 166, .8);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .35), 0 0 30px rgba(124, 255, 79, .35);
+}
+body.theme-xbox360 .strip-head .strip-label.on { color: #d9ffa6; text-shadow: 0 0 14px rgba(124, 255, 79, .55); }
+body.theme-xbox360 .strip-disc {
+  background:
+    radial-gradient(circle at 50% 50%, #08140a 25%, transparent 26%),
+    conic-gradient(from 30deg, rgba(124, 255, 79, .75), rgba(30, 110, 45, .28), rgba(124, 255, 79, .75) 60%, rgba(30, 110, 45, .28), rgba(124, 255, 79, .75));
+  box-shadow: 0 0 18px rgba(124, 255, 79, .5), inset 0 0 14px rgba(0, 0, 0, .55);
+}
+body.theme-xbox360 .strip-disc .glass { background: #07160b; box-shadow: inset 0 0 12px rgba(124, 255, 79, .4), 0 0 0 2px rgba(150, 255, 110, .75); }
+body.theme-xbox360 .strip-disc .mark { color: #c9f7a0; text-shadow: 0 0 10px rgba(124, 255, 79, .7); }
+body.theme-xbox360 .strip-tile.sel .strip-disc { box-shadow: 0 0 30px rgba(124, 255, 79, .75), inset 0 0 14px rgba(0, 0, 0, .55); }
+body.theme-xbox360 .strip-tile.sel .strip-disc .glass {
+  background: radial-gradient(circle at 50% 30%, #0f3418, #07160b 70%);
+  box-shadow: inset 0 0 14px rgba(124, 255, 79, .5), 0 0 0 2px rgba(217, 255, 166, .95);
+}
+body.theme-xbox360 .strip-tile.sel .strip-disc .mark { color: #eaffd2; text-shadow: 0 0 16px rgba(124, 255, 79, .85); }
+body.theme-xbox360 .strip-name { color: #d9ffa6; text-shadow: 0 0 12px rgba(124, 255, 79, .55); }
+body.theme-xbox360 .title-bar.dim { color: rgba(244, 255, 232, .6); border-color: rgba(190, 255, 150, .3); }
+body.theme-xbox360 .add-btn {
+  border-radius: 999px; color: #05230d;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .36), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, #d9ffa6 0%, #9cff6b 35%, #4ecf5c 70%, #17842f 100%);
+  border-color: #d9ffa6;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .65), 0 0 26px rgba(124, 255, 79, .45);
 }
 
 /* ── Transient toast ─────────────────────────────────────────────────────────

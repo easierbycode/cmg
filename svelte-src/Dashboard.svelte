@@ -14,16 +14,13 @@
     { id: 'settings', label: 'Settings', tag: '03 / config',   num: '0x03' },
   ];
 
-  const TG16_ID = '__tg16__';
-  const PSX_ID  = '__psx__';
-  const PS2_ID  = '__ps2__';
-  const SATURN_ID = '__saturn__';
-  const NAOMI_ID = '__naomi__';
-  const NES_ID = '__nes__';
-  const SWITCH_ID = '__switch__';
+  // The two submenu rows left in the catalog list. The console libraries used
+  // ids of the same shape when they were rows here; they are strip sections now
+  // and carry their id on the section descriptor instead (see SECTIONS).
   const DEMOS_ID = '__demos__';
   const CMGNET_ID = '__cmgnet__';
-  const ARCADE_ID = '__arcade__';
+  // Kept for the OTA path only: a manifest built before the strip landed can
+  // still carry an Add Game row, and this keeps it working rather than dead.
   const ADDGAME_ID = '__addgame__';
   // Baked-in fallback snapshot of the Demos list (Games → Demos). At runtime
   // loadManifest() replaces it with the manifest's `demos` (OTA), so adding a
@@ -50,24 +47,21 @@
     { id: 'hellophaser/v3',                                        name: 'RonaGun v0',          title: 'RONAGUN V0',          sub: 'Phaser v3 demo',  icon: null,                                   size: '3.1 MB',  date: '08.08.22' },
     { id: 'shmup-party-phaser3',                                   name: 'Sh’M↑ Party',         title: 'SH\'M↑ PARTY',        sub: 'Multiplayer',     icon: '/icons/shmup-party-icon.png',          size: '7.9 MB',  date: '02.14.24' },
     { id: DEMOS_ID,                                                name: 'Demos',               title: 'DEMOS',               sub: 'DEMO // submenu', icon: null,                                   size: '— MB',    date: 'DEMO',    submenu: true },
-    { id: ADDGAME_ID,                                              name: 'Add Game',            title: 'ADD GAME',            sub: 'ZIP · URL · GITHUB', icon: null,                                size: '— MB',    date: 'ADD',     submenu: true },
     { id: CMGNET_ID,                                               name: 'CMG Network',         title: 'CMG NETWORK',         sub: 'NET // e-shop',   icon: null,                                   size: '— MB',    date: 'NET',     submenu: true },
-    { id: ARCADE_ID,                                               name: 'Arcade',              title: 'ARCADE',              sub: 'MAME // submenu', icon: null,                                   size: '— MB',    date: 'MAME',    submenu: true },
-    { id: NAOMI_ID,                                                name: 'NAOMI',               title: 'NAOMI',               sub: 'DREAMCAST // submenu', icon: '/icons/naomi-reindeer.png',       size: '— MB',    date: 'DC',      submenu: true },
-    { id: NES_ID,                                                  name: 'Nintendo',            title: 'NINTENDO',            sub: 'NES // submenu',  icon: null,                                   size: '— MB',    date: 'NES',     submenu: true },
-    { id: SWITCH_ID,                                               name: 'Nintendo Switch',     title: 'NINTENDO SWITCH',     sub: 'NSW // submenu',  icon: null,                                   size: '— MB',    date: 'NSW',     submenu: true },
-    { id: PSX_ID,                                                  name: 'PlayStation',         title: 'PLAYSTATION',         sub: 'PSX // submenu',  icon: null,                                   size: '— MB',    date: 'PSX',     submenu: true },
-    { id: PS2_ID,                                                  name: 'PlayStation 2',       title: 'PLAYSTATION 2',       sub: 'PS2 // submenu',  icon: null,                                   size: '— MB',    date: 'PS2',     submenu: true },
-    { id: SATURN_ID,                                               name: 'Sega Saturn',         title: 'SEGA SATURN',         sub: 'SS // submenu',   icon: null,                                   size: '— MB',    date: 'SS',      submenu: true },
-    { id: TG16_ID,                                                 name: 'TurboGrafx-16',       title: 'TURBOGRAFX-16',       sub: 'PCE // submenu',  icon: null,                                   size: '— MB',    date: 'PCE',     submenu: true },
   ];
 
-  // Submenu tiles (Demos / PlayStation / TurboGrafx-16) are fixed client
-  // features, not OTA games — the manifest carries only real games — so we take
-  // them from the seed and prepend them to the rendered list (see GAMES below).
-  // Their order here IS their on-screen order; where they sit relative to the
-  // real games is decided by the GAMES $derived, not by their position in
-  // SEED_GAMES (the two filters below partition the seed into disjoint lists).
+  // Submenu tiles (Demos / CMG Network) are fixed client features, not OTA
+  // games — the manifest carries only real games — so we take them from the
+  // seed and prepend them to the rendered list (see GAMES below). Their order
+  // here IS their on-screen order; where they sit relative to the real games is
+  // decided by the GAMES $derived, not by their position in SEED_GAMES (the two
+  // filters below partition the seed into disjoint lists).
+  //
+  // The console libraries used to live here too, as submenu rows that pushed to
+  // their own screen. They are strip SECTIONS now (see below): the emulators
+  // ride a horizontal strip across the top of this one screen and switch the
+  // list under it in place, so there is nothing left to push to. Add Game moved
+  // the same way — from a row to the section header's button.
   const SUBMENUS = SEED_GAMES.filter((g) => g.submenu);
   // Reactive base game list (the real OTA games, no submenus): starts as the
   // baked seed, then replaced at runtime by the fetched manifest (see
@@ -143,57 +137,58 @@
   let gameRowEls = $state([]);
   let gameListEl = $state(null);
 
+  // ─── Emulator strip ────────────────────────────────────────────────────────
+  // The catalog and every console library are sections of ONE screen: the strip
+  // across the top selects a section, the list under it shows that section's
+  // rows. `secSel` indexes SECTIONS (below); `stripFocus` says which of the two
+  // the cursor is in — Down off the strip enters the list, Up from row 0 returns
+  // to it, so the two halves behave like one continuous column.
+  let secSel = $state(0);
+  let stripFocus = $state(true);
+  let stripEl = $state(null);
+  let tileEls = $state([]);
+  // The selected section's file picker, rendered once and re-pointed by the
+  // section descriptor rather than once per console. Only one section is on
+  // screen at a time, so one input/button pair covers all of them — and the
+  // BYOD empty state's button stays a real, visible, focusable element, which
+  // is what makes a keyboard Enter able to open the native picker at all.
+  let byodInputEl = $state(null);
+  let byodBtnEl = $state(null);
+
+  // Per-console library + cursor. Each pair is one strip section's state (see
+  // SECTIONS); the file pickers they used to own are the shared byodInputEl /
+  // byodBtnEl above, since only one section is on screen at a time.
   let tg16Games = $state([]);
   let tg16Sel = $state(0);
-  let tg16RowEls = $state([]);
   let arcadeGames = $state([]);
   let arcadeSel = $state(0);
-  let arcadeRowEls = $state([]);
   let arcadeByobError = $state('');
-  let arcadeFileInput = $state(null);
   let psxGames = $state([]);
   let psxSel = $state(0);
-  let psxRowEls = $state([]);
   let psxByodError = $state('');
-  let psxFileInput = $state(null);
-  let psxByodBtnEl = $state(null);
   let ps2Games = $state([]);
   let ps2Sel = $state(0);
-  let ps2RowEls = $state([]);
   let ps2ByodError = $state('');
-  let ps2FileInput = $state(null);
-  let ps2ByodBtnEl = $state(null);
   let saturnGames = $state([]);
   let saturnSel = $state(0);
-  let saturnRowEls = $state([]);
   let saturnByodError = $state('');
-  let saturnFileInput = $state(null);
-  let saturnByodBtnEl = $state(null);
   // NAOMI / Dreamcast (flycast-wasm). BYOD takes a NAOMI ROM set or a
   // Dreamcast disc image, plus any BIOS dumps picked with it.
   let naomiGames = $state([]);
   let naomiSel = $state(0);
-  let naomiRowEls = $state([]);
   let naomiByodError = $state('');
-  let naomiFileInput = $state(null);
-  let naomiByodBtnEl = $state(null);
   // NES — preloaded ROMs (manifest) plus an always-present BYOC ("Bring Your
   // Own Cartridge") row pinned after them at index nesGames.length.
   let nesGames = $state([]);
   let nesSel = $state(0);
-  let nesRowEls = $state([]);
   let nesByocError = $state('');
-  let nesFileInput = $state(null);
   // Nintendo Switch (Voland) — no bundled cartridges: the library directory is
   // gitignored and Voland ships no games or keys, so the list is empty until
   // you drop .xci/.nsp/.nro files in static/NintendoSwitch/. Until then the
-  // screen is the BYOC ("Bring Your Own Cartridge") empty state.
+  // section is the BYOC ("Bring Your Own Cartridge") empty state.
   let switchGames = $state([]);
   let switchSel = $state(0);
-  let switchRowEls = $state([]);
   let switchByocError = $state('');
-  let switchFileInput = $state(null);
-  let switchByocBtnEl = $state(null);
   let demosSel = $state(0);
   let demosRowEls = $state([]);
   let cmgnetGames = $state([]);
@@ -1239,58 +1234,18 @@
   }
   function closeSoftmod() { softmodOn = false; }
 
+  // Keep the cursor on screen in whichever half of the games screen owns it —
+  // the row list, or the strip. Both halves scroll independently.
+  $effect(() => {
+    if (screen !== 'games' || stripFocus) return;
+    const el = gameRowEls[curSel];
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
   $effect(() => {
     if (screen !== 'games') return;
-    const el = gameRowEls[gameSel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-
-  $effect(() => {
-    if (screen !== 'tg16') return;
-    const el = tg16RowEls[tg16Sel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-
-  $effect(() => {
-    if (screen !== 'arcade') return;
-    const el = arcadeRowEls[arcadeSel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-
-  $effect(() => {
-    if (screen !== 'psx') return;
-    const el = psxRowEls[psxSel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-
-  $effect(() => {
-    if (screen !== 'ps2') return;
-    const el = ps2RowEls[ps2Sel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-
-  $effect(() => {
-    if (screen !== 'saturn') return;
-    const el = saturnRowEls[saturnSel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-
-  $effect(() => {
-    if (screen !== 'naomi') return;
-    const el = naomiRowEls[naomiSel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-
-  $effect(() => {
-    if (screen !== 'nes') return;
-    const el = nesRowEls[nesSel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-
-  $effect(() => {
-    if (screen !== 'switch') return;
-    const el = switchRowEls[switchSel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const el = tileEls[secSel];
+    if (el) el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   });
 
   $effect(() => {
@@ -1337,93 +1292,260 @@
     if (cmgnetSel > cmgnetVisible.length - 1) cmgnetSel = Math.max(cmgnetVisible.length - 1, 0);
   });
 
-  // Auto-focus the BYOD button when entering the empty PSX screen so gamepad
-  // FBTN_BOTTOM can click it. Note: browsers require a *user* gesture to open
-  // the native file picker — gamepad input doesn't count. Focusing means a real
-  // Enter on a USB keyboard will trigger the picker; programmatic .click()
+  // Auto-focus the BYOD button when landing on an empty console section so
+  // gamepad FBTN_BOTTOM can click it. Note: browsers require a *user* gesture to
+  // open the native file picker — gamepad input doesn't count. Focusing means a
+  // real Enter on a USB keyboard will trigger the picker; programmatic .click()
   // from gamepad polling will be silently denied in some browsers.
   $effect(() => {
-    if (screen !== 'psx' || psxGames.length !== 0) return;
-    queueMicrotask(() => { try { psxByodBtnEl?.focus(); } catch (_) {} });
+    if (screen !== 'games' || !sectionEmpty || !curSection.picker) return;
+    queueMicrotask(() => { try { byodBtnEl?.focus(); } catch (_) {} });
   });
 
+  // A section whose list shrank under the cursor (a ROM list arrives, a network
+  // install graduates) must not leave the selection dangling past the end.
   $effect(() => {
-    if (screen !== 'ps2' || ps2Games.length !== 0) return;
-    queueMicrotask(() => { try { ps2ByodBtnEl?.focus(); } catch (_) {} });
+    const max = Math.max(curRows.length - 1, 0);
+    if (curSection.sel() > max) curSection.setSel(max);
   });
 
-  $effect(() => {
-    if (screen !== 'saturn' || saturnGames.length !== 0) return;
-    queueMicrotask(() => { try { saturnByodBtnEl?.focus(); } catch (_) {} });
-  });
+  // ─── Strip sections ────────────────────────────────────────────────────────
+  // One descriptor per strip tile. Each owns the selection state it already had
+  // as a standalone screen (the per-console *Sel runes are untouched), so
+  // collapsing the screens together left every launch and BYOD path below
+  // exactly as it was — only the chrome around them is shared now.
+  //
+  //   name/mark/icon      — the strip tile (mark is the type-mark in the glass
+  //                         disc; a section with an icon shows that instead)
+  //   title/metaType/date — section header + the disc panel's readout
+  //   coreA/coreB         — the emulator credits, in the strip's header line
+  //   rows                — normalized row descriptors (see romRows/pinnedRow)
+  //   sel/setSel/activate — cursor + what FBTN_BOTTOM does on a row
+  //   byod                — empty-state copy when rows is empty
+  //   picker              — the section's file picker, if it has one
+  //   add                 — the header button (catalog: Add Game; a console:
+  //                         its own BYOD/BYOC picker)
+  function romRows(list, type) {
+    return (list || []).map((g) => ({
+      key: g.file, name: g.name, title: String(g.name).toUpperCase(), sub: g.size,
+      icon: null, size: g.size, date: g.date, type: typeof type === 'function' ? type(g) : type,
+    }));
+  }
+  function pinnedRow(o) {
+    return {
+      key: o.key, name: o.metaName, title: o.title, sub: o.sub, icon: null,
+      size: '—', date: '—', type: o.type, pinned: true, counterLabel: o.counterLabel,
+    };
+  }
 
-  $effect(() => {
-    if (screen !== 'naomi' || naomiGames.length !== 0) return;
-    queueMicrotask(() => { try { naomiByodBtnEl?.focus(); } catch (_) {} });
-  });
+  let SECTIONS = $derived([
+    {
+      id: 'games', name: 'Games', mark: 'CMG', icon: '/icons/x-logo.png',
+      title: 'GAMES', metaType: 'CMG / CATALOG', date: 'CMG',
+      coreA: 'boot.0728', coreB: 'signal // ok',
+      sel: () => gameSel, setSel: (v) => (gameSel = v),
+      activate: (i) => launchGame(GAMES[i]?.id),
+      add: { icon: '＋', label: 'Add Game', run: openAddGame },
+      rows: GAMES.map((g) => ({
+        key: g.id, name: g.name, title: g.title + (g.submenu ? ' ›' : ''), sub: g.sub,
+        icon: g.icon, size: g.size, date: g.date,
+        submenu: !!g.submenu && !g.icon,
+        type: g.submenu ? 'SUBMENU' : g.__cmgnet ? 'NET / INSTALLED' : g.__local ? 'LOCAL / INSTALLED' : 'GAME / IFRAME',
+        g,
+      })),
+    },
+    {
+      id: 'arcade', name: 'Arcade', mark: 'MAME', icon: null,
+      title: 'ARCADE', metaType: 'ARCADE / MAME', date: 'MAME',
+      coreA: 'core // mame', coreB: 'emularity',
+      sel: () => arcadeSel, setSel: (v) => (arcadeSel = v),
+      activate: (i) => { if (i >= arcadeGames.length) openSectionPicker(); else launchArcade(arcadeGames[i]); },
+      // MAME ships a preload, so its picker is a pinned row after the ROMs
+      // rather than an empty state — same as NES below.
+      rows: romRows(arcadeGames).concat([
+        pinnedRow({ key: '__byob__', title: 'BRING YOUR OWN BOARD (JAMMA)', sub: 'load a .zip from disk', metaName: 'BYOB', type: 'JAMMA / .ZIP', counterLabel: 'BYOB' }),
+      ]),
+      picker: { accept: '.zip,application/zip,application/x-zip-compressed,application/octet-stream', onchange: onArcadeByobChange },
+      add: { icon: '⬆', label: 'Add Board', run: openSectionPicker },
+      err: arcadeByobError,
+    },
+    {
+      id: 'naomi', name: 'NAOMI', mark: 'DC', icon: '/icons/naomi-reindeer.png',
+      title: 'NAOMI', metaType: 'NAOMI / BOARD', date: 'DC',
+      coreA: 'core // flycast', coreB: 'emulatorjs',
+      sel: () => naomiSel, setSel: (v) => (naomiSel = v),
+      activate: (i) => { if (naomiGames.length === 0) openSectionPicker(); else launchNaomi(naomiGames[i]?.file); },
+      rows: romRows(naomiGames, (g) => (g.kind === 'dc' ? 'DREAMCAST / DISC' : 'NAOMI / BOARD')),
+      picker: { accept: '.zip,.7z,.lst,.dat,.chd,.gdi,.cdi,.cue,.iso,.bin,.raw,.elf,application/octet-stream', multiple: true, onchange: onNaomiByodChange },
+      add: { icon: '⬆', label: 'Add Disc', run: openSectionPicker },
+      byod: {
+        title: 'BYOD — Bring Your Own Disc',
+        pre: 'No NAOMI images in ', path: 'static/Naomi/', post: '. Pick a board or disc from disk:',
+        btn: 'Choose board / disc…',
+        hint: [
+          ['NAOMI + Atomiswave ROM sets: .zip · .7z · .lst · .dat'],
+          ['Dreamcast discs: .chd · .cdi · .iso load on their own; .gdi / .cue need their track files selected together.'],
+          ['Select the BIOS (', { code: 'naomi.zip' }, ', ', { code: 'awbios.zip' }, ', ', { code: 'dc_boot.bin' }, ') with it, or drop it in ', { code: 'static/bios/' }, ' — user-supplied either way.'],
+        ],
+      },
+      err: naomiByodError,
+    },
+    {
+      id: 'nes', name: 'Nintendo', mark: 'NES', icon: null,
+      title: 'NINTENDO', metaType: 'NES / .NES', date: 'NES',
+      coreA: 'core // fceumm', coreB: 'emulatorjs',
+      sel: () => nesSel, setSel: (v) => (nesSel = v),
+      activate: (i) => { if (i >= nesGames.length) openSectionPicker(); else launchNes(nesGames[i]?.file); },
+      rows: romRows(nesGames).concat([
+        pinnedRow({ key: '__byoc__', title: 'BRING YOUR OWN CARTRIDGE', sub: 'load a .nes from disk', metaName: 'BYOC', type: 'NES / .NES', counterLabel: 'BYOC' }),
+      ]),
+      picker: { accept: '.nes,.fds,.unif,.unf,.zip,application/octet-stream', onchange: onByocChange },
+      add: { icon: '⬆', label: 'Add Cartridge', run: openSectionPicker },
+      err: nesByocError,
+    },
+    {
+      id: 'switch', name: 'Nintendo Switch', mark: 'NSW', icon: null,
+      title: 'NINTENDO SWITCH', metaType: 'NSW / CART', date: 'NSW',
+      coreA: 'core // switch', coreB: 'voland',
+      sel: () => switchSel, setSel: (v) => (switchSel = v),
+      activate: (i) => { if (switchGames.length === 0) openSectionPicker(); else launchSwitch(switchGames[i]?.file); },
+      rows: romRows(switchGames),
+      picker: { accept: '.xci,.nsp,.nro,application/octet-stream', onchange: onSwitchByocChange },
+      add: { icon: '⬆', label: 'Add Cartridge', run: openSectionPicker },
+      byod: {
+        title: 'BYOC — Bring Your Own Cartridge',
+        pre: 'No cartridges in ', path: 'static/NintendoSwitch/', post: '. Pick one from disk:',
+        btn: 'Choose cartridge…',
+        hint: [
+          ['.xci dumps · .nsp packages, from hardware you own — .nro homebrew needs no keys.'],
+          ['Everything else decrypts with your own ', { code: 'prod.keys' }, ' in ', { code: 'static/bios/' }, '.'],
+        ],
+      },
+      err: switchByocError,
+    },
+    {
+      id: 'psx', name: 'PlayStation', mark: 'PSX', icon: null,
+      title: 'PLAYSTATION', metaType: 'PSX / DISC', date: 'PSX',
+      coreA: 'core // psx', coreB: 'emulatorjs',
+      sel: () => psxSel, setSel: (v) => (psxSel = v),
+      activate: (i) => { if (psxGames.length === 0) openSectionPicker(); else launchPsx(psxGames[i]?.file); },
+      rows: romRows(psxGames),
+      picker: { accept: '.pbp,.chd,.iso,.cue,.bin,.m3u,application/octet-stream', multiple: true, onchange: onByodChange },
+      add: { icon: '⬆', label: 'Add Disc', run: openSectionPicker },
+      byod: {
+        title: 'BYOD — Bring Your Own Disc',
+        pre: 'No PSX images in ', path: 'static/PlayStation/', post: '. Pick a disc image from disk:',
+        btn: 'Choose disc files…',
+        hint: [
+          ['.pbp · .chd · .iso load directly.'],
+          ['.cue / .m3u need their companion .bin files selected together.'],
+        ],
+      },
+      err: psxByodError,
+    },
+    {
+      id: 'ps2', name: 'PlayStation 2', mark: 'PS2', icon: null,
+      title: 'PLAYSTATION 2', metaType: 'PS2 / DISC', date: 'PS2',
+      coreA: 'core // ps2', coreB: 'play!',
+      sel: () => ps2Sel, setSel: (v) => (ps2Sel = v),
+      activate: (i) => { if (ps2Games.length === 0) openSectionPicker(); else launchPs2(ps2Games[i]); },
+      rows: romRows(ps2Games),
+      picker: { accept: '.iso,.cso,.chd,.isz,.bin,.elf,application/octet-stream', onchange: onPs2ByodChange },
+      add: { icon: '⬆', label: 'Add Disc', run: openSectionPicker },
+      byod: {
+        title: 'BYOD — Bring Your Own Disc',
+        pre: 'No PS2 images in ', path: 'static/PlayStation2/', post: '. Pick a disc image from disk:',
+        btn: 'Choose disc image…',
+        hint: [
+          ['.iso · .cso · .chd · .isz load directly (streamed, so DVD-size images are fine).'],
+          ['.elf boots AthenaEnv / homebrew.'],
+        ],
+      },
+      err: ps2ByodError,
+    },
+    {
+      id: 'saturn', name: 'Sega Saturn', mark: 'SS', icon: null,
+      title: 'SEGA SATURN', metaType: 'SATURN / DISC', date: 'SS',
+      coreA: 'core // segaSaturn', coreB: 'emulatorjs',
+      sel: () => saturnSel, setSel: (v) => (saturnSel = v),
+      activate: (i) => { if (saturnGames.length === 0) openSectionPicker(); else launchSaturn(saturnGames[i]?.file); },
+      rows: romRows(saturnGames),
+      picker: { accept: '.chd,.iso,.cue,.bin,.m3u,.ccd,.mds,application/octet-stream', multiple: true, onchange: onSaturnByodChange },
+      add: { icon: '⬆', label: 'Add Disc', run: openSectionPicker },
+      byod: {
+        title: 'BYOD — Bring Your Own Disc',
+        pre: 'No Saturn images in ', path: 'static/SegaSaturn/', post: '. Pick a disc image from disk:',
+        btn: 'Choose disc files…',
+        hint: [
+          ['.chd · .iso load directly.'],
+          ['.cue / .m3u need their companion .bin files selected together.'],
+          ['Needs ', { code: 'static/bios/saturn_bios.bin' }, ' (user-supplied).'],
+        ],
+      },
+      err: saturnByodError,
+    },
+    {
+      id: 'tg16', name: 'TurboGrafx-16', mark: 'PCE', icon: null,
+      title: 'TURBOGRAFX-16', metaType: 'TG16 / .PCE', date: 'PCE',
+      coreA: 'core // mednafen', coreB: 'emulatorjs',
+      sel: () => tg16Sel, setSel: (v) => (tg16Sel = v),
+      activate: (i) => launchTg16(tg16Games[i]?.file),
+      rows: romRows(tg16Games),
+      // No BYOD path: EmulatorJS reads .pce straight off the manifest, so the
+      // empty state is a shelf notice with nothing to click.
+      byod: {
+        title: 'NO ROMS FOUND',
+        pre: 'Drop ', path: '.pce', post: ' files into static/TurboGrafx-16/ and they show up here.',
+        hint: [],
+      },
+    },
+  ]);
 
-  $effect(() => {
-    if (screen !== 'switch' || switchGames.length !== 0) return;
-    queueMicrotask(() => { try { switchByocBtnEl?.focus(); } catch (_) {} });
-  });
+  let curSection = $derived(SECTIONS[secSel] || SECTIONS[0]);
+  let curRows = $derived(curSection.rows);
+  let curSel = $derived(Math.min(curSection.sel(), Math.max(curRows.length - 1, 0)));
+  let curRow = $derived(curRows[curSel]);
+  let sectionEmpty = $derived(curRows.length === 0);
+  let stripCounter = $derived(
+    String(secSel + 1).padStart(2, '0') + ' / ' + String(SECTIONS.length).padStart(2, '0')
+  );
 
   let currentGame = $derived(GAMES[gameSel]);
-  let currentTg16 = $derived(tg16Games[tg16Sel]);
-  let currentArcade = $derived(arcadeGames[arcadeSel]);
-  let onArcadeByobRow = $derived(arcadeSel >= arcadeGames.length);
-  let currentPsx = $derived(psxGames[psxSel]);
-  let currentPs2 = $derived(ps2Games[ps2Sel]);
-  let currentSaturn = $derived(saturnGames[saturnSel]);
-  let currentNaomi = $derived(naomiGames[naomiSel]);
-  // undefined when nesSel is on the pinned BYOC row (index === nesGames.length).
-  let currentNes = $derived(nesGames[nesSel]);
-  let onNesByocRow = $derived(nesSel >= nesGames.length);
-  let currentSwitch = $derived(switchGames[switchSel]);
+  // The uninstall / update / delete affordances belong to the CMG catalog only,
+  // and only once the cursor has dropped off the strip into an actual row.
+  let onCatalogRow = $derived(screen === 'games' && !stripFocus && curSection.id === 'games');
+  // Whether FBTN_TOP means "Update" right now — a graduated network install with
+  // a newer build, or a locally-added game that knows where it came from.
+  let rowUpdatable = $derived(
+    onCatalogRow && !!(
+      (currentGame?.__cmgnet && cmgnetStatus[currentGame.id]?.updateAvailable) ||
+      (currentGame?.__local && (currentGame.localSource === 'github' || currentGame.localSource === 'url'))
+    )
+  );
   let currentDemo = $derived(DEMOS[demosSel]);
   let currentCmgnet = $derived(cmgnetVisible[cmgnetSel]);
   let clockShort = $derived(clockStr.slice(0, 5));
+  // Section header counter. A pinned BYO row labels itself (BYOB / BYOC) rather
+  // than claiming an index in the ROM count it isn't part of.
   let counterText = $derived(
-    String(gameSel + 1).padStart(2, '0') + ' / ' + String(GAMES.length).padStart(2, '0')
-  );
-  let tg16CounterText = $derived(
-    tg16Games.length === 0
+    sectionEmpty
       ? '00 / 00'
-      : String(tg16Sel + 1).padStart(2, '0') + ' / ' + String(tg16Games.length).padStart(2, '0')
+      : curRow?.counterLabel
+        ? curRow.counterLabel
+        : String(curSel + 1).padStart(2, '0') + ' / ' + String(curRows.length).padStart(2, '0')
   );
-  let arcadeCounterText = $derived(
-    onArcadeByobRow
-      ? 'BYOB'
-      : String(arcadeSel + 1).padStart(2, '0') + ' / ' + String(arcadeGames.length).padStart(2, '0')
-  );
-  let psxCounterText = $derived(
-    psxGames.length === 0
-      ? '00 / 00'
-      : String(psxSel + 1).padStart(2, '0') + ' / ' + String(psxGames.length).padStart(2, '0')
-  );
-  let ps2CounterText = $derived(
-    ps2Games.length === 0
-      ? '00 / 00'
-      : String(ps2Sel + 1).padStart(2, '0') + ' / ' + String(ps2Games.length).padStart(2, '0')
-  );
-  let saturnCounterText = $derived(
-    saturnGames.length === 0
-      ? '00 / 00'
-      : String(saturnSel + 1).padStart(2, '0') + ' / ' + String(saturnGames.length).padStart(2, '0')
-  );
-  let naomiCounterText = $derived(
-    naomiGames.length === 0
-      ? '00 / 00'
-      : String(naomiSel + 1).padStart(2, '0') + ' / ' + String(naomiGames.length).padStart(2, '0')
-  );
-  let nesCounterText = $derived(
-    onNesByocRow
-      ? 'BYOC'
-      : String(nesSel + 1).padStart(2, '0') + ' / ' + String(nesGames.length).padStart(2, '0')
-  );
-  let switchCounterText = $derived(
-    switchGames.length === 0
-      ? '00 / 00'
-      : String(switchSel + 1).padStart(2, '0') + ' / ' + String(switchGames.length).padStart(2, '0')
+  // The disc panel reads the section while the cursor is on the strip, and the
+  // selected row once it drops into the list.
+  let metaName = $derived(stripFocus ? curSection.name : (curRow ? curRow.name : '—'));
+  let metaSize = $derived(stripFocus ? '— MB' : (curRow ? curRow.size : '—'));
+  let metaType = $derived(stripFocus ? curSection.metaType : (curRow?.type || curSection.metaType));
+  let metaDate = $derived(stripFocus ? curSection.date : (curRow ? curRow.date : '—'));
+  // What A does from here: open the section (or its file picker, when the
+  // section is empty and A goes straight to the dialog), or launch a row.
+  let gamesActionLabel = $derived(
+    stripFocus
+      ? (sectionEmpty ? (curSection.picker ? 'Browse' : 'Open') : 'Open')
+      : (curRow?.pinned ? 'Browse' : 'Launch')
   );
   let demosCounterText = $derived(
     String(demosSel + 1).padStart(2, '0') + ' / ' + String(DEMOS.length).padStart(2, '0')
@@ -1510,9 +1632,119 @@
 
   function goBack() {
     sfx.back();
-    if (screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'switch' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
+    if (screen === 'demos' || screen === 'cmgnet' || screen === 'addgame') screen = 'games';
     else if (screen === 'oeimport' || screen === 'ctrlsync') screen = 'settings';
     else screen = 'dashboard';
+  }
+
+  // ─── Strip navigation ──────────────────────────────────────────────────────
+  // The strip and the list under it are one cursor: Down off the strip enters
+  // the list, Up from row 0 comes back. A section with no rows keeps the cursor
+  // on the strip — there is nothing under it to land on but the empty state,
+  // which the A button reaches directly (see SCREEN_DEFS.games.activate).
+  function pickSection(i) {
+    const next = Math.max(0, Math.min(SECTIONS.length - 1, i));
+    if (next !== secSel) {
+      secSel = next;
+      // The list under the strip is a different library now — start it at the
+      // top rather than at the scroll offset the last section left behind.
+      if (gameListEl) gameListEl.scrollTop = 0;
+      sfx.nav();
+    }
+    stripFocus = true;
+  }
+  function enterList() {
+    if (sectionEmpty) return false;
+    stripFocus = false;
+    curSection.setSel(Math.min(curSection.sel(), curRows.length - 1));
+    return true;
+  }
+  // Vertical move for the games screen, wired in as SCREEN_DEFS.games.move so
+  // keyboard and gamepad share it. `fresh` (a deliberate new press) wraps at the
+  // list's bottom; a held repeat clamps — same contract as navMove.
+  function gamesMove(dir, fresh = false) {
+    if (stripFocus) {
+      if (dir > 0) enterList();
+      return;
+    }
+    const max = Math.max(curRows.length - 1, 0);
+    const next = curSection.sel() + dir;
+    if (next < 0) { stripFocus = true; return; }
+    curSection.setSel(next > max ? (fresh && max > 0 ? 0 : max) : next);
+  }
+  // Horizontal move — the strip, from either half of the screen. Coming from the
+  // list it also pulls focus back up to the strip, so ← / → always means "change
+  // section" no matter where the cursor was.
+  function gamesMoveH(dir) {
+    const next = secSel + dir;
+    if (next < 0 || next > SECTIONS.length - 1) return;
+    pickSection(next);
+  }
+
+  function openAddGame() {
+    sfx.enter();
+    resetAddForm();
+    addSel = 0;
+    screen = 'addgame';
+  }
+
+  // The current section's file picker. Click the VISIBLE button rather than the
+  // hidden input where there is one, so the activation context is anchored to a
+  // user-visible element; sections whose picker is a pinned row (Arcade, NES)
+  // have no button and fall through to the input, as they always did.
+  function openSectionPicker() {
+    if (!curSection.picker) return;
+    try { if (byodBtnEl) { byodBtnEl.click(); pickerGestureHint(); return; } } catch (_) { /* ignore */ }
+    try { byodInputEl?.click(); } catch (_) { /* ignore */ }
+    pickerGestureHint();
+  }
+
+  // ─── Strip pointer / wheel scrolling ───────────────────────────────────────
+  // The strip slides under the finger, and a drag past a few pixels swallows the
+  // click so a swipe never launches an emulator.
+  let stripDrag = null;
+  let stripDragMove = null;
+  let stripDragUp = null;
+  let stripDragged = false;
+  function onStripDown(e) {
+    if (!stripEl) return;
+    stripDrag = { x: e.clientX, left: stripEl.scrollLeft, moved: false };
+    stripEl.style.scrollBehavior = 'auto';
+    stripDragMove = (ev) => {
+      if (!stripDrag) return;
+      const dx = ev.clientX - stripDrag.x;
+      if (Math.abs(dx) > 4) stripDrag.moved = true;
+      stripEl.scrollLeft = stripDrag.left - dx;
+    };
+    stripDragUp = () => { stripDragged = !!(stripDrag && stripDrag.moved); endStripDrag(); };
+    window.addEventListener('pointermove', stripDragMove);
+    window.addEventListener('pointerup', stripDragUp);
+    window.addEventListener('pointercancel', stripDragUp);
+  }
+  function endStripDrag() {
+    if (stripEl) stripEl.style.scrollBehavior = 'smooth';
+    stripDrag = null;
+    if (stripDragMove) window.removeEventListener('pointermove', stripDragMove);
+    if (stripDragUp) {
+      window.removeEventListener('pointerup', stripDragUp);
+      window.removeEventListener('pointercancel', stripDragUp);
+    }
+    stripDragMove = stripDragUp = null;
+  }
+  function onStripWheel(e) {
+    if (!stripEl) return;
+    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (!d) return;
+    e.preventDefault();
+    stripEl.style.scrollBehavior = 'auto';
+    stripEl.scrollLeft += d;
+    stripEl.style.scrollBehavior = 'smooth';
+  }
+  function onTileClick(i) {
+    if (stripDragged) { stripDragged = false; return; }
+    if (i === secSel && !stripFocus) { stripFocus = true; sfx.nav(); return; }
+    pickSection(i);
+    sfx.enter();
   }
 
   // Footer A/B are <div>s, not <button>s, so a touchscreen tap doesn't reliably
@@ -1793,46 +2025,9 @@
   });
 
   function launchGame(id) {
-    if (id === TG16_ID) {
-      sfx.enter();
-      screen = 'tg16';
-      return;
-    }
-    if (id === ARCADE_ID) {
-      sfx.enter();
-      screen = 'arcade';
-      return;
-    }
-    if (id === PSX_ID) {
-      sfx.enter();
-      screen = 'psx';
-      return;
-    }
-    if (id === PS2_ID) {
-      sfx.enter();
-      screen = 'ps2';
-      return;
-    }
-    if (id === SATURN_ID) {
-      sfx.enter();
-      screen = 'saturn';
-      return;
-    }
-    if (id === NAOMI_ID) {
-      sfx.enter();
-      screen = 'naomi';
-      return;
-    }
-    if (id === NES_ID) {
-      sfx.enter();
-      screen = 'nes';
-      return;
-    }
-    if (id === SWITCH_ID) {
-      sfx.enter();
-      screen = 'switch';
-      return;
-    }
+    // The console libraries used to be rows here that pushed to their own
+    // screen; they are strip sections now, so the only submenus left in this
+    // list are Demos and CMG Network.
     if (id === DEMOS_ID) {
       sfx.enter();
       screen = 'demos';
@@ -1843,13 +2038,7 @@
       screen = 'cmgnet';
       return;
     }
-    if (id === ADDGAME_ID) {
-      sfx.enter();
-      resetAddForm();
-      addSel = 0;
-      screen = 'addgame';
-      return;
-    }
+    if (id === ADDGAME_ID) { openAddGame(); return; }
     // A graduated CMG Network install lives in this list too — run it from cache
     // via launchCmgnet (which handles its own sfx / stream / cache logic).
     const netItem = GAMES.find((g) => g.id === id && g.__cmgnet);
@@ -1964,11 +2153,6 @@
     const input = e.currentTarget;
     handleArcadeByobFiles(input.files);
     setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
-  }
-
-  function openArcadeByobPicker() {
-    try { arcadeFileInput?.click(); } catch (_) {}
-    pickerGestureHint();
   }
 
   function launchPsx(file) {
@@ -3360,14 +3544,6 @@
     setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
   }
 
-  function openByodPicker() {
-    // Click the visible button (rather than the hidden input) so the activation
-    // context is anchored to a user-visible element. Falls back to the input.
-    try { psxByodBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
-    try { psxFileInput?.click(); } catch (_) {}
-    pickerGestureHint();
-  }
-
   // PS2 BYOD — Play! boots single-file images (iso/cso/chd/isz/bin/elf), so
   // unlike the PSX/Saturn disc path there is nothing to bundle: the file is
   // handed to /ps2/play.html as-is via the byod message handshake, and its
@@ -3409,12 +3585,6 @@
     const input = ev.currentTarget;
     handlePs2ByodFiles(input.files);
     setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
-  }
-
-  function openPs2ByodPicker() {
-    try { ps2ByodBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
-    try { ps2FileInput?.click(); } catch (_) {}
-    pickerGestureHint();
   }
 
   // Saturn BYOD — a copy of the PSX path (Saturn shares PSX's disc formats, so
@@ -3515,12 +3685,6 @@
     setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
   }
 
-  function openSaturnByodPicker() {
-    try { saturnByodBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
-    try { saturnFileInput?.click(); } catch (_) {}
-    pickerGestureHint();
-  }
-
   // NAOMI BYOD — Bring Your Own Disc (or board).
   //
   // Unlike the PSX/Saturn paths, nothing is bundled into a zip here: a zip IS
@@ -3591,12 +3755,6 @@
     setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
   }
 
-  function openNaomiByodPicker() {
-    try { naomiByodBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
-    try { naomiFileInput?.click(); } catch (_) {}
-    pickerGestureHint();
-  }
-
   // BYOC — Bring Your Own Cartridge (NES).
   //
   // NES cartridges are single-file ROMs (.nes / .fds / .unif / a lone .zip), so
@@ -3641,11 +3799,6 @@
     handleByocFiles(input.files);
     // Allow re-picking the same file after a cancel by clearing the value.
     setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
-  }
-
-  function openByocPicker() {
-    try { nesFileInput?.click(); } catch (_) {}
-    pickerGestureHint();
   }
 
   // Switch BYOC — Bring Your Own Cartridge. Cartridge containers are single
@@ -3694,12 +3847,6 @@
     const input = ev.currentTarget;
     handleSwitchByocFiles(input.files);
     setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
-  }
-
-  function openSwitchByocPicker() {
-    try { switchByocBtnEl?.click(); pickerGestureHint(); return; } catch (_) {}
-    try { switchFileInput?.click(); } catch (_) {}
-    pickerGestureHint();
   }
 
   function closeGame() {
@@ -3830,6 +3977,12 @@
     r3Latched: false,
     dirSeenAt: 0,
     lastPollAt: 0,
+    // Horizontal twins of axisDir/lastNavAt/holdingSince/dirSeenAt, for the
+    // emulator strip. Kept separate so a diagonal never fires both axes.
+    hAxisDir: 0,
+    hLastNavAt: 0,
+    hHoldingSince: 0,
+    hDirSeenAt: 0,
     // Index of the controller currently driving the menu. Any controller the
     // user picks up takes over (see pickActivePad); this remembers the last one
     // so an idle pad keeps control until another is actually used.
@@ -3981,37 +4134,27 @@
   //                     skips its header rows).
   const SCREEN_DEFS = {
     dashboard: { sel: () => menuSel, setSel: (v) => (menuSel = v), len: () => MAIN_MENU.length, activate: (i) => pickMenu(i) },
-    games: { sel: () => gameSel, setSel: (v) => (gameSel = v), len: () => GAMES.length, activate: (i) => launchGame(GAMES[i].id) },
-    arcade: {
-      sel: () => arcadeSel, setSel: (v) => (arcadeSel = v),
-      len: () => arcadeGames.length + 1, // + pinned BYOB row
-      activate: (i) => { if (i >= arcadeGames.length) openArcadeByobPicker(); else launchArcade(arcadeGames[i]); },
-    },
-    tg16: { sel: () => tg16Sel, setSel: (v) => (tg16Sel = v), len: () => tg16Games.length, activate: (i) => launchTg16(tg16Games[i]?.file) },
-    psx: {
-      sel: () => psxSel, setSel: (v) => (psxSel = v), len: () => psxGames.length,
-      activate: (i) => { if (psxGames.length === 0) openByodPicker(); else launchPsx(psxGames[i]?.file); },
-    },
-    ps2: {
-      sel: () => ps2Sel, setSel: (v) => (ps2Sel = v), len: () => ps2Games.length,
-      activate: (i) => { if (ps2Games.length === 0) openPs2ByodPicker(); else launchPs2(ps2Games[i]); },
-    },
-    saturn: {
-      sel: () => saturnSel, setSel: (v) => (saturnSel = v), len: () => saturnGames.length,
-      activate: (i) => { if (saturnGames.length === 0) openSaturnByodPicker(); else launchSaturn(saturnGames[i]?.file); },
-    },
-    naomi: {
-      sel: () => naomiSel, setSel: (v) => (naomiSel = v), len: () => naomiGames.length,
-      activate: (i) => { if (naomiGames.length === 0) openNaomiByodPicker(); else launchNaomi(naomiGames[i]?.file); },
-    },
-    nes: {
-      sel: () => nesSel, setSel: (v) => (nesSel = v),
-      len: () => nesGames.length + 1, // + pinned BYOC row
-      activate: (i) => { if (i >= nesGames.length) openByocPicker(); else launchNes(nesGames[i]?.file); },
-    },
-    switch: {
-      sel: () => switchSel, setSel: (v) => (switchSel = v), len: () => switchGames.length,
-      activate: (i) => { if (switchGames.length === 0) openSwitchByocPicker(); else launchSwitch(switchGames[i]?.file); },
+    // One entry for the whole catalog: the strip picks the section, the section
+    // owns its own cursor (see SECTIONS). `moveH` is the horizontal channel —
+    // only screens that declare it get left/right nav at all.
+    games: {
+      // Clamped: a section's cursor can outlive a list that shrank under it, and
+      // the clamp lands before the $effect that writes the correction back.
+      sel: () => curSel,
+      setSel: (v) => curSection.setSel(v),
+      len: () => curRows.length,
+      move: (dir, fresh) => gamesMove(dir, fresh),
+      moveH: (dir) => gamesMoveH(dir),
+      // L2/R2 jump between the two halves: to the strip, or to the last row.
+      top: () => { stripFocus = true; },
+      bottom: () => { if (enterList()) curSection.setSel(Math.max(curRows.length - 1, 0)); },
+      // On the strip, A drops into the list — or opens the picker outright when
+      // the section is empty, so an empty console is one press from a file
+      // dialog instead of a dead end.
+      activate: (i) => {
+        if (stripFocus) { if (!enterList()) openSectionPicker(); return; }
+        curSection.activate(i);
+      },
     },
     demos: { sel: () => demosSel, setSel: (v) => (demosSel = v), len: () => DEMOS.length, activate: (i) => launchDemo(DEMOS[i]?.url) },
     cmgnet: { sel: () => cmgnetSel, setSel: (v) => (cmgnetSel = v), len: () => cmgnetVisible.length, activate: (i) => launchCmgnet(cmgnetVisible[i]) },
@@ -4034,7 +4177,7 @@
   function navMove(dir, fresh = false) {
     const s = SCREEN_DEFS[screen];
     if (!s) return;
-    if (s.move) s.move(dir);
+    if (s.move) s.move(dir, fresh);
     else {
       const max = Math.max(s.len() - 1, 0);
       let next = s.sel() + dir;
@@ -4046,6 +4189,14 @@
   }
   function navUp(fresh = false) { navMove(-1, fresh); }
   function navDown(fresh = false) { navMove(1, fresh); }
+  // Horizontal nav — only the games screen declares `moveH` (the emulator
+  // strip); everywhere else left/right stay free for their existing meanings.
+  function navHasH() { return !!SCREEN_DEFS[screen]?.moveH; }
+  function navMoveH(dir) {
+    const s = SCREEN_DEFS[screen];
+    if (!s?.moveH) return;
+    s.moveH(dir);
+  }
   function navTop() {
     const s = SCREEN_DEFS[screen];
     if (!s) return;
@@ -4070,17 +4221,28 @@
     // owns the in-game toggle) isn't reachable without a game. Closes the
     // topmost overlay first.
     else if (musicOpen) closeMusic();
-    else if (screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'switch' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync') goBack();
+    else if (screen !== 'dashboard') goBack();
   }
   // CMG Network only: pull the latest build from GitHub for the selected game,
   // when one is installed and an update was detected.
   // Update a graduated network game in the Games list when a newer build is
   // available (installed games now live there, not in CMG Network).
   function actUpdate() {
-    if (gameOn || screen !== 'games') return;
+    if (gameOn || !onCatalogRow) return;
     const g = currentGame;
     if (g && g.__cmgnet && cmgnetStatus[g.id]?.updateAvailable) cmgnetUpdate(g);
     else if (g && g.__local && (g.localSource === 'github' || g.localSource === 'url')) updateLocalGame(g);
+  }
+  // FBTN_TOP does double duty on the games screen: Update when the selected row
+  // has one waiting, otherwise the section's add action — Add Game on the
+  // catalog, the console's own BYOD/BYOC picker everywhere else. That action
+  // used to be a list row; the strip redesign made it a header button, and this
+  // is what keeps it reachable from a pad.
+  function actFbtnTop() {
+    if (gameOn) return;
+    if (rowUpdatable) { actUpdate(); return; }
+    if (screen === 'games' && curSection.add) { curSection.add.run(); return; }
+    actUpdate();
   }
 
   // Custom gamepad polling drives dashboard nav (vertical). When a game iframe
@@ -4114,7 +4276,7 @@
       const pressedNow = new Set();
       if (pad) pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
       padState.btn = pressedNow;
-      padState.axisDir = 0; padState.comboLatched = false;
+      padState.axisDir = 0; padState.hAxisDir = 0; padState.comboLatched = false;
       osdNav.vDir = 0; osdNav.hDir = 0;
       return;
     }
@@ -4123,7 +4285,7 @@
       // keys into #gameframe). Here we only watch for the OSD open-chord, and
       // drive OSD navigation while it's open — body.osd-open makes
       // gamepad-support yield, so these presses don't leak into the game.
-      padState.axisDir = 0;
+      padState.axisDir = 0; padState.hAxisDir = 0;
       if (softmodOn) { padState.btn.clear(); padState.comboLatched = false; osdNav.vDir = 0; osdNav.hDir = 0; return; }
       if (!pad) { padState.btn.clear(); padState.comboLatched = false; osdNav.vDir = 0; osdNav.hDir = 0; return; }
       const pressedNow = new Set();
@@ -4222,7 +4384,7 @@
       padState.btn = pressedNow;
       return;
     }
-    if (!pad) { padState.btn.clear(); padState.axisDir = 0; if (padConnected) padConnected = false; return; }
+    if (!pad) { padState.btn.clear(); padState.axisDir = 0; padState.hAxisDir = 0; if (padConnected) padConnected = false; return; }
     if (!padConnected) padConnected = true;
     if (!padHadConnection) {
       padHadConnection = true;
@@ -4295,8 +4457,10 @@
       else if (hat.down) dir = 1;
     }
     // Nintendo theme: the catalog lists are a horizontal coverflow row, so
-    // D-pad / stick left/right navigate them as prev/next too.
-    if (dir === 0 && !gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard') {
+    // D-pad / stick left/right navigate them as prev/next too. Not on the games
+    // screen — there left/right belongs to the emulator strip in every theme
+    // (see the horizontal block below), and the coverflow keeps up/down.
+    if (dir === 0 && !gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard' && !navHasH()) {
       if (pad.buttons[14]?.pressed) dir = -1;       // standard-mapping D-pad left
       else if (pad.buttons[15]?.pressed) dir = 1;   // standard-mapping D-pad right
       if (dir === 0 && !isSnesPad) {
@@ -4356,6 +4520,50 @@
     }
     padState.axisDir = dir;
 
+    // ── Horizontal axis (emulator strip) ─────────────────────────────────
+    // Its own edge + hold-repeat state so a diagonal press can't cross-fire
+    // between the strip and the row list. Only polled on a screen that
+    // declares moveH, so nothing else pays for it.
+    let hdir = 0;
+    if (!gameOn && navHasH()) {
+      if (pad.buttons[14]?.pressed) hdir = -1;      // standard-mapping D-pad left
+      else if (pad.buttons[15]?.pressed) hdir = 1;  // standard-mapping D-pad right
+      if (hdir === 0 && !isSnesPad) {
+        for (const i of [0, 2, 4, 6]) {             // candidate X axes
+          const v = pad.axes[i];
+          if (typeof v !== 'number' || Math.abs(v) > 1.05) continue;
+          if (v < -PAD_DEADZONE) { hdir = -1; break; }
+          if (v > PAD_DEADZONE) { hdir = 1; break; }
+        }
+      }
+      if (hdir === 0) {
+        const hat = decodePadHat(pad.axes[9]);
+        if (hat.left) hdir = -1;
+        else if (hat.right) hdir = 1;
+      }
+    }
+    const realHdir = hdir;
+    if (hdir === 0 && padState.hAxisDir !== 0 && now - padState.hDirSeenAt < 80) {
+      hdir = padState.hAxisDir;
+    }
+    if (realHdir !== 0) padState.hDirSeenAt = now;
+    if (frameGap > 200) padState.hHoldingSince = now;
+    if (hdir !== 0 && hdir !== padState.hAxisDir) {
+      if (now - padState.hLastNavAt >= 150 || padState.hLastNavAt === 0) {
+        navMoveH(hdir);
+        padState.hLastNavAt = now;
+      }
+      padState.hHoldingSince = now;
+    } else if (hdir !== 0 && hdir === padState.hAxisDir) {
+      const heldFor = now - padState.hHoldingSince;
+      const sinceLast = now - padState.hLastNavAt;
+      if (heldFor >= padState.initialDelayMs && sinceLast >= padState.repeatMs) {
+        navMoveH(hdir);
+        padState.hLastNavAt = now;
+      }
+    }
+    padState.hAxisDir = hdir;
+
     const pressedNow = new Set();
     pad.buttons.forEach((btn, i) => { if (btn?.pressed) pressedNow.add(i); });
     const justPressed = (i) => pressedNow.has(i) && !padState.btn.has(i);
@@ -4363,11 +4571,11 @@
     if (justPressed(1) || justPressed(8)) actFbtnRight();  // FBTN_RIGHT or Back/Select
     // FBTN_LEFT — remove the selected game from the Games list: uninstall a
     // graduated network game, or delete a locally-added game.
-    if (justPressed(2) && screen === 'games' && !gameOn) {
+    if (justPressed(2) && onCatalogRow && !gameOn) {
       if (currentGame?.__cmgnet) cmgnetUninstall(currentGame);
       else if (currentGame?.__local) deleteLocalGame(currentGame);
     }
-    if (justPressed(3)) actUpdate();                // FBTN_TOP — update a graduated/local game (when applicable)
+    if (justPressed(3)) actFbtnTop();               // FBTN_TOP — Update, else the section's add action
     // Shoulder/trigger navigation — fallback when D-pad isn't recognized
     // (e.g. Firefox + non-standard SNES adapters). Safe for SNES pads too:
     // the compat plugin guarantees normalized 6/7 are either real L2/R2
@@ -4391,8 +4599,10 @@
     lastInput = 'key';
     completePendingFullscreen();
     // Nintendo theme lays the catalog lists out as a horizontal coverflow row,
-    // so left/right arrows navigate them too (up/down keeps working).
-    if (!gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard' && screen !== 'addgame' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    // so left/right arrows navigate them too (up/down keeps working). Skipped on
+    // a screen that owns the horizontal axis itself — the games screen's strip
+    // takes left/right in every theme.
+    if (!gameOn && tweaks.theme === 'nintendo' && screen !== 'dashboard' && screen !== 'addgame' && !navHasH() && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       onKey({
         key: e.key === 'ArrowLeft' ? 'ArrowUp' : 'ArrowDown',
         repeat: e.repeat, // preserved so held keys clamp instead of wrapping
@@ -4449,15 +4659,22 @@
         return;
       }
     }
-    if (screen === 'games') {
+    if (onCatalogRow) {
       if (e.key === 'Delete' && currentGame?.__cmgnet) { cmgnetUninstall(currentGame); return; }
       if (e.key === 'Delete' && currentGame?.__local) { deleteLocalGame(currentGame); return; }
       if ((e.key === 'u' || e.key === 'U') && (currentGame?.__cmgnet || currentGame?.__local)) { actUpdate(); return; }
     }
+    // Keyboard twin of FBTN_TOP: the section's add action (Add Game, or the
+    // console's BYOD/BYOC picker). Not 'b'/'c' — those are Back.
+    if (screen === 'games' && (e.key === 'a' || e.key === 'A')) { actFbtnTop(); return; }
     const s = SCREEN_DEFS[screen];
     if (!s) return;
     if (e.key === 'ArrowDown') navDown(!e.repeat);
     else if (e.key === 'ArrowUp') navUp(!e.repeat);
+    else if (s.moveH && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      navMoveH(e.key === 'ArrowLeft' ? -1 : 1);
+    }
     else if (e.key === 'Enter' || e.key === ' ') s.activate(s.sel());
     else if (
       screen !== 'dashboard' &&
@@ -5136,6 +5353,7 @@
     window.removeEventListener('message', onTilemapBridgeMessage);
     stopSpritexDelivery();
     stopTilemapDelivery();
+    endStripDrag();
     window.removeEventListener('gamepadconnected', onPadConnect);
     window.removeEventListener('gamepaddisconnected', onPadDisconnect);
     document.body.classList.remove('playing');
@@ -5233,687 +5451,175 @@
     </div>
   </div>
 
-  <div class="games-screen {screen === 'games' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>boot.0728</span>
-        <span>signal // ok</span>
-        <span>{clockShort}</span>
+  <!-- The catalog and every emulator library on one screen. The strip across
+       the top selects a section (SECTIONS in the script); the disc panel and
+       the row list under it follow it. Sections used to be separate screens
+       reached through submenu rows — everything they rendered is now this one
+       block driven by the section descriptor. -->
+  <div class="games-screen games-screen-strip {screen === 'games' ? 'shown' : ''}">
+    <div class="games-panel with-strip">
+      <div class="strip-block">
+        <div class="strip-head">
+          <span class="strip-label {stripFocus ? 'on' : ''}">emulators</span>
+          <span>{stripCounter} · swipe ↔</span>
+          <span class="strip-core">{curSection.coreA}</span>
+          <span class="strip-core">{curSection.coreB}</span>
+          <span class="strip-core">{clockShort}</span>
+        </div>
+
+        <div
+          class="cmg-strip {stripFocus ? 'on' : ''}"
+          bind:this={stripEl}
+          onwheel={onStripWheel}
+          onpointerdown={onStripDown}
+        >
+          {#each SECTIONS as s, i (s.id)}
+            <div
+              bind:this={tileEls[i]}
+              class="strip-tile {stripFocus && i === secSel ? 'sel' : ''}"
+              style="animation-delay: {(i % 4) * -1.1}s"
+              onclick={() => onTileClick(i)}
+              onmouseenter={() => { if (i !== secSel) pickSection(i); }}
+            >
+              <div class="strip-disc">
+                <div class="glass">
+                  {#if s.icon}
+                    <img src={s.icon} alt={s.name} />
+                  {:else}
+                    <span class="mark {s.mark.length > 3 ? 'long' : ''}">{s.mark}</span>
+                  {/if}
+                </div>
+              </div>
+              <div class="strip-name">{s.name}</div>
+            </div>
+          {/each}
+        </div>
       </div>
 
       <div class="disc-col">
         <div class="disc"></div>
         <div class="meta">
-          <div><span class="k">name</span><b>{currentGame?.name ?? '—'}</b></div>
-          <div><span class="k">size</span><b>{currentGame?.size ?? '—'}</b></div>
-          <div><span class="k">type</span><b>{currentGame?.submenu ? 'SUBMENU' : currentGame?.__cmgnet ? 'NET / INSTALLED' : currentGame?.__local ? 'LOCAL / INSTALLED' : 'GAME / IFRAME'}</b></div>
-          <div><span class="k">date</span><b>{currentGame?.date ?? '—'}</b></div>
+          <div><span class="k">name</span><b>{metaName}</b></div>
+          <div><span class="k">size</span><b>{metaSize}</b></div>
+          <div><span class="k">type</span><b>{metaType}</b></div>
+          <div><span class="k">date</span><b>{metaDate}</b></div>
         </div>
       </div>
 
       <div class="games-right">
         <div class="games-header">
-          <div class="title-bar">GAMES</div>
+          <div class="title-bar {stripFocus ? 'dim' : ''}">{curSection.title}</div>
           <div class="counter">{counterText}</div>
+          {#if curSection.add}
+            <button type="button" class="add-btn" onclick={curSection.add.run}>
+              <span class="add-btn-icon">{curSection.add.icon}</span>
+              <span>{curSection.add.label}</span>
+            </button>
+          {/if}
         </div>
         <div class="games-list" bind:this={gameListEl}>
-          {#each GAMES as g, i (g.id)}
-            <div
-              bind:this={gameRowEls[i]}
-              class="game-row {i === gameSel ? 'sel' : ''}"
-              onmouseenter={() => { if (i !== gameSel) { gameSel = i; sfx.nav(); } }}
-              onclick={() => launchGame(g.id)}
-            >
-              {#if g.submenu && !g.icon}
-                <!-- Category rows get a folder-of-discs instead of the single
-                     glass disc, so "a collection of games" reads at a glance and
-                     the leading submenu block is visually distinct from the game
-                     rows under it. Purely decorative — the row's title carries
-                     the name — hence aria-hidden. A submenu that carries its own
-                     icon (NAOMI's Utopia reindeer) shows that instead. -->
-                <div class="submenu-icon" aria-hidden="true">
-                  <span class="submenu-art">
-                    <span class="folder"></span>
-                    <span class="sub-disc sub-disc-back"></span>
-                    <span class="sub-disc sub-disc-front"></span>
-                  </span>
-                </div>
-              {:else}
-                <div class="game-icon">
-                  <div class="glass">
-                    {#if g.icon}
-                      <img src={g.icon} alt={g.name} onerror={(e) => onIconError(e, g.name)} />
-                    {:else}
-                      <span class="ph">{initial(g.name)}</span>
-                    {/if}
-                  </div>
-                </div>
+          <!-- One picker for whichever section is showing. Rendered outside the
+               empty-state branch because the pinned-row sections (Arcade, NES)
+               need it with a full list too. -->
+          {#if curSection.picker}
+            <input
+              type="file"
+              bind:this={byodInputEl}
+              multiple={!!curSection.picker.multiple}
+              accept={curSection.picker.accept}
+              onchange={curSection.picker.onchange}
+              class="byod-input"
+            />
+          {/if}
+
+          {#if sectionEmpty && curSection.byod}
+            <div class="byod">
+              <div class="byod-title">{curSection.byod.title}</div>
+              <div class="byod-sub">{curSection.byod.pre}<code>{curSection.byod.path}</code>{curSection.byod.post}</div>
+              {#if curSection.picker}
+                <button
+                  type="button"
+                  class="byod-btn"
+                  bind:this={byodBtnEl}
+                  onclick={() => { try { byodInputEl?.click(); } catch (_) {} }}
+                >
+                  <span class="byod-btn-icon">⬆</span>
+                  <span>{curSection.byod.btn}</span>
+                </button>
               {/if}
-              <div class="game-bar">
-                <span class="name">{g.title}{g.submenu ? ' ›' : ''}</span>
-                {#if g.__cmgnet && cmgnetStatus[g.id]?.updateAvailable}
-                  <span class="net-badge upd" role="button" tabindex="0"
-                        onclick={(e) => { e.stopPropagation(); cmgnetUpdate(g); }}
-                        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); cmgnetUpdate(g); } }}>↻ UPDATE</span>
+              <div class="byod-hint">
+                {#each curSection.byod.hint as line}
+                  <div>{#each line as tok}{#if typeof tok === 'string'}{tok}{:else}<code>{tok.code}</code>{/if}{/each}</div>
+                {/each}
+              </div>
+              {#if curSection.err}
+                <div class="byod-err">{curSection.err}</div>
+              {/if}
+            </div>
+          {:else}
+            {#each curRows as r, i (r.key)}
+              <div
+                bind:this={gameRowEls[i]}
+                class="game-row {r.pinned ? 'byoc-row' : ''} {!stripFocus && i === curSel ? 'sel' : ''}"
+                onmouseenter={() => { if (stripFocus || i !== curSel) { stripFocus = false; curSection.setSel(i); sfx.nav(); } }}
+                onclick={() => { stripFocus = false; curSection.setSel(i); curSection.activate(i); }}
+              >
+                {#if r.submenu}
+                  <!-- Category rows get a folder-of-discs instead of the single
+                       glass disc, so "a collection of games" reads at a glance and
+                       the leading submenu block is visually distinct from the game
+                       rows under it. Purely decorative — the row's title carries
+                       the name — hence aria-hidden. -->
+                  <div class="submenu-icon" aria-hidden="true">
+                    <span class="submenu-art">
+                      <span class="folder"></span>
+                      <span class="sub-disc sub-disc-back"></span>
+                      <span class="sub-disc sub-disc-front"></span>
+                    </span>
+                  </div>
                 {:else}
-                  <span class="sub">{g.sub}</span>
+                  <div class="game-icon">
+                    <div class="glass">
+                      {#if r.icon}
+                        <img src={r.icon} alt={r.name} onerror={(e) => onIconError(e, r.name)} />
+                      {:else}
+                        <span class="ph">{r.pinned ? '⬆' : initial(r.name)}</span>
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+                <div class="game-bar">
+                  <span class="name">{r.title}</span>
+                  {#if r.g?.__cmgnet && cmgnetStatus[r.g.id]?.updateAvailable}
+                    <span class="net-badge upd" role="button" tabindex="0"
+                          onclick={(e) => { e.stopPropagation(); cmgnetUpdate(r.g); }}
+                          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); cmgnetUpdate(r.g); } }}>↻ UPDATE</span>
+                  {:else}
+                    <span class="sub">{r.sub}</span>
+                  {/if}
+                </div>
+                {#if r.g?.__cmgnet}
+                  <button
+                    class="uninstall-btn"
+                    type="button"
+                    title="Uninstall {r.name}"
+                    aria-label="Uninstall {r.name}"
+                    onclick={(e) => { e.stopPropagation(); cmgnetUninstall(r.g); }}
+                  >✕</button>
+                {:else if r.g?.__local}
+                  <button
+                    class="uninstall-btn"
+                    type="button"
+                    title="Delete {r.name}"
+                    aria-label="Delete {r.name}"
+                    onclick={(e) => { e.stopPropagation(); deleteLocalGame(r.g); }}
+                  >✕</button>
                 {/if}
               </div>
-              {#if g.__cmgnet}
-                <button
-                  class="uninstall-btn"
-                  type="button"
-                  title="Uninstall {g.name}"
-                  aria-label="Uninstall {g.name}"
-                  onclick={(e) => { e.stopPropagation(); cmgnetUninstall(g); }}
-                >✕</button>
-              {:else if g.__local}
-                <button
-                  class="uninstall-btn"
-                  type="button"
-                  title="Delete {g.name}"
-                  aria-label="Delete {g.name}"
-                  onclick={(e) => { e.stopPropagation(); deleteLocalGame(g); }}
-                >✕</button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="games-screen {screen === 'arcade' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>core // mame</span>
-        <span>emularity</span>
-        <span>{clockShort}</span>
-      </div>
-
-      <div class="disc-col">
-        <div class="disc"></div>
-        <div class="meta">
-          <div><span class="k">name</span><b>{onArcadeByobRow ? 'BYOB' : (currentArcade ? currentArcade.name : '—')}</b></div>
-          <div><span class="k">size</span><b>{onArcadeByobRow ? '—' : (currentArcade ? currentArcade.size : '—')}</b></div>
-          <div><span class="k">type</span><b>{onArcadeByobRow ? 'JAMMA / .ZIP' : 'ARCADE / MAME'}</b></div>
-          <div><span class="k">date</span><b>{onArcadeByobRow ? '—' : (currentArcade ? currentArcade.date : '—')}</b></div>
-        </div>
-      </div>
-
-      <div class="games-right">
-        <div class="games-header">
-          <div class="title-bar">ARCADE</div>
-          <div class="counter">{arcadeCounterText}</div>
-        </div>
-        <div class="games-list">
-          <input
-            type="file"
-            bind:this={arcadeFileInput}
-            accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream"
-            onchange={onArcadeByobChange}
-            class="byod-input"
-          />
-          {#each arcadeGames as g, i (g.file)}
-            <div
-              bind:this={arcadeRowEls[i]}
-              class="game-row {i === arcadeSel ? 'sel' : ''}"
-              onmouseenter={() => { if (i !== arcadeSel) { arcadeSel = i; sfx.nav(); } }}
-              onclick={() => launchArcade(g)}
-            >
-              <div class="game-icon">
-                <div class="glass">
-                  <span class="ph">{initial(g.name)}</span>
-                </div>
-              </div>
-              <div class="game-bar">
-                <span class="name">{g.name.toUpperCase()}</span>
-                <span class="sub">{g.size}</span>
-              </div>
-            </div>
-          {/each}
-          <div
-            bind:this={arcadeRowEls[arcadeGames.length]}
-            class="game-row byoc-row {onArcadeByobRow ? 'sel' : ''}"
-            onmouseenter={() => { if (!onArcadeByobRow) { arcadeSel = arcadeGames.length; sfx.nav(); } }}
-            onclick={openArcadeByobPicker}
-          >
-            <div class="game-icon">
-              <div class="glass">
-                <span class="ph">⬆</span>
-              </div>
-            </div>
-            <div class="game-bar">
-              <span class="name">BRING YOUR OWN BOARD (JAMMA)</span>
-              <span class="sub">load a .zip from disk</span>
-            </div>
-          </div>
-          {#if arcadeByobError}
-            <div class="byod-err">{arcadeByobError}</div>
-          {/if}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="games-screen {screen === 'tg16' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>core // mednafen</span>
-        <span>emulatorjs</span>
-        <span>{clockShort}</span>
-      </div>
-
-      <div class="disc-col">
-        <div class="disc"></div>
-        <div class="meta">
-          <div><span class="k">name</span><b>{currentTg16 ? currentTg16.name : '—'}</b></div>
-          <div><span class="k">size</span><b>{currentTg16 ? currentTg16.size : '—'}</b></div>
-          <div><span class="k">type</span><b>TG16 / .PCE</b></div>
-          <div><span class="k">date</span><b>{currentTg16 ? currentTg16.date : '—'}</b></div>
-        </div>
-      </div>
-
-      <div class="games-right">
-        <div class="games-header">
-          <div class="title-bar">TURBOGRAFX-16</div>
-          <div class="counter">{tg16CounterText}</div>
-        </div>
-        <div class="games-list">
-          {#if tg16Games.length === 0}
-            <div class="game-row">
-              <div class="game-icon"><div class="glass"><span class="ph">··</span></div></div>
-              <div class="game-bar"><span class="name">NO ROMS FOUND</span><span class="sub">drop .pce into static/TurboGrafx-16/</span></div>
-            </div>
-          {:else}
-            {#each tg16Games as g, i (g.file)}
-              <div
-                bind:this={tg16RowEls[i]}
-                class="game-row {i === tg16Sel ? 'sel' : ''}"
-                onmouseenter={() => { if (i !== tg16Sel) { tg16Sel = i; sfx.nav(); } }}
-                onclick={() => launchTg16(g.file)}
-              >
-                <div class="game-icon">
-                  <div class="glass">
-                    <span class="ph">{initial(g.name)}</span>
-                  </div>
-                </div>
-                <div class="game-bar">
-                  <span class="name">{g.name.toUpperCase()}</span>
-                  <span class="sub">{g.size}</span>
-                </div>
-              </div>
             {/each}
-          {/if}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="games-screen {screen === 'psx' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>core // psx</span>
-        <span>emulatorjs</span>
-        <span>{clockShort}</span>
-      </div>
-
-      <div class="disc-col">
-        <div class="disc"></div>
-        <div class="meta">
-          <div><span class="k">name</span><b>{currentPsx ? currentPsx.name : '—'}</b></div>
-          <div><span class="k">size</span><b>{currentPsx ? currentPsx.size : '—'}</b></div>
-          <div><span class="k">type</span><b>PSX / DISC</b></div>
-          <div><span class="k">date</span><b>{currentPsx ? currentPsx.date : '—'}</b></div>
-        </div>
-      </div>
-
-      <div class="games-right">
-        <div class="games-header">
-          <div class="title-bar">PLAYSTATION</div>
-          <div class="counter">{psxCounterText}</div>
-        </div>
-        <div class="games-list">
-          {#if psxGames.length === 0}
-            <div class="byod">
-              <div class="byod-title">BYOD — Bring Your Own Disc</div>
-              <div class="byod-sub">No PSX images in <code>static/PlayStation/</code>. Pick a disc image from disk:</div>
-              <input
-                type="file"
-                bind:this={psxFileInput}
-                multiple
-                accept=".pbp,.chd,.iso,.cue,.bin,.m3u,application/octet-stream"
-                onchange={onByodChange}
-                class="byod-input"
-              />
-              <button
-                type="button"
-                class="byod-btn"
-                bind:this={psxByodBtnEl}
-                onclick={() => { try { psxFileInput?.click(); } catch (_) {} }}
-              >
-                <span class="byod-btn-icon">⬆</span>
-                <span>Choose disc files…</span>
-              </button>
-              <div class="byod-hint">
-                .pbp · .chd · .iso load directly.<br>
-                .cue / .m3u need their companion .bin files selected together.
-              </div>
-              {#if psxByodError}
-                <div class="byod-err">{psxByodError}</div>
-              {/if}
-            </div>
-          {:else}
-            {#each psxGames as g, i (g.file)}
-              <div
-                bind:this={psxRowEls[i]}
-                class="game-row {i === psxSel ? 'sel' : ''}"
-                onmouseenter={() => { if (i !== psxSel) { psxSel = i; sfx.nav(); } }}
-                onclick={() => launchPsx(g.file)}
-              >
-                <div class="game-icon">
-                  <div class="glass">
-                    <span class="ph">{initial(g.name)}</span>
-                  </div>
-                </div>
-                <div class="game-bar">
-                  <span class="name">{g.name.toUpperCase()}</span>
-                  <span class="sub">{g.size}</span>
-                </div>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="games-screen {screen === 'ps2' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>core // ps2</span>
-        <span>play!</span>
-        <span>{clockShort}</span>
-      </div>
-
-      <div class="disc-col">
-        <div class="disc"></div>
-        <div class="meta">
-          <div><span class="k">name</span><b>{currentPs2 ? currentPs2.name : '—'}</b></div>
-          <div><span class="k">size</span><b>{currentPs2 ? currentPs2.size : '—'}</b></div>
-          <div><span class="k">type</span><b>PS2 / DISC</b></div>
-          <div><span class="k">date</span><b>{currentPs2 ? currentPs2.date : '—'}</b></div>
-        </div>
-      </div>
-
-      <div class="games-right">
-        <div class="games-header">
-          <div class="title-bar">PLAYSTATION 2</div>
-          <div class="counter">{ps2CounterText}</div>
-        </div>
-        <div class="games-list">
-          {#if ps2Games.length === 0}
-            <div class="byod">
-              <div class="byod-title">BYOD — Bring Your Own Disc</div>
-              <div class="byod-sub">No PS2 images in <code>static/PlayStation2/</code>. Pick a disc image from disk:</div>
-              <input
-                type="file"
-                bind:this={ps2FileInput}
-                accept=".iso,.cso,.chd,.isz,.bin,.elf,application/octet-stream"
-                onchange={onPs2ByodChange}
-                class="byod-input"
-              />
-              <button
-                type="button"
-                class="byod-btn"
-                bind:this={ps2ByodBtnEl}
-                onclick={() => { try { ps2FileInput?.click(); } catch (_) {} }}
-              >
-                <span class="byod-btn-icon">⬆</span>
-                <span>Choose disc image…</span>
-              </button>
-              <div class="byod-hint">
-                .iso · .cso · .chd · .isz load directly (streamed, so DVD-size images are fine).<br>
-                .elf boots AthenaEnv / homebrew.
-              </div>
-              {#if ps2ByodError}
-                <div class="byod-err">{ps2ByodError}</div>
-              {/if}
-            </div>
-          {:else}
-            {#each ps2Games as g, i (g.file)}
-              <div
-                bind:this={ps2RowEls[i]}
-                class="game-row {i === ps2Sel ? 'sel' : ''}"
-                onmouseenter={() => { if (i !== ps2Sel) { ps2Sel = i; sfx.nav(); } }}
-                onclick={() => launchPs2(g)}
-              >
-                <div class="game-icon">
-                  <div class="glass">
-                    <span class="ph">{initial(g.name)}</span>
-                  </div>
-                </div>
-                <div class="game-bar">
-                  <span class="name">{g.name.toUpperCase()}</span>
-                  <span class="sub">{g.size}</span>
-                </div>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="games-screen {screen === 'saturn' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>core // segaSaturn</span>
-        <span>emulatorjs</span>
-        <span>{clockShort}</span>
-      </div>
-
-      <div class="disc-col">
-        <div class="disc"></div>
-        <div class="meta">
-          <div><span class="k">name</span><b>{currentSaturn ? currentSaturn.name : '—'}</b></div>
-          <div><span class="k">size</span><b>{currentSaturn ? currentSaturn.size : '—'}</b></div>
-          <div><span class="k">type</span><b>SATURN / DISC</b></div>
-          <div><span class="k">date</span><b>{currentSaturn ? currentSaturn.date : '—'}</b></div>
-        </div>
-      </div>
-
-      <div class="games-right">
-        <div class="games-header">
-          <div class="title-bar">SEGA SATURN</div>
-          <div class="counter">{saturnCounterText}</div>
-        </div>
-        <div class="games-list">
-          {#if saturnGames.length === 0}
-            <div class="byod">
-              <div class="byod-title">BYOD — Bring Your Own Disc</div>
-              <div class="byod-sub">No Saturn images in <code>static/SegaSaturn/</code>. Pick a disc image from disk:</div>
-              <input
-                type="file"
-                bind:this={saturnFileInput}
-                multiple
-                accept=".chd,.iso,.cue,.bin,.m3u,.ccd,.mds,application/octet-stream"
-                onchange={onSaturnByodChange}
-                class="byod-input"
-              />
-              <button
-                type="button"
-                class="byod-btn"
-                bind:this={saturnByodBtnEl}
-                onclick={() => { try { saturnFileInput?.click(); } catch (_) {} }}
-              >
-                <span class="byod-btn-icon">⬆</span>
-                <span>Choose disc files…</span>
-              </button>
-              <div class="byod-hint">
-                .chd · .iso load directly.<br>
-                .cue / .m3u need their companion .bin files selected together.<br>
-                Needs <code>static/bios/saturn_bios.bin</code> (user-supplied).
-              </div>
-              {#if saturnByodError}
-                <div class="byod-err">{saturnByodError}</div>
-              {/if}
-            </div>
-          {:else}
-            {#each saturnGames as g, i (g.file)}
-              <div
-                bind:this={saturnRowEls[i]}
-                class="game-row {i === saturnSel ? 'sel' : ''}"
-                onmouseenter={() => { if (i !== saturnSel) { saturnSel = i; sfx.nav(); } }}
-                onclick={() => launchSaturn(g.file)}
-              >
-                <div class="game-icon">
-                  <div class="glass">
-                    <span class="ph">{initial(g.name)}</span>
-                  </div>
-                </div>
-                <div class="game-bar">
-                  <span class="name">{g.name.toUpperCase()}</span>
-                  <span class="sub">{g.size}</span>
-                </div>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="games-screen {screen === 'naomi' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>core // flycast</span>
-        <span>emulatorjs</span>
-        <span>{clockShort}</span>
-      </div>
-
-      <div class="disc-col">
-        <div class="disc"></div>
-        <div class="meta">
-          <div><span class="k">name</span><b>{currentNaomi ? currentNaomi.name : '—'}</b></div>
-          <div><span class="k">size</span><b>{currentNaomi ? currentNaomi.size : '—'}</b></div>
-          <div><span class="k">type</span><b>{currentNaomi && currentNaomi.kind === 'dc' ? 'DREAMCAST / DISC' : 'NAOMI / BOARD'}</b></div>
-          <div><span class="k">date</span><b>{currentNaomi ? currentNaomi.date : '—'}</b></div>
-        </div>
-      </div>
-
-      <div class="games-right">
-        <div class="games-header">
-          <div class="title-bar">NAOMI</div>
-          <div class="counter">{naomiCounterText}</div>
-        </div>
-        <div class="games-list">
-          {#if naomiGames.length === 0}
-            <div class="byod">
-              <div class="byod-title">BYOD — Bring Your Own Disc</div>
-              <div class="byod-sub">No NAOMI images in <code>static/Naomi/</code>. Pick a board or disc from disk:</div>
-              <input
-                type="file"
-                bind:this={naomiFileInput}
-                multiple
-                accept=".zip,.7z,.lst,.dat,.chd,.gdi,.cdi,.cue,.iso,.bin,.raw,.elf,application/octet-stream"
-                onchange={onNaomiByodChange}
-                class="byod-input"
-              />
-              <button
-                type="button"
-                class="byod-btn"
-                bind:this={naomiByodBtnEl}
-                onclick={() => { try { naomiFileInput?.click(); } catch (_) {} }}
-              >
-                <span class="byod-btn-icon">⬆</span>
-                <span>Choose board / disc…</span>
-              </button>
-              <div class="byod-hint">
-                NAOMI + Atomiswave ROM sets: .zip · .7z · .lst · .dat<br>
-                Dreamcast discs: .chd · .cdi · .iso load on their own;
-                .gdi / .cue need their track files selected together.<br>
-                Select the BIOS (<code>naomi.zip</code>, <code>awbios.zip</code>,
-                <code>dc_boot.bin</code>) with it, or drop it in
-                <code>static/bios/</code> — user-supplied either way.
-              </div>
-              {#if naomiByodError}
-                <div class="byod-err">{naomiByodError}</div>
-              {/if}
-            </div>
-          {:else}
-            {#each naomiGames as g, i (g.file)}
-              <div
-                bind:this={naomiRowEls[i]}
-                class="game-row {i === naomiSel ? 'sel' : ''}"
-                onmouseenter={() => { if (i !== naomiSel) { naomiSel = i; sfx.nav(); } }}
-                onclick={() => launchNaomi(g.file)}
-              >
-                <div class="game-icon">
-                  <div class="glass">
-                    <span class="ph">{initial(g.name)}</span>
-                  </div>
-                </div>
-                <div class="game-bar">
-                  <span class="name">{g.name.toUpperCase()}</span>
-                  <span class="sub">{g.size}</span>
-                </div>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="games-screen {screen === 'nes' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>core // fceumm</span>
-        <span>emulatorjs</span>
-        <span>{clockShort}</span>
-      </div>
-
-      <div class="disc-col">
-        <div class="disc"></div>
-        <div class="meta">
-          <div><span class="k">name</span><b>{onNesByocRow ? 'BYOC' : (currentNes ? currentNes.name : '—')}</b></div>
-          <div><span class="k">size</span><b>{onNesByocRow ? '—' : (currentNes ? currentNes.size : '—')}</b></div>
-          <div><span class="k">type</span><b>NES / .NES</b></div>
-          <div><span class="k">date</span><b>{onNesByocRow ? '—' : (currentNes ? currentNes.date : '—')}</b></div>
-        </div>
-      </div>
-
-      <div class="games-right">
-        <div class="games-header">
-          <div class="title-bar">NINTENDO</div>
-          <div class="counter">{nesCounterText}</div>
-        </div>
-        <div class="games-list">
-          <input
-            type="file"
-            bind:this={nesFileInput}
-            accept=".nes,.fds,.unif,.unf,.zip,application/octet-stream"
-            onchange={onByocChange}
-            class="byod-input"
-          />
-          {#each nesGames as g, i (g.file)}
-            <div
-              bind:this={nesRowEls[i]}
-              class="game-row {i === nesSel ? 'sel' : ''}"
-              onmouseenter={() => { if (i !== nesSel) { nesSel = i; sfx.nav(); } }}
-              onclick={() => launchNes(g.file)}
-            >
-              <div class="game-icon">
-                <div class="glass">
-                  <span class="ph">{initial(g.name)}</span>
-                </div>
-              </div>
-              <div class="game-bar">
-                <span class="name">{g.name.toUpperCase()}</span>
-                <span class="sub">{g.size}</span>
-              </div>
-            </div>
-          {/each}
-          <!-- Pinned BYOC row — always present (index === nesGames.length) so you
-               can load your own cartridge even when preloaded ROMs exist. (PSX /
-               Saturn show BYOD only on an empty list; NES ships a preload, so the
-               affordance is pinned instead.) -->
-          <div
-            bind:this={nesRowEls[nesGames.length]}
-            class="game-row byoc-row {onNesByocRow ? 'sel' : ''}"
-            onmouseenter={() => { if (!onNesByocRow) { nesSel = nesGames.length; sfx.nav(); } }}
-            onclick={openByocPicker}
-          >
-            <div class="game-icon">
-              <div class="glass">
-                <span class="ph">⬆</span>
-              </div>
-            </div>
-            <div class="game-bar">
-              <span class="name">BRING YOUR OWN CARTRIDGE</span>
-              <span class="sub">load a .nes from disk</span>
-            </div>
-          </div>
-          {#if nesByocError}
-            <div class="byod-err">{nesByocError}</div>
-          {/if}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="games-screen {screen === 'switch' ? 'shown' : ''}">
-    <div class="games-panel">
-      <div class="strip-top">
-        <span>core // switch</span>
-        <span>voland</span>
-        <span>{clockShort}</span>
-      </div>
-
-      <div class="disc-col">
-        <div class="disc"></div>
-        <div class="meta">
-          <div><span class="k">name</span><b>{currentSwitch ? currentSwitch.name : '—'}</b></div>
-          <div><span class="k">size</span><b>{currentSwitch ? currentSwitch.size : '—'}</b></div>
-          <div><span class="k">type</span><b>NSW / CART</b></div>
-          <div><span class="k">date</span><b>{currentSwitch ? currentSwitch.date : '—'}</b></div>
-        </div>
-      </div>
-
-      <div class="games-right">
-        <div class="games-header">
-          <div class="title-bar">NINTENDO SWITCH</div>
-          <div class="counter">{switchCounterText}</div>
-        </div>
-        <div class="games-list">
-          {#if switchGames.length === 0}
-            <div class="byod">
-              <div class="byod-title">BYOC — Bring Your Own Cartridge</div>
-              <div class="byod-sub">No cartridges in <code>static/NintendoSwitch/</code>. Pick one from disk:</div>
-              <input
-                type="file"
-                bind:this={switchFileInput}
-                accept=".xci,.nsp,.nro,application/octet-stream"
-                onchange={onSwitchByocChange}
-                class="byod-input"
-              />
-              <button
-                type="button"
-                class="byod-btn"
-                bind:this={switchByocBtnEl}
-                onclick={() => { try { switchFileInput?.click(); } catch (_) {} }}
-              >
-                <span class="byod-btn-icon">⬆</span>
-                <span>Choose cartridge…</span>
-              </button>
-              <div class="byod-hint">
-                .xci dumps · .nsp packages, from hardware you own — .nro homebrew needs no keys.<br>
-                Everything else decrypts with your own <code>prod.keys</code> in <code>static/bios/</code>.
-              </div>
-              {#if switchByocError}
-                <div class="byod-err">{switchByocError}</div>
-              {/if}
-            </div>
-          {:else}
-            {#each switchGames as g, i (g.file)}
-              <div
-                bind:this={switchRowEls[i]}
-                class="game-row {i === switchSel ? 'sel' : ''}"
-                onmouseenter={() => { if (i !== switchSel) { switchSel = i; sfx.nav(); } }}
-                onclick={() => launchSwitch(g.file)}
-              >
-                <div class="game-icon">
-                  <div class="glass">
-                    <span class="ph">{initial(g.name)}</span>
-                  </div>
-                </div>
-                <div class="game-bar">
-                  <span class="name">{g.name.toUpperCase()}</span>
-                  <span class="sub">{g.size}</span>
-                </div>
-              </div>
-            {/each}
+            {#if curSection.err}
+              <div class="byod-err">{curSection.err}</div>
+            {/if}
           {/if}
         </div>
       </div>
@@ -6350,13 +6056,13 @@
     </div>
   </div>
 
-  {#if screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'nes' || screen === 'switch' || screen === 'psx' || screen === 'ps2' || screen === 'saturn' || screen === 'naomi' || screen === 'demos' || screen === 'cmgnet' || screen === 'addgame' || screen === 'settings' || screen === 'oeimport' || screen === 'ctrlsync'}
+  {#if screen !== 'dashboard'}
     <div class="footer left tap" role="button" tabindex="0" onpointerup={tapHandler(goBack)} onkeydown={chipKeyHandler(goBack)}>
       <div class="btn-hint b">B</div>
       <span>Back</span>
     </div>
   {/if}
-  {#if screen === 'games' && currentGame?.__cmgnet}
+  {#if onCatalogRow && currentGame?.__cmgnet}
     <div class="footer mid acts">
       {#if cmgnetStatus[currentGame.id]?.updateAvailable}
         <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)} onkeydown={chipKeyHandler(actUpdate)}>
@@ -6368,7 +6074,7 @@
       </span>
     </div>
   {/if}
-  {#if screen === 'games' && currentGame?.__local}
+  {#if onCatalogRow && currentGame?.__local}
     <div class="footer mid acts">
       {#if currentGame.localSource === 'github' || currentGame.localSource === 'url'}
         <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actUpdate)} onkeydown={chipKeyHandler(actUpdate)}>
@@ -6380,9 +6086,19 @@
       </span>
     </div>
   {/if}
+  <!-- The section's add action is a header button (mouse/touch); this is its
+       gamepad and keyboard route, since it is no longer a row anyone can scroll
+       to. Hidden when Y already means Update for the selected row. -->
+  {#if screen === 'games' && curSection.add && !rowUpdatable}
+    <div class="footer mid acts">
+      <span class="act" role="button" tabindex="0" onpointerup={tapHandler(actFbtnTop)} onkeydown={chipKeyHandler(actFbtnTop)}>
+        <span class="btn-hint y">Y</span><span>{curSection.add.label}</span>
+      </span>
+    </div>
+  {/if}
   <div class="footer tap" role="button" tabindex="0" onpointerup={tapHandler(actFbtnBottom)} onkeydown={chipKeyHandler(actFbtnBottom)}>
     <div class="btn-hint">A</div>
-    <span>{screen === 'games' || screen === 'arcade' || screen === 'tg16' || screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'psx' ? (psxGames.length === 0 ? 'Browse' : 'Launch') : screen === 'ps2' ? (ps2Games.length === 0 ? 'Browse' : 'Launch') : screen === 'saturn' ? (saturnGames.length === 0 ? 'Browse' : 'Launch') : screen === 'naomi' ? (naomiGames.length === 0 ? 'Browse' : 'Launch') : screen === 'switch' ? (switchGames.length === 0 ? 'Browse' : 'Launch') : screen === 'nes' ? (onNesByocRow ? 'Browse' : 'Launch') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
+    <span>{screen === 'games' ? gamesActionLabel : screen === 'demos' ? 'Launch' : screen === 'cmgnet' ? (currentCmgnet?.kind === 'music' ? 'Open' : 'Get') : screen === 'addgame' ? (addRows[addSel]?.kind === 'action' ? (addMethod === 'zip' ? 'Browse' : 'Install') : addRows[addSel]?.kind === 'method' ? 'Select' : addRows[addSel]?.kind === 'subdir' ? 'Cycle' : 'Edit') : screen === 'oeimport' ? (onOeActionRow ? 'Import' : 'Mark') : screen === 'ctrlsync' ? (ctrlSel === 0 ? 'Sync' : 'Select') : 'Select'}</span>
   </div>
 </div>
 
