@@ -87,3 +87,10 @@ static/games/2028-ai/assets/custom-bgm/
 
 # game-recorder output (videos, covers, frame dumps)
 out/
+
+# Reverse-engineering fixtures for the Dezaemon 2 .sav importer: cart dumps of
+# user-created games plus the retail disc they were made with (copyrighted).
+# Local-only — the sibling 2019-es7 checkout keeps its own copy, which is where
+# the importer's tests read from, and tests/e2e/dezaemon_daioh_import_test.ts
+# skips outright when it is not there.
+dev-fixtures/
