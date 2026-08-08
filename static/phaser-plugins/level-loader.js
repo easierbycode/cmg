@@ -52,7 +52,10 @@ export const DEFAULTS = {
   baseRecipeKey: "recipe",
   levelsPath: "levels",
   atlasKey: "game_asset",
-  maxStage: 4,
+  // stage0..stage9 — Dezaemon 2's own maximum, and what the 2019-es7 runtime
+  // plays. Only five sets of per-stage backgrounds and voices exist, so stage
+  // 5 and up reuse them (stageId % 5); see 2019-es7 src/phaser/stages.js.
+  maxStage: 9,
   editorRecipeKey: "__editorPhaserRecipe__",
   editorStageKey: "__editorPhaserStageId__",
   fallbackOnError: true,
@@ -353,6 +356,18 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
 
       const stageKey = levelData.stageKey || "stage0";
       recipe[stageKey] = { enemylist: levelData.enemylist };
+      // Wave pacing, when the level carries it: the scroll row each wave came
+      // from, plus the frames per row. A Dezaemon 2 import keeps its rhythm
+      // through this; dropping it would deal every wave on a fixed beat.
+      if (
+        Array.isArray(levelData.waveRows) &&
+        levelData.waveRows.length === (levelData.enemylist || []).length
+      ) {
+        recipe[stageKey].waveRows = levelData.waveRows;
+        if (Number.isFinite(levelData.waveInterval)) {
+          recipe[stageKey].waveInterval = levelData.waveInterval;
+        }
+      }
 
       const atlasFrames = (() => {
         try {

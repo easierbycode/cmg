@@ -20,6 +20,37 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+    <script type="module">
+        // Dezaemon 2 (Saturn) save importer. The modules are vendored from the
+        // 2019-es7 checkout by `deno task dezaemon:vendor`, so the editor, that
+        // repo's Node CLI and its unit tests all run one pipeline.
+        //
+        // Dynamic imports so a failure is *catchable*: a static import of a
+        // missing/mis-served module aborts the whole script silently, leaving
+        // window.Dezaemon undefined with no clue why.
+        const BASE = "./dezaemon/lib/";
+        try {
+            const [bupSource, bupParse, payloadTable, decodeMod, mapToGame, atlasPack, schema] =
+                await Promise.all([
+                    import(BASE + "bup-source.js"),
+                    import(BASE + "bup-parse.js"),
+                    import(BASE + "payload-table.js"),
+                    import(BASE + "decode/index.js"),
+                    import(BASE + "map-to-game.js"),
+                    import(BASE + "atlas-pack.js"),
+                    import(BASE + "game-schema.js"),
+                ]);
+            window.Dezaemon = Object.assign({}, bupSource, bupParse, payloadTable, mapToGame, {
+                decodeSave: decodeMod.decodeSave,
+                packShelf: atlasPack.packShelf,
+                validateGameJson: schema.validateGameJson,
+            });
+        } catch (err) {
+            window.DezaemonLoadError = err;
+            console.error("Dezaemon module failed to load:", err);
+        }
+        window.dispatchEvent(new Event("dezaemon-ready"));
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
@@ -277,6 +308,39 @@
             font-size: 15px; font-weight: 800; letter-spacing: .3em; color: var(--title-ink);
             text-shadow: 0 0 14px var(--tglow); padding: 0 32px 0 18px;
         }
+        /* Dezaemon 2 import sheet — themed off the same tokens as the pickers,
+           so it follows XBOX green / NINTENDO red with no extra work. */
+        .deza-kind { margin-left: auto; font-size: 10px; letter-spacing: .12em; color: var(--rsub); text-shadow: none; }
+        .deza-slots { padding: 0 6px; }
+        .deza-slot {
+            display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 6px;
+            border-radius: 12px; background: var(--rbg); border: 1px solid var(--redge);
+            color: var(--rink); transition: all .15s;
+        }
+        .deza-slot.selectable { cursor: pointer; }
+        .deza-slot.selectable:hover { border-color: var(--sel); }
+        .deza-slot.selected { border-color: var(--sel); box-shadow: 0 0 12px var(--selglow); }
+        .deza-slot.inert { opacity: .45; }
+        .deza-slot-name { font-size: 13px; font-weight: 800; letter-spacing: .08em; }
+        .deza-slot-meta { font-size: 10px; color: var(--rsub); letter-spacing: .06em; }
+        .deza-slot-go { font-size: 10px; color: var(--sel); letter-spacing: .12em; }
+        .deza-summary { font-size: 11px; color: var(--rsub); margin: 10px 6px; line-height: 1.8; }
+        .deza-summary .ok { color: var(--sel); }
+        .deza-sec {
+            display: inline-block; padding: 1px 6px; margin: 1px; border-radius: 3px;
+            background: var(--rbg); border: 1px solid var(--redge); color: var(--rink);
+        }
+        .deza-sec.warn { opacity: .5; }
+        .deza-sprites { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; padding: 0 6px 8px; }
+        .deza-sprites canvas { width: 100%; height: auto; image-rendering: pixelated; background: var(--rbg); border: 1px solid var(--redge); border-radius: 4px; }
+        .deza-hex {
+            max-height: 168px; overflow: auto; margin: 0 6px 12px; padding: 8px; border-radius: 6px;
+            background: rgba(0,0,0,.45); border: 1px solid var(--redge);
+            color: var(--rsub); font-size: 10px; line-height: 1.5;
+        }
+        .deza-actions { display: flex; gap: 8px; padding: 0 6px; }
+        .deza-actions .menu-row { flex: 1; }
+
         .picker-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; padding: 2px 6px; }
         .picker-opt {
             display: flex; align-items: center; gap: 12px; padding: 10px 12px;
@@ -813,6 +877,13 @@
         <button class="menu-row" onclick="playFirebaseLevel()"><span class="mono-badge">PG</span>PLAY GAME</button>
         <button class="menu-row" id="export-apk-btn" onclick="exportGameToApk()"><span class="mono-badge">AP</span>EXPORT TO APK</button>
         <div id="export-apk-status" class="menu-note"></div>
+        <div class="menu-label">DEZAEMON 2 (SATURN)</div>
+        <button class="menu-row" onclick="startNewGame();closeMenu()"><span class="mono-badge">NG</span>NEW GAME</button>
+        <button class="menu-row" onclick="openDezaemonImport()"><span class="mono-badge">SV</span>IMPORT .SAV</button>
+        <input id="deza-url-input" type="url" placeholder="HTTPS://…/GAME.SAV" class="menu-input" style="margin-bottom:0"
+               onkeydown="if(event.key==='Enter')document.getElementById('deza-url-btn').click()">
+        <button class="menu-row" id="deza-url-btn" onclick="importDezaemonFromUrlInput()"><span class="mono-badge">UR</span>IMPORT .SAV FROM URL</button>
+        <div class="menu-note">SATURN BACKUP SAVES: .SAV / .BCR / .BKR</div>
         <div class="menu-label">ADVANCED EDITORS</div>
         <div class="adv-grid">
             <button class="menu-row" onclick="showCharacterEditor()"><span class="mono-badge sm">CH</span>CHARACTER</button>
@@ -837,6 +908,27 @@
         <div class="menu-note">THEME SYNCS THE CMG LAUNCHER IN REAL TIME</div>
         <div class="menu-flex-spacer"></div>
         <div id="status" class="menu-status">STATUS: NO DIRECTORY LOADED</div>
+    </div>
+
+    <!-- DEZAEMON 2 IMPORT -->
+    <input id="deza-file-input" type="file" accept=".sav,.bcr,.bkr" style="display:none"
+           onchange="if(this.files[0])handleDezaemonFile(this.files[0]);this.value=''">
+    <div id="dezaemon-import-modal" class="picker-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="picker-panel" style="max-height:84vh">
+            <div class="picker-title">DEZAEMON 2 IMPORT
+                <span id="deza-container-kind" class="deza-kind"></span>
+            </div>
+            <div id="deza-slot-list" class="deza-slots"></div>
+            <div id="deza-slot-detail" class="hidden">
+                <div id="deza-decoded-summary" class="deza-summary"></div>
+                <div id="deza-sprite-preview" class="deza-sprites"></div>
+                <pre id="deza-hex-preview" class="deza-hex"></pre>
+                <div class="deza-actions">
+                    <button id="deza-import-btn" class="menu-row" onclick="applyDezaemonImport()"><span class="mono-badge">IM</span>IMPORT INTO EDITOR</button>
+                    <button class="menu-row" onclick="document.getElementById('dezaemon-import-modal').classList.add('hidden')"><span class="mono-badge">✕</span>CANCEL</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- CHARACTER EDITOR MODAL -->
@@ -1085,7 +1177,7 @@
         const ATLAS_JSON = "game_asset.json";
         function getFrameNameForCode(code) {
             if (code === "00") return null;
-            const letter = code[0];
+            const letter = code.length > 1 ? code.slice(0, -1) : code;
             // Look up enemy texture from enemyData
             for (const k of Object.keys(enemyData)) {
                 if (getEnemyLetter(k) === letter) {
@@ -1231,18 +1323,36 @@
         let storyCustomImages = {}; // { "stage0_part0": dataURL, ... }
 
         // ================== HELPERS ==================
-        function createEmptyWave() { return Array(8).fill("00"); }
+        // Grids are as wide as the level says. Eight columns is the historical
+        // width and stays the default; a Dezaemon 2 import is twenty — the
+        // Saturn placement grid's own columns, so its formations arrive intact
+        // instead of being binned onto eight and colliding.
+        const DEFAULT_GRID_COLS = 8;
+        const MAX_GRID_COLS = 20;
 
-        function normalizeWave(wave) {
-            const n = createEmptyWave();
+        function gridWidth(grid) {
+            if (Array.isArray(grid) && Array.isArray(grid[0]) && grid[0].length) {
+                return Math.min(MAX_GRID_COLS, grid[0].length);
+            }
+            return DEFAULT_GRID_COLS;
+        }
+
+        function createEmptyWave(cols) { return Array(cols || gridWidth(currentGrid)).fill("00"); }
+
+        function normalizeWave(wave, cols) {
+            const width = cols || DEFAULT_GRID_COLS;
+            const n = Array(width).fill("00");
             if (!Array.isArray(wave)) return n;
-            for (let i = 0; i < 8; i++) n[i] = typeof wave[i] === 'string' && wave[i] ? wave[i] : "00";
+            for (let i = 0; i < width; i++) n[i] = typeof wave[i] === 'string' && wave[i] ? wave[i] : "00";
             return n;
         }
 
         function normalizeGrid(grid) {
-            if (!Array.isArray(grid) || grid.length === 0) return Array(8).fill(null).map(() => createEmptyWave());
-            return grid.map(normalizeWave);
+            if (!Array.isArray(grid) || grid.length === 0) {
+                return Array(8).fill(null).map(() => Array(DEFAULT_GRID_COLS).fill("00"));
+            }
+            const cols = gridWidth(grid);
+            return grid.map(w => normalizeWave(w, cols));
         }
 
         function getCurrentStageId() {
@@ -1250,7 +1360,12 @@
             return parseStageId(m ? m[1] : 0, LEVEL_LOADER_DEFAULTS.maxStage);
         }
 
-        function getEnemyLetter(k) { return k.replace(/enemy/i, '').toUpperCase().slice(0, 1); }
+        // enemyA -> "A", enemyAB -> "AB". Grid cells are "<letters><drop digit>",
+        // so a roster past 26 spills into two-letter keys rather than losing
+        // everything after enemyZ.
+        function getEnemyLetter(k) { return String(k).replace(/^enemy/i, '').toUpperCase(); }
+        function cellEnemyLetter(code) { return code && code !== '00' ? code.slice(0, -1) : null; }
+        function cellDropId(code) { return code && code !== '00' ? code.slice(-1) : '0'; }
 
         function getEnemyDisplayName(k) {
             const d = enemyData[k];
@@ -1293,7 +1408,7 @@
 
         function getEnemyBaseURL(code) {
             if (code === '00') return null;
-            const letter = code[0];
+            const letter = cellEnemyLetter(code);
             // Base enemy frame (no powerup variant)
             let url = getThumbURL(getFrameNameForCode(letter + '0'));
             if (url) return url;
@@ -2104,7 +2219,7 @@
             const container = document.getElementById('grid-icon-view');
             container.innerHTML = '';
 
-            const COLS = 8;
+            const COLS = gridWidth(currentGrid);
             const grid = document.createElement('div');
             grid.className = `editor-grid ${
                 currentTool === 'delete' ? 'mode-delete' :
@@ -2156,7 +2271,7 @@
                 cell.appendChild(cl);
 
                 // Powerup bubble
-                const dropId = code[1];
+                const dropId = cellDropId(code);
                 if (dropId && dropId !== '0') {
                     const bubble = document.createElement('div');
                     bubble.className = 'powerup-bubble';
@@ -2197,7 +2312,7 @@
                 // Apply selected powerup to existing enemy
                 const cur = currentGrid[wi][si];
                 if (cur && cur !== '00' && selectedPowerup !== '0') {
-                    currentGrid[wi][si] = cur[0] + selectedPowerup;
+                    currentGrid[wi][si] = cellEnemyLetter(cur) + selectedPowerup;
                 } else {
                     return;
                 }
@@ -2212,7 +2327,7 @@
                 currentGrid[wi][si] = (data.letter || getEnemyLetter(data.key)) + selectedPowerup;
             } else if (data.type === 'powerup') {
                 const cur = currentGrid[wi][si];
-                if (cur && cur !== '00') currentGrid[wi][si] = cur[0] + data.id;
+                if (cur && cur !== '00') currentGrid[wi][si] = cellEnemyLetter(cur) + data.id;
             }
             renderGrid();
                    }
@@ -2894,6 +3009,38 @@
             saveAtlasFiles(result.canvas, { frames: result.frames, meta: { ...(atlasData.meta || {}), image: cfg.png, size: { w: result.canvas.width, h: result.canvas.height } } });
         }
 
+        // Fold extraSprites/replacedFrames into the in-memory atlas so the grid,
+        // enemy picker and enemy list can draw them. Everything that renders art
+        // goes through frameThumbs, which is built from atlasData.frames alone —
+        // sprites sitting in extraSprites are invisible until they land there.
+        //
+        // Deliberately NOT repackAtlas(): that routes through saveAtlasFiles(),
+        // which downloads _game_asset.png/.json when no directory handle is open.
+        // Importing a save should not spit files at the user.
+        function mergeExtraSpritesIntoAtlas() {
+            if (!atlasData || !atlasImage) return Promise.resolve(false);
+            if (!extraSprites.length && !Object.keys(replacedFrames).length) return Promise.resolve(false);
+            const result = buildAtlasWithReplacements();
+            const cfg = ATLAS_CONFIGS[currentAtlasKey];
+            const json = {
+                frames: result.frames,
+                meta: { ...(atlasData.meta || {}), image: cfg.png, size: { w: result.canvas.width, h: result.canvas.height } },
+            };
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    atlasData = json;
+                    atlasImage = img;
+                    extraSprites = [];
+                    replacedFrames = {};
+                    buildFrameThumbs();
+                    resolve(true);
+                };
+                img.onerror = () => resolve(false);
+                img.src = result.canvas.toDataURL('image/png');
+            });
+        }
+
         async function saveAtlasFiles(canvas, json) {
             const cfg = ATLAS_CONFIGS[currentAtlasKey];
             // Save with _ prefix so only Phaser picks up repacked atlases (PIXI keeps originals)
@@ -2971,6 +3118,21 @@
         });
 
         // ================== SAVE ==================
+        // Write the working grid back onto a stage record. A stage imported
+        // from a .sav carries `waveRows` — the scroll row each wave came from,
+        // which is what preserves its pacing — and that only stays meaningful
+        // while there is one entry per wave. Editing the wave count retires it
+        // rather than leaving the runtime with a mismatched pair.
+        function writeStageGrid(stage, grid) {
+            const list = normalizeGrid(grid);
+            stage.enemylist = list;
+            if (Array.isArray(stage.waveRows) && stage.waveRows.length !== list.length) {
+                delete stage.waveRows;
+                delete stage.waveInterval;
+            }
+            return stage;
+        }
+
         function quickSave() {
             if (dirHandle && gameData) {
                 saveAll();
@@ -2987,7 +3149,7 @@
             // Sync any pending editor form changes into gameData before saving
             syncEnemyEditorForm();
             gameData[currentStageKey] = gameData[currentStageKey] || {};
-            gameData[currentStageKey].enemylist = normalizeGrid(currentGrid);
+            writeStageGrid(gameData[currentStageKey], currentGrid);
             try {
                 let h;
                 try { h = await getFileHandle([GAME_JSON_NAME]); }
@@ -3006,7 +3168,7 @@
                 r.playerData = JSON.parse(JSON.stringify(playerData));
             }
             r[currentStageKey] = r[currentStageKey] || {};
-            r[currentStageKey].enemylist = normalizeGrid(currentGrid);
+            writeStageGrid(r[currentStageKey], currentGrid);
             const ss = ssEntriesPlain();
             if (ss) r.sceneScripts = ss;
             else delete r.sceneScripts;
@@ -3031,12 +3193,376 @@
         }
 
         function exportCurrentLevelJSON() {
-            const d = { name: currentStageKey, enemylist: normalizeGrid(currentGrid), width: 8, exportedAt: new Date().toISOString() };
+            const d = { name: currentStageKey, enemylist: normalizeGrid(currentGrid), width: gridWidth(currentGrid), exportedAt: new Date().toISOString() };
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' }));
             a.download = `${currentStageKey}-level.json`; a.click();
             flash('LEVEL JSON EXPORTED ⬇');
         }
+
+        // ================== DEZAEMON 2 (NEW GAME + .SAV IMPORT) ==================
+        // Parsing/mapping lives in the vendored importer (window.Dezaemon, loaded
+        // as an ESM in <head> from ./dezaemon/lib/, refreshed by
+        // `deno task dezaemon:vendor`) so the CLI, its tests and this editor all
+        // share one pipeline.
+        let dezaImportState = null;      // { containerKind, saves, selectedSlot, decoded, fileName }
+        let defaultGameSnapshot = null;  // pristine defaults captured before the first overwrite
+
+        function dezaClone(o) { return JSON.parse(JSON.stringify(o)); }
+
+        function snapshotDefaultsOnce() {
+            if (defaultGameSnapshot || !gameData) return;
+            try {
+                defaultGameSnapshot = {
+                    playerData: (playerData && Object.keys(playerData).length) ? dezaClone(playerData) : null,
+                    starterEnemy: enemyData && enemyData.enemyA ? dezaClone(enemyData.enemyA) : null,
+                    starterBoss: bossData && bossData.boss0 ? dezaClone(bossData.boss0) : null,
+                };
+            } catch (e) { /* leave null — BUILTIN_DEFAULTS covers it */ }
+        }
+
+        function getDezaemonDefaults() {
+            const base = window.Dezaemon ? dezaClone(window.Dezaemon.BUILTIN_DEFAULTS) : null;
+            if (!base) return null;
+            const snap = defaultGameSnapshot || {};
+            if (snap.playerData) base.playerData = dezaClone(snap.playerData);
+            if (snap.starterEnemy) base.starterEnemy = dezaClone(snap.starterEnemy);
+            if (snap.starterBoss) base.starterBoss = dezaClone(snap.starterBoss);
+            return base;
+        }
+
+        // Blank game without the module: reuse whatever's currently loaded.
+        function createBlankGameFallback() {
+            if (!gameData || !enemyData.enemyA || !bossData.boss0) return null;
+            const emptyWave = () => new Array(8).fill("00");
+            return {
+                stage0: { enemylist: Array.from({ length: 8 }, emptyWave) },
+                playerData: dezaClone(playerData),
+                enemyData: { enemyA: dezaClone(enemyData.enemyA) },
+                bossData: { boss0: dezaClone(bossData.boss0) },
+                meta: { version: "1.0" },
+                continueComment: "",
+                continueCommentEn: "",
+            };
+        }
+
+        function startNewGame() {
+            snapshotDefaultsOnce();
+            let blank = null;
+            if (window.Dezaemon) blank = window.Dezaemon.buildBlankGame(getDezaemonDefaults());
+            else blank = createBlankGameFallback();
+            if (!blank) { alert('EDITOR DATA IS STILL LOADING — TRY AGAIN IN A MOMENT.'); return; }
+            replacedFrames = {}; extraSprites = []; customFrameKeys = new Set();
+            gameData = blank;
+            enemyData = gameData.enemyData;
+            bossData = gameData.bossData;
+            playerData = gameData.playerData;
+            currentStageKey = 'stage0';
+            storeBossDataForViewers();
+            populateStagePills(); loadCurrentStage(); renderEnemyList(); updateToolUI();
+            const nameInput = document.getElementById('firebase-level-name');
+            if (nameInput) nameInput.value = '';
+            setDezaStatus('NEW GAME (UNSAVED)');
+            flash('NEW GAME — STAGE 00');
+        }
+
+        function setDezaStatus(text) {
+            const el = document.getElementById('status');
+            if (el) el.textContent = 'STATUS: ' + text;
+        }
+
+        // Explain an unavailable window.Dezaemon using the error the module
+        // loader actually recorded, rather than assuming a cause. The failure
+        // modes look identical from the UI but need different fixes.
+        function dezaemonUnavailableMessage() {
+            const err = window.DezaemonLoadError;
+            const why = err ? (err.message || String(err)) : 'the module script never ran';
+            let hint;
+            if (location.protocol === 'file:') {
+                hint = 'The editor is open over file:// — browsers block ES module imports there. '
+                    + 'Serve it over http instead (deno task dev, then /editor/).';
+            } else if (/failed to fetch|networkerror|importing a module script failed|error loading dynamically imported module|404/i.test(why)) {
+                hint = '/editor/dezaemon/lib/*.js could not be fetched from ' + location.origin + '. '
+                    + 'Run `deno task dezaemon:vendor` to (re)copy the importer from the 2019-es7 checkout.';
+            } else if (/mime|expected a javascript/i.test(why)) {
+                hint = 'The server sent the module with a non-JavaScript MIME type.';
+            } else {
+                hint = 'The importer module threw while loading.';
+            }
+            return 'The Dezaemon importer is unavailable.\n\n' + hint + '\n\nUnderlying error: ' + why;
+        }
+
+        function openDezaemonImport() {
+            if (!window.Dezaemon) { alert(dezaemonUnavailableMessage()); return; }
+            document.getElementById('deza-file-input').click();
+        }
+
+        async function handleDezaemonFile(file) {
+            if (!window.Dezaemon) { alert(dezaemonUnavailableMessage()); return false; }
+            const u8 = new Uint8Array(await file.arrayBuffer());
+            return ingestDezaemonBytes(u8, file.name);
+        }
+
+        // One ingest path for every source (file picker, URL, ?sav=): parse the
+        // container, list the slots, and leave the modal open on the slot list.
+        async function ingestDezaemonBytes(u8, label) {
+            if (!window.Dezaemon) { alert(dezaemonUnavailableMessage()); return false; }
+            let normalized;
+            try {
+                normalized = await window.Dezaemon.normalize(u8);
+            } catch (err) {
+                alert('Could not read ' + label + ':\n\n' + (err.message || err));
+                return false;
+            }
+            let saves;
+            try {
+                saves = window.Dezaemon.parse(normalized.data);
+            } catch (err) {
+                alert('Not a Saturn backup image (' + label + '):\n\n' + (err.message || err));
+                return false;
+            }
+            dezaImportState = { containerKind: normalized.kind, saves, selectedSlot: null, decoded: null, fileName: label };
+            document.getElementById('deza-container-kind').textContent =
+                (label ? label + ' · ' : '') + normalized.kind + ' · ' + saves.length + ' SLOT' + (saves.length === 1 ? '' : 'S');
+            document.getElementById('deza-slot-detail').classList.add('hidden');
+            renderDezaemonSlots();
+            document.getElementById('dezaemon-import-modal').classList.remove('hidden');
+            return true;
+        }
+
+        function dezaemonLabelFromUrl(url) {
+            try {
+                const u = new URL(url, location.href);
+                const last = u.pathname.split('/').filter(Boolean).pop() || u.hostname;
+                return decodeURIComponent(last);
+            } catch (e) {
+                return url;
+            }
+        }
+
+        async function loadDezaemonFromUrl(url) {
+            if (!window.Dezaemon) { alert(dezaemonUnavailableMessage()); return false; }
+            let resp;
+            try {
+                resp = await fetch(url, { mode: 'cors' });
+            } catch (err) {
+                alert('Could not fetch ' + url + '\n\n' + (err.message || err) +
+                    '\n\nIf the file is on another origin it must send CORS headers.');
+                return false;
+            }
+            if (!resp.ok) {
+                alert('Could not fetch ' + url + '\n\nHTTP ' + resp.status + ' ' + resp.statusText);
+                return false;
+            }
+            const u8 = new Uint8Array(await resp.arrayBuffer());
+            return ingestDezaemonBytes(u8, dezaemonLabelFromUrl(url));
+        }
+
+        async function importDezaemonFromUrlInput() {
+            const input = document.getElementById('deza-url-input');
+            const url = (input.value || '').trim();
+            if (!url) { alert('ENTER THE URL OF A .SAV / .BCR / .BKR FILE FIRST.'); return false; }
+            const ok = await loadDezaemonFromUrl(url);
+            if (ok) closeMenu();
+            return ok;
+        }
+
+        function renderDezaemonSlots() {
+            const list = document.getElementById('deza-slot-list');
+            list.innerHTML = '';
+            dezaImportState.saves.forEach((save, i) => {
+                const isGame = window.Dezaemon.isGameSave(save);
+                const usable = isGame && !!save.payload;
+                const card = document.createElement('div');
+                card.className = 'deza-slot' + (usable ? ' selectable' : ' inert') +
+                    (dezaImportState.selectedSlot === i ? ' selected' : '');
+                const date = window.Dezaemon.bupDateToDate(save.date);
+                card.innerHTML =
+                    '<div style="flex:1;min-width:0;">' +
+                        '<div class="deza-slot-name">' + (save.comment || save.filename) + '</div>' +
+                        '<div class="deza-slot-meta">' + save.filename +
+                        ' · ' + date.toISOString().slice(0, 10) + ' · ' + (save.datasize / 1024).toFixed(0) + ' KB' +
+                        (isGame ? '' : ' · SYSTEM RECORD') +
+                        (save.payloadError ? ' · PAYLOAD ERROR' : '') + '</div>' +
+                    '</div>' +
+                    (usable ? '<div class="deza-slot-go">SELECT ›</div>' : '');
+                if (usable) card.onclick = () => selectDezaemonSlot(i);
+                list.appendChild(card);
+            });
+        }
+
+        function selectDezaemonSlot(i) {
+            const save = dezaImportState.saves[i];
+            dezaImportState.selectedSlot = i;
+            dezaImportState.decoded = window.Dezaemon.decodeSave(save.payload.buffer);
+            renderDezaemonSlots();
+            const d = dezaImportState.decoded;
+            const lines = [];
+            lines.push('PAYLOAD: ' + save.payload.buffer.length.toLocaleString() + ' bytes, ' +
+                save.blocks.length + ' blocks (block-accurate)');
+            if (d.sections) {
+                const badges = d.sections.map(s => {
+                    const label = 'sec' + s.index + ' ' + (s.size / 1024).toFixed(1) + 'K→' +
+                        (s.decompressedSize !== null ? (s.decompressedSize / 1024).toFixed(0) + 'K' : '?');
+                    return '<span class="deza-sec' + (s.sizeMatchesKnown ? '' : ' warn') +
+                        '" title="' + (s.hint || '') + '">' + label + '</span>';
+                }).join('');
+                lines.push('SECTIONS (checksums OK, ' +
+                    (d.confidence.decompression === 'confirmed' ? 'LZSS decompressed' : 'decompression partial') +
+                    '): ' + badges);
+            } else if (d.tableError) {
+                lines.push('SECTION TABLE: ' + d.tableError);
+            }
+            // Report what actually decoded, rather than a blanket "not yet".
+            const stageCount = d.stageCount || (d.stages ? d.stages.length : 0);
+            if (stageCount) {
+                const waves = (d.stages || []).reduce((n, s) => n + ((s.rows && s.rows.length) || 0), 0);
+                lines.push('STAGES: <span class="ok">' + stageCount + '</span> decoded, ' +
+                    waves.toLocaleString() + ' populated spawn rows · ENEMY TYPES: <span class="ok">' +
+                    (d.enemies ? d.enemies.length : 0) + '</span>' +
+                    (d.songCount ? ' · BGM: <span class="ok">' + d.songCount + '</span>/24 songs' : ''));
+            }
+            if (d.sprites && d.sprites.length) {
+                lines.push('SPRITES: <span class="ok">' + d.sprites.length +
+                    '</span> enemy animation frames extracted from this save\'s CG pages');
+            }
+            lines.push('Every stage, enemy type and spawn in this save is imported — enemies are kept apart per stage, ' +
+                'and the grid is the 20 columns of the Saturn placement grid. Enemy <em>attribute</em> field names are ' +
+                'still being reverse-engineered, so imported enemies play with the default stats; their 18-byte ' +
+                'definitions ride along verbatim so nothing is lost.');
+            document.getElementById('deza-decoded-summary').innerHTML = lines.join('<br>');
+            const spriteGrid = document.getElementById('deza-sprite-preview');
+            spriteGrid.innerHTML = '';
+            for (const sp of d.sprites) {
+                const c = document.createElement('canvas');
+                c.width = sp.w; c.height = sp.h;
+                c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(sp.rgba), sp.w, sp.h), 0, 0);
+                c.title = sp.key;
+                spriteGrid.appendChild(c);
+            }
+            document.getElementById('deza-hex-preview').textContent = renderDezaemonHexPreview(save.payload.buffer, 512);
+            document.getElementById('deza-slot-detail').classList.remove('hidden');
+        }
+
+        function renderDezaemonHexPreview(u8, maxBytes) {
+            const n = Math.min(maxBytes, u8.length);
+            const lines = [];
+            for (let off = 0; off < n; off += 16) {
+                const bytes = [];
+                let ascii = '';
+                for (let j = 0; j < 16; j++) {
+                    if (off + j < n) {
+                        const b = u8[off + j];
+                        bytes.push(b.toString(16).padStart(2, '0'));
+                        ascii += b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.';
+                    } else bytes.push('  ');
+                }
+                lines.push(off.toString(16).padStart(8, '0') + '  ' + bytes.slice(0, 8).join(' ') + '  ' +
+                    bytes.slice(8).join(' ') + '  |' + ascii + '|');
+            }
+            if (u8.length > n) lines.push('… ' + (u8.length - n).toLocaleString() + ' more bytes');
+            return lines.join('\n');
+        }
+
+        async function applyDezaemonImport() {
+            const st = dezaImportState;
+            if (!st || st.selectedSlot === null || !st.decoded) return;
+            const save = st.saves[st.selectedSlot];
+            snapshotDefaultsOnce();
+            const { gameJson, sprites, warnings } = window.Dezaemon.mapSaveToGame(st.decoded, {
+                defaults: getDezaemonDefaults(),
+                sourceEntry: save,
+                importedAt: new Date().toISOString(),
+            });
+            // Reset per-level atlas customization state (same discipline as
+            // loadFromFirebase) BEFORE adding this import's sprites.
+            replacedFrames = {}; extraSprites = []; customFrameKeys = new Set();
+            const existing = new Set(Object.keys((atlasData && atlasData.frames) || {}));
+            // Every texture array in the imported game, so a frame renamed to
+            // dodge a collision stays referenced. Enemies, bosses and the player
+            // all draw from the sprites this import carries, and a record left
+            // pointing at the pre-rename key renders as nothing.
+            const retargetFrames = (from, to) => {
+                const fix = (o) => {
+                    if (!o || typeof o !== 'object') return;
+                    for (const v of Object.values(o)) {
+                        if (Array.isArray(v)) {
+                            for (let i = 0; i < v.length; i++) if (v[i] === from) v[i] = to;
+                        } else if (v && typeof v === 'object') fix(v);
+                    }
+                };
+                fix(gameJson.enemyData); fix(gameJson.bossData); fix(gameJson.playerData);
+            };
+            for (const sp of sprites) {
+                let key = sp.key;
+                if (existing.has(key)) {
+                    const base = key.replace(/\.(gif|png)$/, '');
+                    const ext = (key.match(/\.(gif|png)$/) || ['.gif'])[0];
+                    let n = 2;
+                    while (existing.has(key)) key = base + '_' + (n++) + ext;
+                    retargetFrames(sp.key, key);
+                }
+                existing.add(key);
+                const c = document.createElement('canvas');
+                c.width = sp.w; c.height = sp.h;
+                c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(sp.rgba), sp.w, sp.h), 0, 0);
+                extraSprites.push({ key, canvas: c, w: sp.w, h: sp.h });
+                customFrameKeys.add(key);
+            }
+            gameData = gameJson;
+            enemyData = gameData.enemyData;
+            bossData = gameData.bossData;
+            playerData = gameData.playerData;
+            currentStageKey = 'stage0';
+            storeBossDataForViewers();
+            // Fold the save's sprites into the atlas before the first paint —
+            // otherwise the imported enemies reference frames that live only in
+            // extraSprites, frameThumbs has no entry for them, and every grid
+            // cell draws empty.
+            if (sprites.length) await mergeExtraSpritesIntoAtlas();
+            populateStagePills(); loadCurrentStage(); renderEnemyList(); renderAtlas(); updateToolUI();
+            checkMissingTextures();
+            const nameInput = document.getElementById('firebase-level-name');
+            if (nameInput) nameInput.value = '';
+            const title = st.decoded.title || save.comment || 'DEZAEMON 2 GAME';
+            setDezaStatus('IMPORTED: ' + title + ' (DEZAEMON 2)');
+            flash('IMPORTED: ' + title);
+            document.getElementById('dezaemon-import-modal').classList.add('hidden');
+            const notes = warnings.slice();
+            const importedStages = Object.keys(gameData).filter(k => /^stage\d+$/.test(k));
+            const spawnCount = importedStages.reduce((n, k) =>
+                n + gameData[k].enemylist.reduce((m, row) => m + row.filter(c => c !== '00').length, 0), 0);
+            const bossCount = Object.values(bossData).filter(b => b && b.dezaemon).length;
+            notes.unshift(importedStages.length + ' stages, ' + Object.keys(enemyData).length +
+                ' enemy types and ' + spawnCount.toLocaleString() + ' spawns imported — nothing dropped.');
+            notes.push('Grid is ' + gridWidth(currentGrid) + ' columns wide (the Saturn placement grid), and each wave keeps the scroll row it spawned on, so the stage keeps its pacing.');
+            if (bossCount) notes.push(bossCount + ' of ' + importedStages.length + ' stages place a boss; those use the boss art from the save.');
+            notes.push('Player and bullets: the Mutoid character (' + playerData.texture.length +
+                ' idle frames + shot/big/3way + a ' + playerData.barrier.texture.length +
+                '-frame shield), since Dezaemon saves carry no player. Its art came in with the import.');
+            if (sprites.length) notes.push(sprites.length + ' sprites from the save were packed into the atlas.');
+            if (notes.length) alert('Import notes:\n- ' + notes.join('\n- '));
+        }
+
+        // ?sav=<url> opens the importer straight from a link, so the launcher (or
+        // a bookmark) can hand the editor a save to open.
+        window.addEventListener('dezaemon-ready', () => {
+            const sav = new URLSearchParams(location.search).get('sav');
+            if (sav) loadDezaemonFromUrl(sav);
+        });
+
+        // Test hook for the e2e suite (and console debugging).
+        window.__editorState = () => ({
+            stageKeys: gameData ? Object.keys(gameData).filter(k => /^stage\d+$/.test(k)) : [],
+            currentStageKey,
+            waveCount: currentGrid ? currentGrid.length : 0,
+            gridCols: gridWidth(currentGrid),
+            enemyKeys: Object.keys(enemyData || {}),
+            bossKeys: Object.keys(bossData || {}),
+            extraSpriteCount: extraSprites.length,
+            spriteFrameCount: Object.keys((atlasData && atlasData.frames) || {}).filter(k => /^deza\d+_\d+_\d+\.gif$/.test(k)).length,
+            status: (document.getElementById('status') || {}).textContent || '',
+        });
 
         // ================== SAVE AS 3D (SUPER SCALER) ==================
         // Exports the loaded game as a single self-contained HTML file that plays
@@ -3930,20 +4456,25 @@ function GAME3D_RUNTIME(DATA) {
 
   // ================== SPAWNING ==================
   function spawnWaveRow(row) {
-    for (var i = 0; i < 8 && i < row.length; i++) {
+    // Lanes follow the level's own grid width — 8 historically, 20 for a
+    // Dezaemon import — so a wide row lands across the ground plane instead of
+    // being cut off after its first eight cells.
+    var cols = row.length || 8;
+    for (var i = 0; i < cols; i++) {
       var code = row[i];
       if (!code || code === '00' || typeof code !== 'string') continue;
-      var def = (R.enemyData || {})['enemy' + code[0]];
+      var key = 'enemy' + code.slice(0, -1);
+      var def = (R.enemyData || {})[key];
       if (!def || !def.texture || !def.texture.length) continue;
       var isAir = !!AIR_NAMES[def.name];
       enemies.push({
-        def: def, name: def.name || ('enemy' + code[0]),
-        wx: (i - 3.5) * LANE_W, alt: isAir ? AIR_ALT : 0, z: ZMAX,
+        def: def, name: def.name || key,
+        wx: (i - (cols - 1) / 2) * (LANE_W * 8 / cols), alt: isAir ? AIR_ALT : 0, z: ZMAX,
         vz: (def.speed || 0.7) * 3,
         hp: def.hp === 'infinity' ? Infinity : (def.hp || 1),
         score: def.score || 0, cagage: def.spgage != null ? def.spgage : (def.cagage || 0),
         interval: def.interval || -1, fireCnt: Math.random() * 40,
-        itemName: ITEM_BY_CODE[code[1]] || null,
+        itemName: ITEM_BY_CODE[code.slice(-1)] || null,
         animT: Math.random() * 100, posName: null, flash: 0, isAir: isAir,
         w: 32, h: 32, sized: false,
       });
@@ -5810,8 +6341,13 @@ function GAME3D_RUNTIME(DATA) {
                     playerData: playerData || {},
                     storyData: (gameData && gameData.storyData) || null,
                     sceneScripts: await ensureSceneScriptsCompiled(),
-                    width: 8, savedAt: firebase.database.ServerValue.TIMESTAMP
+                    width: gridWidth(currentGrid), savedAt: firebase.database.ServerValue.TIMESTAMP
                 };
+                var stageRec = (gameData && gameData[currentStageKey]) || null;
+                if (stageRec && Array.isArray(stageRec.waveRows) && stageRec.waveRows.length === payload.enemylist.length) {
+                    payload.waveRows = stageRec.waveRows;
+                    payload.waveInterval = stageRec.waveInterval;
+                }
                 // Save audio URL overrides
                 var urlEntries = {};
                 for (var ak in audioURLs) { if (audioURLs[ak]) urlEntries[ak] = audioURLs[ak]; }

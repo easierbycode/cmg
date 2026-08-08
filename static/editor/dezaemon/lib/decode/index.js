@@ -1,0 +1,175 @@
+// Aggregation seam for the Dezaemon 2 payload decoders.
+//
+// The editor and the CLI only ever call decodeSave(); individual section
+// decoders (decode-title.js, decode-sprite.js, …) register their output here
+// as the reverse-engineering lands, and both front-ends light up
+// automatically.
+//
+// Every field carries a confidence level:
+//   'confirmed'  — backed by a controlled-delta capture or Ghidra-traced offset
+//   'heuristic'  — plausible decode, unverified
+//   (absent)     — not decoded yet
+//
+// decodeSave() never throws on undecodable content — it aggregates partials
+// so the UI can render "title: confirmed / sprites: heuristic / stages: not
+// yet decoded" plus a raw-region fallback.
+
+import { parseSectionTable } from "../payload-table.js";
+import { decompress, SECTION_SIZES, SECTION_HINTS } from "../decompress.js";
+import { decodeCg } from "./decode-cg.js";
+import { decodeStages, sec5Regions, projectForEditor } from "./decode-stage.js";
+import { decodeSongs } from "./decode-song.js";
+import { extractEnemySprites, extractBossSprites } from "./decode-sprites.js";
+
+export function decodeSave(payload) {
+    const result = {
+        title: null,
+        confidence: {},
+        cg: null,      // {palettes, pages} from decode-cg.js (art pages + palette bank)
+        cgError: null,
+        backgrounds: null, // per-stage background tilemaps from decode-stage.js
+        backgroundError: null,
+        stageCount: 0,
+        songs: null,   // 24 BGM slots from decode-song.js
+        songError: null,
+        songCount: 0,
+        sprites: [],   // {key, w, h, rgba: Uint8ClampedArray}
+        enemies: [],   // {name, stage, record, bytes, placements, spriteKeys?}
+        stages: [],    // {rows, waveRows, cols, boss, items} in spawn order
+        bosses: [],    // {stage, sizeClass, row, col, spriteKeys?}
+        regions: [],   // {name, offset, length, decoded, decompressedSize?}
+        sections: null,
+        tableError: null,
+    };
+    try {
+        const table = parseSectionTable(payload);
+        result.sections = table.sections.map((s) => {
+            const compressed = payload.subarray(s.offset, s.offset + s.size);
+            let decompressed = null;
+            let decompressError = null;
+            try {
+                decompressed = decompress(compressed);
+            } catch (err) {
+                decompressError = err.message;
+            }
+            return {
+                index: s.index,
+                size: s.size,
+                checksum: s.checksum,
+                addr: s.addr,
+                offset: s.offset,
+                decompressedSize: decompressed ? decompressed.length : null,
+                sizeMatchesKnown: decompressed ? decompressed.length === SECTION_SIZES[s.index] : false,
+                hint: SECTION_HINTS[s.index],
+                decompressed,
+                decompressError,
+            };
+        });
+        result.confidence.decompression = result.sections.every((s) => s.sizeMatchesKnown)
+            ? "confirmed"
+            : "heuristic";
+        // CG layer (art pages sec0-3 + palette bank sec4) — layout confirmed
+        // by cross-corpus + disc analysis (FORMAT.md "Section semantics").
+        const cgSections = [0, 1, 2, 3].map((i) => result.sections[i]);
+        const palSection = result.sections[4];
+        if (cgSections.every((s) => s?.sizeMatchesKnown) && palSection?.sizeMatchesKnown) {
+            try {
+                result.cg = decodeCg(cgSections.map((s) => s.decompressed), palSection.decompressed);
+                result.confidence.cg = "confirmed";
+            } catch (err) {
+                result.cgError = err.message;
+            }
+        }
+        // Stage backgrounds (sec5 stage banks) — layout confirmed from engine
+        // code and by rendering coherent level art in every sample game.
+        const assembly = result.sections[5];
+        if (assembly?.sizeMatchesKnown) {
+            try {
+                const { stages, stageCount } = decodeStages(assembly.decompressed);
+                result.backgrounds = stages;
+                result.stageCount = stageCount;
+                result.confidence.backgrounds = "confirmed";
+                result.sec5Regions = sec5Regions(assembly.decompressed);
+                // Editor-facing projection: the enemy roster (one entry per
+                // placed (stage, record) pair) and per-stage spawn rows the
+                // level editor renders. Enemy *attributes* (hp/speed/...) are
+                // deliberately left unset — the 18-byte record's fields are
+                // located but not yet named, so the mapper falls back to
+                // engine defaults rather than inventing numbers. The record
+                // bytes themselves travel with each roster entry, so nothing
+                // is lost while that decode is open (see FORMAT.md).
+                const projected = projectForEditor(stages.slice(0, stageCount));
+                result.enemies = projected.enemies;
+                result.stages = projected.stages;
+                result.bosses = projected.stages
+                    .map((st, stage) => (st.boss ? { stage, sizeClass: st.boss.sizeClass, row: st.boss.row, col: st.boss.col } : null))
+                    .filter(Boolean);
+                result.confidence.enemies = "heuristic";
+                result.confidence.stages = "confirmed";
+                // Art: each enemy's 4 animation frames out of its own stage's
+                // sprite composition bank, plus the boss art of every stage
+                // that places one.
+                if (result.cg) {
+                    try {
+                        const cgPages = result.sections.slice(0, 4).map((s) => s.decompressed);
+                        const { sprites, spriteKeysByEnemy } = extractEnemySprites(
+                            assembly.decompressed,
+                            cgPages,
+                            result.cg.palettes,
+                            result.enemies,
+                            projected.stagesUsing,
+                        );
+                        for (const e of result.enemies) {
+                            const keys = spriteKeysByEnemy.get(e.key);
+                            if (keys) e.spriteKeys = keys;
+                        }
+                        const boss = extractBossSprites(
+                            assembly.decompressed,
+                            cgPages,
+                            result.cg.palettes,
+                            result.bosses,
+                        );
+                        // Boss frames are appended, so their indices shift past
+                        // the enemy sprites they follow in the shared list.
+                        for (const b of result.bosses) {
+                            const keys = boss.spriteKeysByStage.get(b.stage);
+                            if (keys) b.spriteKeys = keys.map((i) => i + sprites.length);
+                        }
+                        result.sprites = sprites.concat(boss.sprites);
+                        if (result.sprites.length) result.confidence.sprites = "heuristic";
+                    } catch (err) {
+                        result.spriteError = err.message;
+                    }
+                }
+            } catch (err) {
+                result.backgroundError = err.message;
+            }
+        }
+        // BGM (sec6): 24 song slots of 4228 bytes.
+        const bgm = result.sections[6];
+        if (bgm?.sizeMatchesKnown) {
+            try {
+                const { songs, usedCount } = decodeSongs(bgm.decompressed);
+                result.songs = songs;
+                result.songCount = usedCount;
+                result.confidence.songs = "confirmed";
+            } catch (err) {
+                result.songError = err.message;
+            }
+        }
+        result.regions = result.sections.map((s) => ({
+            name: `sec${s.index}: ${s.hint}`,
+            offset: s.offset,
+            length: s.size,
+            decoded:
+                (Boolean(result.cg) && s.index <= 4) ||
+                (Boolean(result.backgrounds) && s.index === 5) ||
+                (Boolean(result.songs) && s.index === 6),
+            decompressedSize: s.decompressedSize,
+        }));
+    } catch (err) {
+        result.tableError = err.message;
+        result.regions = [{ name: "payload", offset: 0, length: payload.length, decoded: false }];
+    }
+    return result;
+}
