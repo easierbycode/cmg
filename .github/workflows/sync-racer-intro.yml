@@ -1,0 +1,158 @@
+# Keep the PlayStation 2 screen's racer-intro entries in step with
+# easierbycode/racer-intro.
+#
+# Both rows come from the same upstream commit: the browser build lands in
+# static/games/racer-intro/ (mounted at /games/racer-intro/, listed via
+# data/ps2-web.json) and the bootable disc image in
+# static/PlayStation2/racer-intro.iso, which scripts/build-ps2-manifest.ts
+# indexes on every site build.
+#
+# racer-intro runs the same game module on both: the browser row is Phaser
+# hosting the AthenaEnv shim (5velte-ps2), the ISO is that module bundled for
+# athena.elf. So the two rows are never out of step with each other.
+#
+# Fires three ways:
+#   repository_dispatch  racer-intro's deploy workflow pokes us on every push
+#                        to its main (needs its CMG_DISPATCH_TOKEN secret)
+#   schedule             hourly safety net, so a missing token only ever
+#                        costs latency
+#   workflow_dispatch    manual re-sync
+#
+# A run that finds the vendored build already at the upstream commit stops
+# before doing any work, so the hourly poll is nearly free and never
+# produces an empty commit.
+name: Sync racer-intro
+
+on:
+  repository_dispatch:
+    types: [racer-intro-updated]
+  schedule:
+    - cron: "43 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild even if the vendored copy is already current"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-racer-intro
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: easierbycode/racer-intro
+  MOUNT: /games/racer-intro/
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve upstream commit
+        id: upstream
+        run: |
+          sha=$(git ls-remote "https://github.com/$UPSTREAM" refs/heads/main | cut -f1)
+          if [ -z "$sha" ]; then
+            echo "could not resolve $UPSTREAM main" >&2
+            exit 1
+          fi
+          have=$(sed -n 's/^source: .*@//p' static/games/racer-intro/VERSION 2>/dev/null || true)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [ "$sha" = "$have" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "already at $sha — nothing to do"
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "vendored $have -> upstream $sha"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out racer-intro
+        if: steps.upstream.outputs.stale == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: easierbycode/racer-intro
+          ref: ${{ steps.upstream.outputs.sha }}
+          path: .upstream
+          # full history: the ISO's timestamp comes from the last commit that
+          # touched the game trees, which a shallow clone can't see
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        if: steps.upstream.outputs.stale == 'true'
+        with:
+          node-version: 22
+
+      - uses: denoland/setup-deno@v2
+        if: steps.upstream.outputs.stale == 'true'
+        with:
+          deno-version: v2.x
+
+      - name: Build the browser bundle and the disc image
+        if: steps.upstream.outputs.stale == 'true'
+        working-directory: .upstream
+        run: |
+          npm ci
+          # Plain `build`, not `build:all`: the debug artifact is a second
+          # full bundle that only the Pages deploy wants, and vendoring it
+          # would double what cmg commits. No BASE_PATH step either —
+          # racer-intro's vite config uses a relative base, so the same
+          # bundle works at the domain root, at /racer-intro/ and here.
+          npm run build
+          npm run build:native
+          # Pin the ISO's timestamps so an unchanged game rebuilds to a
+          # byte-identical image and git has nothing to commit. The epoch has
+          # to come from the last commit that touched the trees the image
+          # packs, not from HEAD: this workflow reruns on *any* upstream
+          # commit, so a docs-only change would otherwise still produce a
+          # fresh 5.7MB blob, which is the whole thing being avoided.
+          #
+          # It also has to be racer-intro's OWN copy of the builder — cmg's
+          # scripts/build-athena-iso.ts stamps `new Date()` and ignores
+          # SOURCE_DATE_EPOCH entirely, which would defeat the guard below.
+          epoch=$(git log -1 --format=%ct -- src ps2-assets athena.elf athena.ini scripts)
+          [ -n "$epoch" ] || epoch=$(git show -s --format=%ct HEAD)
+          SOURCE_DATE_EPOCH=$epoch \
+            deno run --allow-read --allow-write --allow-env \
+              scripts/build-athena-iso.ts build dist/racer-intro.iso athena.elf
+
+      - name: Vendor the results
+        if: steps.upstream.outputs.stale == 'true'
+        run: |
+          rm -rf static/games/racer-intro
+          mkdir -p static/games/racer-intro
+          # racer-intro's dist/ is a single entry with index.html at its root
+          # (not ps2-mario's dist/play/), so the whole tree moves across —
+          # minus the disc image, which belongs on the PS2 shelf.
+          cp -r .upstream/dist/. static/games/racer-intro/
+          rm -f static/games/racer-intro/racer-intro.iso
+          cp .upstream/dist/racer-intro.iso static/PlayStation2/racer-intro.iso
+          {
+            echo "source: $UPSTREAM@${{ steps.upstream.outputs.sha }}"
+            echo "built with: npm run build (relative base — no BASE_PATH)"
+            echo "copied: dist/. minus the iso, which went to static/PlayStation2/"
+          } > static/games/racer-intro/VERSION
+          deno run -A scripts/build-ps2-manifest.ts
+          rm -rf .upstream
+
+      - name: Commit
+        if: steps.upstream.outputs.stale == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/games/racer-intro static/PlayStation2/racer-intro.iso static/PlayStation2/manifest.json
+          if git diff --cached --quiet; then
+            echo "upstream moved but the build is byte-identical — nothing to commit"
+            exit 0
+          fi
+          git commit -m "Sync racer-intro @ ${{ steps.upstream.outputs.sha }}"
+          # main can move while a build runs; rebase onto it rather than fail
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash && git push && exit 0
+            echo "push attempt $attempt failed, retrying"
+            sleep $((attempt * 5))
+          done
+          exit 1

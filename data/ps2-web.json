@@ -12,5 +12,12 @@
     "url": "/games/ps2-mario/play/",
     "size": "web build - 1 player",
     "date": "08.01.26"
+  },
+  {
+    "file": "racer-intro.web",
+    "name": "Racer Intro",
+    "url": "/games/racer-intro/",
+    "size": "web build - attract mode",
+    "date": "08.08.26"
   }
 ]

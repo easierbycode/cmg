@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>racer intro</title>
+    <!--
+      No web font is loaded here any more. The TIME/LAP readouts used to be
+      Orbitron Text objects rasterised by Phaser at create; they are now a
+      baked glyph sheet (ps2-assets/hud_glyphs.png), which is what lets the
+      PS2 build draw the same face — and makes this page work offline, which
+      the CMG launcher cares about.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #07070d;
+        overflow: hidden;
+      }
+
+      /* Phaser's FIT mode sizes the canvas against this box, so it takes the
+         whole viewport — the letterbox bars are just the page background. */
+      #app {
+        line-height: 0;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      #app canvas {
+        image-rendering: pixelated;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index-Crb4UYok.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

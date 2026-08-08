@@ -15,6 +15,21 @@
     "date": "08.04.26"
   },
   {
+    "file": "racer-intro.web",
+    "name": "Racer Intro",
+    "url": "/games/racer-intro/",
+    "size": "web build - attract mode",
+    "date": "08.08.26",
+    "kind": "web"
+  },
+  {
+    "file": "racer-intro.iso",
+    "name": "racer-intro",
+    "url": "/PlayStation2/racer-intro.iso",
+    "size": "5.7 MB",
+    "date": "08.08.26"
+  },
+  {
     "file": "shmup-party-ps2.web",
     "name": "Sh'M Up Party",
     "url": "/games/shmup-party-ps2/play/",
@@ -27,6 +42,6 @@
     "name": "shmup-party-ps2",
     "url": "/PlayStation2/shmup-party-ps2.iso",
     "size": "5.8 MB",
-    "date": "08.04.26"
+    "date": "08.03.26"
   }
 ]
