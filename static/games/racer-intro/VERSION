@@ -1,6 +1,3 @@
-source: easierbycode/racer-intro@local
+source: easierbycode/racer-intro@65658be9c27bcb56cc36384a7e94139b5de5cee0
 built with: npm run build (relative base — no BASE_PATH)
 copied: dist/. minus the iso, which went to static/PlayStation2/
-NOTE: stamped @local because this was vendored from an uncommitted working
-tree. The Sync racer-intro workflow will not match this against any upstream
-sha, so its next run re-vendors and stamps the real commit.
