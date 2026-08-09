@@ -1235,17 +1235,40 @@
   function closeSoftmod() { softmodOn = false; }
 
   // Keep the cursor on screen in whichever half of the games screen owns it —
-  // the row list, or the strip. Both halves scroll independently.
+  // the row list, or the strip. Both halves scroll independently, and both nudge
+  // by the minimum rather than centring: the shelf you are reading stays put
+  // until the cursor actually reaches an edge. Each keeps a lead-in past the
+  // cursor so there is always context beyond it — 18% of the list's height for
+  // the rows, a flat 24px for the tiles. Assigning scrollTop/scrollLeft still
+  // animates; both containers carry scroll-behavior: smooth.
   $effect(() => {
     if (screen !== 'games' || stripFocus) return;
     const el = gameRowEls[curSel];
-    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const list = gameListEl;
+    if (!el || !list) return;
+    // .games-list is positioned, so it IS the rows' offsetParent and offsetTop is
+    // already relative to it.
+    const top = el.offsetTop;
+    const pad = list.clientHeight * 0.18;
+    if (top - pad < list.scrollTop) list.scrollTop = Math.max(0, top - pad);
+    else if (top + el.offsetHeight + pad > list.scrollTop + list.clientHeight) {
+      list.scrollTop = top + el.offsetHeight + pad - list.clientHeight;
+    }
   });
 
   $effect(() => {
     if (screen !== 'games') return;
     const el = tileEls[secSel];
-    if (el) el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    const strip = stripEl;
+    if (!el || !strip) return;
+    // The strip is NOT positioned, so tiles measure against a shared ancestor and
+    // the strip's own offset has to come back out.
+    const pad = 24;
+    const left = el.offsetLeft - strip.offsetLeft;
+    if (left - pad < strip.scrollLeft) strip.scrollLeft = Math.max(0, left - pad);
+    else if (left + el.offsetWidth + pad > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollLeft = left + el.offsetWidth + pad - strip.clientWidth;
+    }
   });
 
   $effect(() => {
@@ -1509,6 +1532,10 @@
   let stripCounter = $derived(
     String(secSel + 1).padStart(2, '0') + ' / ' + String(SECTIONS.length).padStart(2, '0')
   );
+  // Second half of the strip's header line. With the cursor up here it advertises
+  // the gesture; once the rail collapses it names the shelf you are looking at
+  // (the collapsed tiles have dropped their labels) and how to get back to it.
+  let stripHint = $derived(stripFocus ? 'swipe ↔' : curSection.name + ' · ↑ expand');
 
   let currentGame = $derived(GAMES[gameSel]);
   // The uninstall / update / delete affordances belong to the CMG catalog only,
@@ -1645,9 +1672,12 @@
   function pickSection(i) {
     const next = Math.max(0, Math.min(SECTIONS.length - 1, i));
     if (next !== secSel) {
-      secSel = next;
       // The list under the strip is a different library now — start it at the
-      // top rather than at the scroll offset the last section left behind.
+      // top, cursor included. Resetting the scroll but keeping the row the
+      // section was last left on would only smooth-scroll straight back down
+      // the moment Down drops the cursor into it.
+      SECTIONS[next].setSel(0);
+      secSel = next;
       if (gameListEl) gameListEl.scrollTop = 0;
       sfx.nav();
     }
@@ -4669,8 +4699,11 @@
     if (screen === 'games' && (e.key === 'a' || e.key === 'A')) { actFbtnTop(); return; }
     const s = SCREEN_DEFS[screen];
     if (!s) return;
-    if (e.key === 'ArrowDown') navDown(!e.repeat);
-    else if (e.key === 'ArrowUp') navUp(!e.repeat);
+    // preventDefault on the vertical pair too (the horizontal branch below always
+    // did): a focused control inside a scrolling list — an uninstall ✕, a net
+    // badge — otherwise gets the browser's native scroll on top of the move.
+    if (e.key === 'ArrowDown') { e.preventDefault(); navDown(!e.repeat); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); navUp(!e.repeat); }
     else if (s.moveH && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       e.preventDefault();
       navMoveH(e.key === 'ArrowLeft' ? -1 : 1);
@@ -5461,8 +5494,8 @@
       <div class="strip-block">
         <div class="strip-head">
           <span class="strip-label {stripFocus ? 'on' : ''}">emulators</span>
-          <span>{stripCounter} · swipe ↔</span>
-          <span class="strip-core">{curSection.coreA}</span>
+          <span>{stripCounter} · {stripHint}</span>
+          <span class="strip-core push">{curSection.coreA}</span>
           <span class="strip-core">{curSection.coreB}</span>
           <span class="strip-core">{clockShort}</span>
         </div>
@@ -5476,10 +5509,10 @@
           {#each SECTIONS as s, i (s.id)}
             <div
               bind:this={tileEls[i]}
-              class="strip-tile {stripFocus && i === secSel ? 'sel' : ''}"
+              class="strip-tile {i === secSel ? 'active' : ''} {stripFocus && i === secSel ? 'sel' : ''}"
               style="animation-delay: {(i % 4) * -1.1}s"
               onclick={() => onTileClick(i)}
-              onmouseenter={() => { if (i !== secSel) pickSection(i); }}
+              onmouseenter={() => { if (!(stripFocus && i === secSel)) pickSection(i); }}
             >
               <div class="strip-disc">
                 <div class="glass">
@@ -5557,10 +5590,15 @@
               {/if}
             </div>
           {:else}
+            <!-- The breathe stagger comes off the row index rather than the
+                 :nth-child pairs .game-row carries for the other screens: the
+                 hidden file picker above is child 1 on every console section
+                 and would slide the whole pattern along by a row. -->
             {#each curRows as r, i (r.key)}
               <div
                 bind:this={gameRowEls[i]}
                 class="game-row {r.pinned ? 'byoc-row' : ''} {!stripFocus && i === curSel ? 'sel' : ''}"
+                style="animation-delay: {i % 3 === 0 ? -2.4 : i % 2 === 0 ? -1.2 : 0}s"
                 onmouseenter={() => { if (stripFocus || i !== curSel) { stripFocus = false; curSection.setSel(i); sfx.nav(); } }}
                 onclick={() => { stripFocus = false; curSection.setSel(i); curSection.activate(i); }}
               >

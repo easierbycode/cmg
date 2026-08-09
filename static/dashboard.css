@@ -238,6 +238,9 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .games-panel.with-strip { grid-template-rows: auto 1fr; gap: 2.6vmin 3vmin; height: min(88vh, 1500px); }
 .disc-col { display: flex; flex-direction: column; align-items: center; gap: 2.4vmin; padding-top: 4vmin; }
 .games-panel.with-strip .disc-col { padding-top: 0; min-height: 0; }
+/* The strip takes a row off the top of this panel, so the disc gives back a
+   little floor and refuses to be squeezed by the meta block under it. */
+.games-panel.with-strip .disc { min-width: 120px; min-height: 120px; flex-shrink: 0; }
 .disc {
   width: 19vmin; height: 19vmin; max-width: 220px; max-height: 220px; min-width: 140px; min-height: 140px;
   border-radius: 50%; position: relative;
@@ -272,6 +275,8 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   text-shadow: 0 0 18px rgba(120, 255, 90, .55);
   box-shadow: inset 0 2px 0 rgba(180, 255, 140, .2), 0 0 30px rgba(50, 200, 80, .22);
   padding: 0 4vmin;
+  /* .dim rides in and out on every Up/Down between the strip and the list. */
+  transition: color .25s ease, border-color .25s ease;
 }
 .counter { font-family: 'Share Tech Mono'; font-size: clamp(11px, 1.5vmin, 16px); letter-spacing: .14em; color: rgba(220, 255, 180, .7); text-transform: uppercase; min-width: 5em; text-align: right; flex-shrink: 0; }
 /* The catalog header carries a third element (the Add button), so the title
@@ -408,11 +413,15 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
    Selecting a tile swaps the list underneath in place — the console libraries
    used to be submenu rows that pushed to their own screen.
 
-   Two focus states matter here: .cmg-strip.on means the cursor is IN the strip
-   (yellow edge, tile labels visible, the section title below dims to say "not
-   here"), and .strip-tile.sel is the tile that cursor is on. A tile stays the
-   selected SECTION after the cursor drops into the list — it just stops
-   glowing, which is why .sel is only applied while the strip has focus. */
+   Focus lives on .cmg-strip: .on means the cursor is IN the strip (yellow edge,
+   roomy tiles with their labels showing, the section title below dims to say
+   "not here"); without it the strip is the collapsed rail.
+
+   The tile has THREE tiers, not two. .sel is the tile the cursor is on and only
+   exists while the strip has focus. .active is the selected SECTION and is on
+   whether or not the strip has focus — a dimmer yellow that keeps saying "this
+   is the shelf you are looking at" once the cursor drops into the list and the
+   rail collapses its labels away. Neither class is the resting green. */
 .strip-block { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 1vmin; min-width: 0; }
 .strip-head {
   display: flex; align-items: baseline; gap: 2em;
@@ -423,7 +432,10 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .strip-head .strip-label { transition: color .2s ease, text-shadow .2s ease; }
 .strip-head .strip-label.on { color: #fff36a; text-shadow: 0 0 14px rgba(255, 240, 90, .5); }
 .strip-head .strip-core { color: rgba(220, 255, 180, .42); letter-spacing: .22em; }
-.strip-head .strip-core:first-of-type { margin-left: auto; }
+/* Pushes the emulator credits to the right end of the header line. Carried by a
+   class rather than :first-of-type — the label span is the first <span> here, so
+   a type-positional selector matches nothing. */
+.strip-head .strip-core.push { margin-left: auto; }
 
 .cmg-strip {
   display: flex; align-items: flex-start; gap: 2.2vmin;
@@ -434,7 +446,7 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   border: 1px solid rgba(140, 255, 110, .3);
   background: linear-gradient(180deg, rgba(70, 180, 90, .1), rgba(12, 40, 20, .55));
   box-shadow: inset 0 2px 0 rgba(180, 255, 140, .12);
-  transition: border-color .25s ease, box-shadow .25s ease;
+  transition: border-color .25s ease, box-shadow .25s ease, padding .3s ease, gap .3s ease;
   mask-image: linear-gradient(90deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%);
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 3vmin, #000 calc(100% - 3vmin), transparent 100%);
 }
@@ -444,13 +456,20 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
   border-color: rgba(255, 240, 90, .5);
   box-shadow: inset 0 2px 0 rgba(255, 255, 220, .18), 0 0 30px rgba(255, 240, 90, .16);
 }
+/* Collapsed rail: once the cursor drops into the list the strip shrinks to small
+   icons and drops its label line, handing the vertical space back to the game
+   rows. Keyed off the absence of .on so it is the same signal the focus styles
+   above already use — the two halves of the screen are never both expanded. */
+.cmg-strip:not(.on) { padding: .8vmin max(1.6vmin, 24px); gap: 1.4vmin; }
 
 .strip-tile {
   flex-shrink: 0; width: clamp(96px, 13vmin, 150px);
   display: flex; flex-direction: column; align-items: center; gap: .9vmin;
   cursor: pointer; scroll-margin: 0 3vmin;
   animation: tileBreathe calc(4.6s / var(--breathe-mult, 1)) ease-in-out infinite;
+  transition: width .3s cubic-bezier(.2, .8, .2, 1), gap .3s ease;
 }
+.cmg-strip:not(.on) .strip-tile { width: clamp(40px, 5.2vmin, 60px); gap: 0; animation: none; }
 @keyframes tileBreathe { 50% { transform: translateY(-.6%); } }
 
 .strip-disc {
@@ -471,18 +490,27 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 .strip-disc .mark {
   font-weight: 800; font-size: clamp(18px, 2.9vmin, 32px); letter-spacing: .04em;
   color: #bdf48c; text-shadow: 0 0 10px rgba(120, 255, 90, .7);
+  transition: font-size .3s ease, color .2s ease;
 }
 /* A four-letter mark (MAME) has to shrink or it breaks the glass. */
 .strip-disc .mark.long { font-size: clamp(14px, 2.1vmin, 24px); }
+/* …and both sizes step down again on the collapsed rail, where the disc is a
+   third of its expanded width. */
+.cmg-strip:not(.on) .strip-disc .mark { font-size: clamp(9px, 1.25vmin, 14px); }
+.cmg-strip:not(.on) .strip-disc .mark.long { font-size: clamp(7px, .95vmin, 11px); }
 
 /* The tile name only shows for the tile under the cursor — eight labels at once
-   is noise, and the section title bar below already names the selected one. */
+   is noise, and the section title bar below already names the selected one. The
+   max-height is the collapse axis (every tile, driven by the rail state); the
+   opacity is the selection axis. Both animate, so the rail's height eases. */
 .strip-name {
   font-family: 'Share Tech Mono', monospace; font-size: clamp(10px, 1.3vmin, 14px);
   letter-spacing: .16em; text-transform: uppercase; white-space: nowrap;
   color: #fff36a; text-shadow: 0 0 12px rgba(255, 240, 90, .6);
-  opacity: 0; transition: opacity .2s ease; width: max-content;
+  opacity: 0; max-height: 3vmin; overflow: hidden;
+  transition: opacity .2s ease, max-height .3s ease; width: max-content;
 }
+.cmg-strip:not(.on) .strip-name { max-height: 0; }
 .strip-tile.sel .strip-disc {
   transform: scale(1.06);
   box-shadow: 0 0 34px rgba(255, 240, 90, .75), inset 0 0 14px rgba(0, 0, 0, .55);
@@ -493,6 +521,16 @@ body.no-scan .scan { display: none; } /* OSD "Scanlines" tweak */
 }
 .strip-tile.sel .strip-disc .mark { color: #fff8b0; text-shadow: 0 0 16px rgba(255, 240, 90, .85); }
 .strip-tile.sel .strip-name { opacity: 1; }
+/* Middle tier — the selected section with the cursor down in the list. Half the
+   glow of .sel and none of its scale, gradient or label: enough yellow to find
+   your shelf on the collapsed rail, not enough to compete with the row cursor. */
+.strip-tile.active:not(.sel) .strip-disc {
+  box-shadow: 0 0 18px rgba(255, 240, 90, .45), inset 0 0 14px rgba(0, 0, 0, .55);
+}
+.strip-tile.active:not(.sel) .strip-disc .glass {
+  box-shadow: inset 0 0 12px rgba(255, 240, 90, .3), 0 0 0 2px rgba(255, 240, 90, .65);
+}
+.strip-tile.active:not(.sel) .strip-disc .mark { color: #e6ffb0; }
 .strip-tile:hover:not(.sel) .strip-disc { transform: scale(1.03); }
 
 /* While the cursor is up in the strip the section title steps back, so the two
@@ -1072,8 +1110,14 @@ body.theme-nintendo .cmg-strip {
   box-shadow: 0 10px 22px rgba(0, 0, 0, .35);
 }
 body.theme-nintendo .cmg-strip.on { border-color: #49c2ff; box-shadow: 0 0 0 2px rgba(73, 194, 255, .3), 0 10px 22px rgba(0, 0, 0, .35); }
-body.theme-nintendo .strip-tile { animation: none; transform: scale(.92); transition: transform .22s ease; }
-body.theme-nintendo .strip-tile.sel { transform: scale(1); }
+body.theme-nintendo .strip-tile {
+  animation: none; transform: scale(.92);
+  transition: transform .22s ease, width .3s cubic-bezier(.2, .8, .2, 1), gap .3s ease;
+}
+/* Scale is this theme's "current shelf" cue, so the selected section keeps it
+   after the cursor leaves the strip — same middle tier as .active elsewhere. */
+body.theme-nintendo .strip-tile.sel,
+body.theme-nintendo .strip-tile.active { transform: scale(1); }
 body.theme-nintendo .strip-disc {
   background: #05080c; border: 1px solid #1f2a3c; box-shadow: none;
   border-radius: 14px; overflow: hidden; transform: none;
@@ -1088,6 +1132,13 @@ body.theme-nintendo .strip-disc .mark { color: #fff; text-shadow: none; }
 body.theme-nintendo .strip-tile.sel .strip-disc { border-color: #49c2ff; box-shadow: 0 0 0 2px rgba(73, 194, 255, .35); transform: none; }
 body.theme-nintendo .strip-tile.sel .strip-disc .glass { background: transparent; box-shadow: none; }
 body.theme-nintendo .strip-tile.sel .strip-disc .mark { color: #fff; text-shadow: none; }
+/* The base theme's yellow middle tier would leak through here (its selector is
+   the more specific of the two), so restate it in cabinet blue. */
+body.theme-nintendo .strip-tile.active:not(.sel) .strip-disc {
+  border-color: rgba(73, 194, 255, .5); box-shadow: 0 0 0 2px rgba(73, 194, 255, .16);
+}
+body.theme-nintendo .strip-tile.active:not(.sel) .strip-disc .glass { background: transparent; box-shadow: none; }
+body.theme-nintendo .strip-tile.active:not(.sel) .strip-disc .mark { color: #fff; text-shadow: none; }
 body.theme-nintendo .strip-name { color: #e9ecf1; text-shadow: none; }
 body.theme-nintendo .title-bar.dim { color: rgba(233, 236, 241, .55); border-color: #1f2a3c; }
 body.theme-nintendo .add-btn {
@@ -1318,6 +1369,14 @@ body.theme-xbox360 .strip-tile.sel .strip-disc .glass {
   box-shadow: inset 0 0 14px rgba(124, 255, 79, .5), 0 0 0 2px rgba(217, 255, 166, .95);
 }
 body.theme-xbox360 .strip-tile.sel .strip-disc .mark { color: #eaffd2; text-shadow: 0 0 16px rgba(124, 255, 79, .85); }
+/* Middle tier in blade green rather than the base theme's yellow. */
+body.theme-xbox360 .strip-tile.active:not(.sel) .strip-disc {
+  box-shadow: 0 0 18px rgba(124, 255, 79, .5), inset 0 0 14px rgba(0, 0, 0, .55);
+}
+body.theme-xbox360 .strip-tile.active:not(.sel) .strip-disc .glass {
+  box-shadow: inset 0 0 12px rgba(124, 255, 79, .35), 0 0 0 2px rgba(217, 255, 166, .55);
+}
+body.theme-xbox360 .strip-tile.active:not(.sel) .strip-disc .mark { color: #dcffc0; }
 body.theme-xbox360 .strip-name { color: #d9ffa6; text-shadow: 0 0 12px rgba(124, 255, 79, .55); }
 body.theme-xbox360 .title-bar.dim { color: rgba(244, 255, 232, .6); border-color: rgba(190, 255, 150, .3); }
 body.theme-xbox360 .add-btn {
