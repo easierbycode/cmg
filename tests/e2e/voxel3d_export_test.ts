@@ -34,6 +34,7 @@ declare let atlasImage: any;
 declare let extraSprites: any[];
 // deno-lint-ignore no-explicit-any
 declare let replacedFrames: Record<string, any>;
+declare let customFrameKeys: Set<string>;
 
 const RTDB = "https://evil-invaders-default-rtdb.firebaseio.com";
 const LEVEL = "foo";
@@ -198,9 +199,13 @@ Deno.test("RTDB level foo loads in 2019-es7 and converts to a URL-served Voxel 3
               atlasImage.complete &&
               Object.keys(atlasData.frames || {}).length > 0 &&
               input && input.value === "foo" &&
-              // foo's custom art arrived from Firebase
-              (extraSprites.length +
-                  Object.keys(replacedFrames || {}).length) > 0 &&
+              // foo's custom art arrived from Firebase AND was folded into the
+              // atlas. Waiting on extraSprites/replacedFrames instead would be
+              // waiting on the staging arrays, which the fold drains — and art
+              // left sitting there is exactly the bug: only atlasData is
+              // published to the viewers and to PLAY.
+              customFrameKeys.size > 0 &&
+              !!atlasData.frames["asteroidFace0.png"] &&
               typeof g.saveAsVoxel3D === "function" &&
               typeof g.VOXEL3D_RUNTIME === "function");
           } catch (_e) {

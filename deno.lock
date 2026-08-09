@@ -16,6 +16,7 @@
     "jsr:@fresh/core@^2.3.3": "2.3.3",
     "jsr:@fresh/plugin-vite@^1.1.2": "1.1.2",
     "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/assert@^1.0.14": "1.0.19",
     "jsr:@std/async@1": "1.4.0",
     "jsr:@std/bytes@^1.0.2": "1.0.6",
     "jsr:@std/bytes@^1.0.6": "1.0.6",
