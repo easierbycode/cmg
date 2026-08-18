@@ -18,16 +18,38 @@ This will watch the project directory and restart as necessary.
 
 # cmg
 
-- [Icon capture system](docs/icon-capture-system.md) — .icons store, capture chain (keep blank-gated!), libretro covers, icons:auto pipeline; ARM64 astral→findChrome, vite-dev player-page injection gap
-- [Input origin rule & remote updates](docs/cmg-input-origin-and-updates.md) — mapped keys need same-origin gameframe; cmg-net .cmg-* markers; /api/app-update; shmup-party-ps2 re-vendor procedure + ARM64 gotchas
-- [Scene-script architecture](docs/scene-script-architecture.md) — player title/intro scripts: editor → 2028-ai/2019-turbo flow, two-copy sync rule, bundle rebuild command
-- [2019-turbo testing](docs/2019-turbo-testing.md) — hidden Browser pane pauses Phaser; pump game.loop.step via javascript_tool and assert on scene state (drive scene.time directly for delayedCall timers)
-- [Phaser versions & repo workflow](docs/phaser-versions-and-repos.md) — 4.2.1 pins, the vendored-build gotcha, generated files, Windows/git friction, branch & push rules
-- [Voxel 3D export](docs/voxel3d-export.md) — SAVE AS VOXEL 3D: voxelize atlas (pitch/yaw 10), Phaser 4.2.1 Mesh2D dual-mode runtime, publish to /games/voxel-<slug>
-- [Editor/viewer bridge](docs/editor-viewer-bridge.md) — cmg-theme/cmg-tweaks launcher sync keys, editorBossData/atlas bridge, attackPattern override, boss-viewer v2 is Phaser-free
-- [SpacetimeDB JSON reducer args](docs/spacetimedb-json-reducer-args.md) — goofy-game-st: reducer int args must be JSON numbers, but idKey() stringifies PKs — Number() before CallReducer (the coin-collect bug); failed calls come back with request_id 0, so correlate by reducer_name
-- [cmg gamepad testing](docs/cmg-gamepad-testing.md) — committed tests in tests/e2e/ (launcher_pad_harness); astral headless + fake getGamepads shim; hidden pane pauses rAF/pollPad
-- [Voland Switch section](docs/voland-switch-section.md) — Voland ships no WASM build (Aug 2026); /switch is a PS2-style top-level player + BYOC; COOP/COEP must be synced in BOTH main.ts and vite.config.ts; prod.keys rides into compiled launchers
+- [Icon capture system](docs/icon-capture-system.md) — .icons store, capture
+  chain (keep blank-gated!), libretro covers, icons:auto pipeline; ARM64
+  astral→findChrome, vite-dev player-page injection gap
+- [Input origin rule & remote updates](docs/cmg-input-origin-and-updates.md) —
+  mapped keys need same-origin gameframe; cmg-net .cmg-* markers;
+  /api/app-update; shmup-party-ps2 re-vendor procedure + ARM64 gotchas
+- [Scene-script architecture](docs/scene-script-architecture.md) — player
+  title/intro scripts: editor → 2028-ai/2019-turbo flow, two-copy sync rule,
+  bundle rebuild command
+- [2019-turbo testing](docs/2019-turbo-testing.md) — hidden Browser pane pauses
+  Phaser; pump game.loop.step via javascript_tool and assert on scene state
+  (drive scene.time directly for delayedCall timers)
+- [Phaser versions & repo workflow](docs/phaser-versions-and-repos.md) — 4.2.1
+  pins, the vendored-build gotcha, generated files, Windows/git friction, branch
+  & push rules
+- [Voxel 3D export](docs/voxel3d-export.md) — SAVE AS VOXEL 3D: voxelize atlas
+  (pitch/yaw 10), Phaser 4.2.1 Mesh2D dual-mode runtime, publish to
+  /games/voxel-<slug>
+- [Editor/viewer bridge](docs/editor-viewer-bridge.md) — cmg-theme/cmg-tweaks
+  launcher sync keys, editorBossData/atlas bridge, attackPattern override,
+  boss-viewer v2 is Phaser-free
+- [SpacetimeDB JSON reducer args](docs/spacetimedb-json-reducer-args.md) —
+  goofy-game-st: reducer int args must be JSON numbers, but idKey() stringifies
+  PKs — Number() before CallReducer (the coin-collect bug); failed calls come
+  back with request_id 0, so correlate by reducer_name
+- [cmg gamepad testing](docs/cmg-gamepad-testing.md) — committed tests in
+  tests/e2e/ (launcher_pad_harness); astral headless + fake getGamepads shim;
+  hidden pane pauses rAF/pollPad
+- [Voland Switch section](docs/voland-switch-section.md) — Voland ships no WASM
+  build (Aug 2026); /switch is a PS2-style top-level player + BYOC; COOP/COEP
+  must be synced in BOTH main.ts and vite.config.ts; prod.keys rides into
+  compiled launchers
 
 ## Games, demos & OTA updates
 
@@ -104,51 +126,52 @@ for console ROMs — **hotlinked libretro boxart** guessed from the ROM's
 filename, degrading to the initials placeholder when everything misses.
 
 **Capture in game.** The in-game Guide has a **Capture Icon** row on any local
-launcher. One capture engine ([`static/icon-capture.js`](static/icon-capture.js))
-covers every game type, most-faithful strategy first: EmulatorJS's own
-`gameManager.screenshot()`, Phaser's `renderer.snapshot()`, a rAF-synchronized
-readback of the largest visible canvas (shadow-DOM aware, so Ruffle's player
-canvas is found), and an SVG `foreignObject` rasterization for canvas-less DOM
-games. Every strategy is gated by a blank-frame detector — the old launcher's
-"black rectangle" WebGL captures can't be saved. WebGL readback works because
-the launcher stamps a capture agent into game/player HTML
+launcher. One capture engine
+([`static/icon-capture.js`](static/icon-capture.js)) covers every game type,
+most-faithful strategy first: EmulatorJS's own `gameManager.screenshot()`,
+Phaser's `renderer.snapshot()`, a rAF-synchronized readback of the largest
+visible canvas (shadow-DOM aware, so Ruffle's player canvas is found), and an
+SVG `foreignObject` rasterization for canvas-less DOM games. Every strategy is
+gated by a blank-frame detector — the old launcher's "black rectangle" WebGL
+captures can't be saved. WebGL readback works because the launcher stamps a
+capture agent into game/player HTML
 ([`lib/launcher-inject.ts`](lib/launcher-inject.ts)) that forces
 `preserveDrawingBuffer` before any game script runs (armed via the
 `cmg-icon-capture` sessionStorage flag); cross-origin frames answer the same
 agent over postMessage instead. While you play, a game with no art is captured
 silently after ~20s — playing a game is all it takes to give it an icon.
 
-**Icon store.** Captures land in `GAMES_DIR/.icons/` (override:
-`CMG_ICONS_DIR`) — named by a slug + hash of the game id, indexed in
-`index.json`, served back by `GET /api/icons/<file>.png`. `GET /api/icons`
-maps ids to URLs; `POST /api/icons` `{ id, dataUrl }` saves;
-`DELETE /api/icons` `{ id }` removes. Mutations are guarded exactly like
-`/api/games/*` (local launcher only, cross-site refused); on Deno Deploy the
-store reads empty and refuses writes, so the hosted app quietly shows OTA
-icons + hotlinked covers.
+**Icon store.** Captures land in `GAMES_DIR/.icons/` (override: `CMG_ICONS_DIR`)
+— named by a slug + hash of the game id, indexed in `index.json`, served back by
+`GET /api/icons/<file>.png`. `GET /api/icons` maps ids to URLs;
+`POST /api/icons` `{ id, dataUrl }` saves; `DELETE /api/icons` `{ id }` removes.
+Mutations are guarded exactly like `/api/games/*` (local launcher only,
+cross-site refused); on Deno Deploy the store reads empty and refuses writes, so
+the hosted app quietly shows OTA icons + hotlinked covers.
 
 **Auto icons.** Settings → **AUTO ICONS** fills everything still showing
-initials, in the background while you keep playing: console ROMs get boxart
-via `POST /api/icons/fetch` (libretro-thumbnails, keyless — exact
-No-Intro/Redump filename first, display name second, then a fuzzy scan of the
-system shelf's index, RetroArch's own matching order), and catalog games get a
-headless capture via `POST /api/icons/auto` where available. That endpoint
-spawns `tools/game-recorder/icon-cli.ts` — the recorder's deterministic
-virtual-clock boot ([`tools/game-recorder/record/icon.ts`](tools/game-recorder/record/icon.ts)),
+initials, in the background while you keep playing: console ROMs get boxart via
+`POST /api/icons/fetch` (libretro-thumbnails, keyless — exact No-Intro/Redump
+filename first, display name second, then a fuzzy scan of the system shelf's
+index, RetroArch's own matching order), and catalog games get a headless capture
+via `POST /api/icons/auto` where available. That endpoint spawns
+`tools/game-recorder/icon-cli.ts` — the recorder's deterministic virtual-clock
+boot
+([`tools/game-recorder/record/icon.ts`](tools/game-recorder/record/icon.ts)),
 one frame instead of a reel — so it needs the dev checkout (`deno` CLI + tool
 sources on disk); the dashboard probes and hides what can't run. An installed
 Chrome/Edge/Brave is preferred over astral's pinned download (which doesn't
 start on Windows ARM64).
 
-**Pipeline.** `deno task icons:auto` does the same headless work at build
-time: captures catalog games missing an `icon` into `static/icons/auto/` (and
-stamps `data/games.json` with `--write` — commit the pair and the icons ship
-OTA), and `--systems=nes,psx,…` downloads console covers into
-`static/<SystemDir>/covers/` (gitignored, like the ROMs beside them — rerun
-`deno task <sys>:manifest` and the builders stamp `icon` fields the dashboard
-renders). `--list` shows coverage; see `--help` for the rest. Switch has no
-libretro shelf — its art needs a keyed provider (TheGamesDB/SteamGridDB),
-which is the natural next addition behind an env key.
+**Pipeline.** `deno task icons:auto` does the same headless work at build time:
+captures catalog games missing an `icon` into `static/icons/auto/` (and stamps
+`data/games.json` with `--write` — commit the pair and the icons ship OTA), and
+`--systems=nes,psx,…` downloads console covers into `static/<SystemDir>/covers/`
+(gitignored, like the ROMs beside them — rerun `deno task <sys>:manifest` and
+the builders stamp `icon` fields the dashboard renders). `--list` shows
+coverage; see `--help` for the rest. Switch has no libretro shelf — its art
+needs a keyed provider (TheGamesDB/SteamGridDB), which is the natural next
+addition behind an env key.
 
 ## Launcher detection — hiding a game's own chrome
 
@@ -347,34 +370,34 @@ by any task here.
 Nearly every input bug in this repo has the same shape: **three layers see a
 different pad, and we can only patch one of them.**
 
-| Layer | What it sees | Patchable? |
-| --- | --- | --- |
-| Browser Gamepad API | The raw report. Varies by pad, OS, browser and cable-vs-Bluetooth. | No |
-| `CMGGamepadCompat` | Patches `navigator.getGamepads()` to the standard layout. Everything in JS reads this. | Yes |
-| MAME's SDL (arcade only) | Its **own** enumeration, taken from the `gamepadconnected` event. | **No** |
+| Layer                    | What it sees                                                                           | Patchable? |
+| ------------------------ | -------------------------------------------------------------------------------------- | ---------- |
+| Browser Gamepad API      | The raw report. Varies by pad, OS, browser and cable-vs-Bluetooth.                     | No         |
+| `CMGGamepadCompat`       | Patches `navigator.getGamepads()` to the standard layout. Everything in JS reads this. | Yes        |
+| MAME's SDL (arcade only) | Its **own** enumeration, taken from the `gamepadconnected` event.                      | **No**     |
 
 That third row is the one that surprises people. The plugin can only replace
 `navigator.getGamepads()`; it cannot touch the event object MAME already used to
-register the pad. So in the arcade player, **JS and MAME genuinely disagree about
-what the pad is**, and a fix that works in JS can do nothing for MAME.
+register the pad. So in the arcade player, **JS and MAME genuinely disagree
+about what the pad is**, and a fix that works in JS can do nothing for MAME.
 
 ### The standard layout
 
 Everything is normalized to this. MAME's cfg token is the **index + 1**, so
 `JOYCODE_1_BUTTON13` is Gamepad-API index 12.
 
-| Index | Standard slot | Xbox · PlayStation · Nintendo | MAME |
-| --- | --- | --- | --- |
-| 0 | face bottom | A · Cross · B | `BUTTON1` |
-| 1 | face right | B · Circle · A | `BUTTON2` |
-| 2 | face left | X · Square · Y | `BUTTON3` |
-| 3 | face top | Y · Triangle · X | `BUTTON4` |
-| 4 / 5 | L1 / R1 | | `BUTTON5` / `BUTTON6` |
-| 6 / 7 | L2 / R2 | | `BUTTON7` / `BUTTON8` |
-| 8 / 9 | Select / Start | Share · Options | `BUTTON9` / `BUTTON10` |
-| 10 / 11 | L3 / R3 | | `BUTTON11` / `BUTTON12` |
-| 12–15 | D-pad U / D / L / R | | `BUTTON13`–`BUTTON16` |
-| 16 | Home / Guide | PS · Stadia | — (absent on many pads) |
+| Index   | Standard slot       | Xbox · PlayStation · Nintendo | MAME                    |
+| ------- | ------------------- | ----------------------------- | ----------------------- |
+| 0       | face bottom         | A · Cross · B                 | `BUTTON1`               |
+| 1       | face right          | B · Circle · A                | `BUTTON2`               |
+| 2       | face left           | X · Square · Y                | `BUTTON3`               |
+| 3       | face top            | Y · Triangle · X              | `BUTTON4`               |
+| 4 / 5   | L1 / R1             |                               | `BUTTON5` / `BUTTON6`   |
+| 6 / 7   | L2 / R2             |                               | `BUTTON7` / `BUTTON8`   |
+| 8 / 9   | Select / Start      | Share · Options               | `BUTTON9` / `BUTTON10`  |
+| 10 / 11 | L3 / R3             |                               | `BUTTON11` / `BUTTON12` |
+| 12–15   | D-pad U / D / L / R |                               | `BUTTON13`–`BUTTON16`   |
+| 16      | Home / Guide        | PS · Stadia                   | — (absent on many pads) |
 
 Face buttons are named by **position**, never by letter: index 0 is Xbox A but
 Nintendo B, so "press A" is ambiguous and `FBTN_BOTTOM` is not.
@@ -382,28 +405,28 @@ Nintendo B, so "press A" is ambiguous and `FBTN_BOTTOM` is not.
 ### The traps, and what they look like
 
 1. **A pad's index is part of its MAME identity.** `JOYCODE_n` = index + 1, so a
-   pad at index 1 is *Joystick 2* and matches none of the `JOYCODE_1_*` bindings
-   every cfg uses. Plug in a second controller and the newcomer is silently
-   dead — the same pad works perfectly when it is the only one connected.
+   pad at index 1 is _Joystick 2_ and matches none of the `JOYCODE_1_*` bindings
+   every cfg uses. Plug in a second controller and the newcomer is silently dead
+   — the same pad works perfectly when it is the only one connected.
 2. **`preferSinglePad` hides the other pads.** `padPriority` ranks SNES `3` >
-   Xbox `2` > everything else `1`, and the winner is the *only* pad
+   Xbox `2` > everything else `1`, and the winner is the _only_ pad
    `getGamepads()` returns. With a SNES pad plus a DualShock, JS never sees the
    DualShock at all. Poll every connected pad if any of them should be able to
    drive the game.
-3. **MAME registers the raw button *count*.** A SNES joydev pad reports 8 raw
+3. **MAME registers the raw button _count_.** A SNES joydev pad reports 8 raw
    buttons, so normalized slots 8/9 (Select/Start) sit past the end and are
    never polled, no matter what the cfg says.
-4. **The SNES pad is two different pads.** Fingerprinted by axis count:
-   *joydev* (few axes; D-pad as real buttons 12–15, top/left faces swapped) and
-   *Nintendo HID* (~10 axes; **raw 12–15 are Home/Capture/ZR, not directions** —
-   the D-pad is an encoded hat on `axes[9]`). Reading raw 12–15 on the latter
-   gives a stuck D-pad-right from ZR.
+4. **The SNES pad is two different pads.** Fingerprinted by axis count: _joydev_
+   (few axes; D-pad as real buttons 12–15, top/left faces swapped) and _Nintendo
+   HID_ (~10 axes; **raw 12–15 are Home/Capture/ZR, not directions** — the D-pad
+   is an encoded hat on `axes[9]`). Reading raw 12–15 on the latter gives a
+   stuck D-pad-right from ZR.
 5. **Editing a shipped `.cfg` wipes the emulator's saved state.** The
-   `fileSystemKey` is an FNV-1a hash of the cfg bytes, so any edit starts a fresh
-   IndexedDB store. That is deliberate — it is how updated control maps reach
-   players who already ran the game — but it also **unmasks latent input bugs**
-   the old store was papering over. An unrelated-looking cfg edit "breaking" the
-   D-pad is this.
+   `fileSystemKey` is an FNV-1a hash of the cfg bytes, so any edit starts a
+   fresh IndexedDB store. That is deliberate — it is how updated control maps
+   reach players who already ran the game — but it also **unmasks latent input
+   bugs** the old store was papering over. An unrelated-looking cfg edit
+   "breaking" the D-pad is this.
 
 ### The escape hatch: mirror to a keystroke
 
@@ -418,9 +441,9 @@ and the D-pad as arrow keys rather than trusting `JOYCODE_1_*`.
 
 `P1_BUTTON1` is **not** necessarily Light Punch. For `sfex2` the ports are:
 
-| Port | `BUTTON1` | `BUTTON2` | `BUTTON3` | `BUTTON4` | `BUTTON5` | `BUTTON6` |
-| --- | --- | --- | --- | --- | --- | --- |
-| Action | HP | LK | HK | LP | MP | MK |
+| Port   | `BUTTON1` | `BUTTON2` | `BUTTON3` | `BUTTON4` | `BUTTON5` | `BUTTON6` |
+| ------ | --------- | --------- | --------- | --------- | --------- | --------- |
+| Action | HP        | LK        | HK        | LP        | MP        | MK        |
 
 Map a fighter by **what each port does in game**, not by its number — going by
 the number is what produced a scrambled six-button layout once already. The

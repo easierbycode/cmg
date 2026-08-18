@@ -1,7 +1,7 @@
 # Input origin rule & remote updates
 
-**Input rule (root of the 2026-07-28 bug batch):** the launcher synthesizes mapped
-gamepad→keyboard events only into a SAME-ORIGIN `iframe#gameframe`
+**Input rule (root of the 2026-07-28 bug batch):** the launcher synthesizes
+mapped gamepad→keyboard events only into a SAME-ORIGIN `iframe#gameframe`
 (`static/gamepad-support.js dispatchKeyboardEvent` bails silently cross-origin).
 Anything streamed (CMG-net `streamUrl`, deploy-resolved URLs) is deaf to mapped
 keys; games reading the Gamepad API directly (shmup twin-stick) still work, and
@@ -45,8 +45,10 @@ refresh it.
 **User's device:** Lenovo Legion with built-in pad identifying as "Xbox 360
 Controller" (matches the Xbox-class regex, broadened to /Legion|X-Box/ too);
 tests AppImages built on-device from a fresh clone (`deno task dashboard:build`
-+ `deno task build:linux`). PS2 ISO row (Play! emulator) black-screens on a
-known upstream Play! issue (zero draw calls) — not a CMG bug; the web row is
-the workaround.
 
-Related: [Phaser versions & repo workflow](phaser-versions-and-repos.md), [Editor/viewer bridge](editor-viewer-bridge.md)
+- `deno task build:linux`). PS2 ISO row (Play! emulator) black-screens on a
+  known upstream Play! issue (zero draw calls) — not a CMG bug; the web row is
+  the workaround.
+
+Related: [Phaser versions & repo workflow](phaser-versions-and-repos.md),
+[Editor/viewer bridge](editor-viewer-bridge.md)

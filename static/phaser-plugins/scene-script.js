@@ -92,6 +92,22 @@ export function inferSceneScriptLang(filename) {
   return "js";
 }
 
+export function resolveScriptUrl(rawUrl) {
+  if (!rawUrl) return rawUrl;
+  if (/^(?:[a-z]+:|\/\/)/i.test(rawUrl)) {
+    return rawUrl;
+  }
+  const relPath = rawUrl.replace(/^\/+/, "");
+  if (typeof document !== "undefined" && document.baseURI) {
+    return new URL(relPath, document.baseURI).href;
+  }
+  if (typeof globalThis !== "undefined" && globalThis.location && globalThis.location.href) {
+    const baseDir = globalThis.location.href.replace(/[^/]*$/, "");
+    return new URL(relPath, baseDir).href;
+  }
+  return rawUrl;
+}
+
 // ---- Compilation (lazy CDN) -----------------------------------------------
 
 export async function compileTypeScript(code) {
@@ -278,7 +294,8 @@ async function resolveEntrySource(entry) {
     return { js: await compileSceneScript(content, null, filename) };
   }
   // "url"
-  const url = entry.url;
+  const rawUrl = entry.url;
+  const url = resolveScriptUrl(rawUrl);
   const lang = inferSceneScriptLang(url);
   if (lang === "js") {
     // Direct import keeps relative imports inside the module working; gist
@@ -288,7 +305,7 @@ async function resolveEntrySource(entry) {
     } catch (_e) { /* fall through to fetch+blob */ }
   }
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`scene script ${url}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`scene script ${rawUrl}: HTTP ${res.status}`);
   return { js: await compileSceneScript(await res.text(), lang, url) };
 }
 
