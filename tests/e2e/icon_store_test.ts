@@ -196,7 +196,9 @@ Deno.test("headless capture endpoint refuses foreign origins and argv injection"
   }
 
   // Bad input is 400, not 500.
-  let res = await auto.POST(ctx(jsonInit({ id: "", url: "http://localhost/" })));
+  let res = await auto.POST(
+    ctx(jsonInit({ id: "", url: "http://localhost/" })),
+  );
   assertEquals(res.status, 400);
   await res.body?.cancel();
   res = await auto.POST(ctx(jsonInit({ id: "x", url: "file:///etc/passwd" })));

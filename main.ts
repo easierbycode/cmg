@@ -51,7 +51,8 @@ app.use(async (ctx) => {
 // preserveDrawingBuffer patch to be capturable, and it must run before the
 // emulator boots. PS2 and Switch are top-level navigations with no parent
 // frame, so the agent would be inert there and they are left out.
-const PLAYER_PAGES = /^\/(nes|psx|saturn|turbografx16|arcade|naomi)\/play\.html$/i;
+const PLAYER_PAGES =
+  /^\/(nes|psx|saturn|turbografx16|arcade|naomi)\/play\.html$/i;
 app.use(async (ctx) => {
   const res = await ctx.next();
   if (ctx.req.method !== "GET" || res.status !== 200) return res;

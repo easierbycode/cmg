@@ -38,10 +38,12 @@ Deno.test("Origin falls back to a Host comparison", () => {
     origin: "http://127.0.0.1:5173",
     host: "127.0.0.1:5173",
   }));
-  assert.ok(!allowed({
-    origin: "https://evil.example",
-    host: "127.0.0.1:5173",
-  }));
+  assert.ok(
+    !allowed({
+      origin: "https://evil.example",
+      host: "127.0.0.1:5173",
+    }),
+  );
   assert.ok(!allowed({ origin: "null", host: "127.0.0.1:5173" }));
 });
 
@@ -54,11 +56,13 @@ Deno.test("Origin may name the forwarded public host", () => {
     "x-forwarded-host": "cmg.deno.net",
   }));
   // ...but a forwarded host does not open the door to any other origin.
-  assert.ok(!allowed({
-    origin: "https://evil.example",
-    host: "127.0.0.1:5173",
-    "x-forwarded-host": "cmg.deno.net",
-  }));
+  assert.ok(
+    !allowed({
+      origin: "https://evil.example",
+      host: "127.0.0.1:5173",
+      "x-forwarded-host": "cmg.deno.net",
+    }),
+  );
   // Multi-proxy chains list the client-addressed host first.
   assert.ok(allowed({
     origin: "https://cmg.deno.net",
