@@ -92,18 +92,33 @@ export function inferSceneScriptLang(filename) {
   return "js";
 }
 
+function normalizeBaseUrl(base) {
+  if (!base) return base;
+  try {
+    const u = new URL(base);
+    if (!u.pathname.endsWith("/") && !/\.[a-z0-9]+$/i.test(u.pathname)) {
+      u.pathname += "/";
+    }
+    return u.href;
+  } catch (_e) {
+    return base;
+  }
+}
+
 export function resolveScriptUrl(rawUrl) {
   if (!rawUrl) return rawUrl;
   if (/^(?:[a-z]+:|\/\/)/i.test(rawUrl)) {
     return rawUrl;
   }
   const relPath = rawUrl.replace(/^\/+/, "");
+  let base;
   if (typeof document !== "undefined" && document.baseURI) {
-    return new URL(relPath, document.baseURI).href;
+    base = document.baseURI;
+  } else if (typeof globalThis !== "undefined" && globalThis.location && globalThis.location.href) {
+    base = globalThis.location.href;
   }
-  if (typeof globalThis !== "undefined" && globalThis.location && globalThis.location.href) {
-    const baseDir = globalThis.location.href.replace(/[^/]*$/, "");
-    return new URL(relPath, baseDir).href;
+  if (base) {
+    return new URL(relPath, normalizeBaseUrl(base)).href;
   }
   return rawUrl;
 }
