@@ -1,6 +1,14 @@
-# Icon capture system
+# Game Icon capture system
 
-cmg's game-icon system (built 2026-08-04):
+usage example:
+```
+deno run -A tools/game-recorder/icon-cli.ts --url https://easierbycode.com/95-demo-sp --out screenshot-95-demo.png
+```
+-OR, all games at once-
+```
+deno task icons:auto
+```
+
 
 - **Store**: `GAMES_DIR/.icons/` (`CMG_ICONS_DIR` override), files named `slug-fnv1a(id).png` + `index.json` map (`lib/icons-store.ts`). Routes: `GET/POST/DELETE /api/icons`, `GET /api/icons/<file>.png`, `POST /api/icons/auto` (headless), `POST /api/icons/fetch` (libretro). Same guard policy as `/api/games/*`; empty/read-only on Deploy.
 - **Client capture**: `static/icon-capture.js` (runtime-imported by the dashboard AND by the CAPTURE_AGENT script that `main.ts` middleware injects into /games, /demos and the emulator player pages). Chain: EJS `gameManager.screenshot()` → Phaser `renderer.snapshot()` → rAF canvas readback (shadow-DOM aware for Ruffle) → foreignObject DOM raster. **Every strategy must stay blank-gated** — a hidden/unpainted page otherwise saves a black tile (bit us in testing).
