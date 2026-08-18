@@ -13,11 +13,11 @@ Deno.test("resolveScriptUrl handles absolute URLs without modification", () => {
   assert.strictEqual(resolveScriptUrl(protoRelUrl), protoRelUrl);
 });
 
-Deno.test("resolveScriptUrl resolves root-relative and relative URLs against baseURI", () => {
+Deno.test("resolveScriptUrl resolves root-relative and relative URLs against baseURI with or without trailing slash", () => {
   const originalDoc = globalThis.document;
   try {
     Object.defineProperty(globalThis, "document", {
-      value: { baseURI: "http://easierbycode.com/2019-turbo/" },
+      value: { baseURI: "http://easierbycode.com/2019-turbo" },
       configurable: true,
       writable: true,
     });
@@ -33,6 +33,17 @@ Deno.test("resolveScriptUrl resolves root-relative and relative URLs against bas
     assert.strictEqual(
       resolveScriptUrl("./examples/scene-scripts/DemoAdvScene.svelte"),
       "http://easierbycode.com/2019-turbo/examples/scene-scripts/DemoAdvScene.svelte",
+    );
+
+    Object.defineProperty(globalThis, "document", {
+      value: { baseURI: "http://easierbycode.com/2019-turbo/" },
+      configurable: true,
+      writable: true,
+    });
+
+    assert.strictEqual(
+      resolveScriptUrl("/examples/scene-scripts/demo-adv-replace.js"),
+      "http://easierbycode.com/2019-turbo/examples/scene-scripts/demo-adv-replace.js",
     );
   } finally {
     Object.defineProperty(globalThis, "document", {
