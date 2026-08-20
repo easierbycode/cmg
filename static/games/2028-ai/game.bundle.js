@@ -704,6 +704,9 @@
     charactersUrl: "https://easierbycode.com/2019-es7/characters",
     charactersModule: "https://easierbycode.com/2019-es7/characters/browser.js"
   };
+  function charactersModuleUrl() {
+    return typeof globalThis !== "undefined" && globalThis.__CHARACTERS_MODULE__ || SCENE_SCRIPT_DEFAULTS.charactersModule;
+  }
   var SCENE_SCRIPT_TARGETS = ["title", "adv"];
   function dynImport(url) {
     return new Function("u", "return import(u)")(url);
@@ -775,11 +778,12 @@
     return js;
   }
   function rewriteCharacterImports(code) {
-    const { charactersUrl, charactersModule } = SCENE_SCRIPT_DEFAULTS;
-    if (!charactersUrl || !charactersModule) return code;
+    const { charactersUrl } = SCENE_SCRIPT_DEFAULTS;
+    const target = charactersModuleUrl();
+    if (!charactersUrl || !target) return code;
     return code.replace(
       /((?:from|import)\s*\(?\s*)(["'])(https?:\/\/[^"']+?)\/?\2/g,
-      (m, pre, q, url) => url === charactersUrl ? pre + q + charactersModule + q : m
+      (m, pre, q, url) => url === charactersUrl ? pre + q + target + q : m
     );
   }
   async function compileSceneScript(code, lang, filename) {

@@ -74,6 +74,16 @@ export const SCENE_SCRIPT_DEFAULTS = {
   charactersModule: "https://easierbycode.com/2019-es7/characters/browser.js",
 };
 
+// Where characters imports actually resolve. Pages served by the cmg app set
+// __CHARACTERS_MODULE__ to their own /characters route (see routes/characters/
+// index.ts), whose named exports are generated from the database per request —
+// characters created moments ago import by name with no rebuild. Everything
+// else (offline/standalone exports, other hosts) keeps the static build.
+export function charactersModuleUrl() {
+  return (typeof globalThis !== "undefined" && globalThis.__CHARACTERS_MODULE__) ||
+    SCENE_SCRIPT_DEFAULTS.charactersModule;
+}
+
 export const SCENE_SCRIPT_TARGETS = ["title", "adv"];
 
 // Indirect dynamic import: keeps bundlers (esbuild iife) from trying to
@@ -162,11 +172,12 @@ export async function compileSvelte(code, filename) {
 // trailing "/") to the actual browser module. Applied to every script lang —
 // the bare URL is documentation-friendly but not directly fetchable.
 export function rewriteCharacterImports(code) {
-  const { charactersUrl, charactersModule } = SCENE_SCRIPT_DEFAULTS;
-  if (!charactersUrl || !charactersModule) return code;
+  const { charactersUrl } = SCENE_SCRIPT_DEFAULTS;
+  const target = charactersModuleUrl();
+  if (!charactersUrl || !target) return code;
   return code.replace(
     /((?:from|import)\s*\(?\s*)(["'])(https?:\/\/[^"']+?)\/?\2/g,
-    (m, pre, q, url) => (url === charactersUrl ? pre + q + charactersModule + q : m),
+    (m, pre, q, url) => (url === charactersUrl ? pre + q + target + q : m),
   );
 }
 

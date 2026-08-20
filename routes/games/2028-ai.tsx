@@ -19,6 +19,17 @@ const PHASER_IMPORT_MAP = JSON.stringify({
   imports: { "phaser": "/phaser-plugins/phaser-global.js" },
 });
 
+// Scene scripts importing the characters library by its documentation URL
+// (easierbycode.com/2019-es7/characters) are rewritten to this module. On
+// cmg-served pages that is our own /characters route, whose named exports are
+// generated from the database per request — a character created moments ago
+// imports by name with no rebuild. Standalone/offline exports of this game
+// lack the route (and this global), so scene-script.js falls back to the
+// static GitHub Pages build.
+const CHARACTERS_MODULE = `
+globalThis.__CHARACTERS_MODULE__ = location.origin + "/characters";
+`;
+
 const AUDIO_UNLOCK = `
 (function () {
   var ctxs = [];
@@ -266,6 +277,7 @@ export default define.page(function Game2028() {
           dangerouslySetInnerHTML={{ __html: PHASER_IMPORT_MAP }}
         />
         <script src="/gamepad-compatibility-plugin.js"></script>
+        <script dangerouslySetInnerHTML={{ __html: CHARACTERS_MODULE }} />
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
         <script dangerouslySetInnerHTML={{ __html: LEVEL_EDITOR_BROADCAST }} />
         <script dangerouslySetInnerHTML={{ __html: AUDIO_UNLOCK }} />
