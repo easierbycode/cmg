@@ -367,6 +367,10 @@
             recipe[stageKey].waveInterval = levelData.waveInterval;
           }
         }
+        if (levelData.background && Array.isArray(levelData.backgroundCells)) {
+          recipe[stageKey].background = levelData.background;
+          recipe.backgroundCells = levelData.backgroundCells;
+        }
         const atlasFrames = (() => {
           try {
             const atlas = this.scene.textures.get(atlasKey);
@@ -1450,6 +1454,36 @@
     }
   });
 
+  // ../2019-es7/src/phaser/stages.js
+  var MAX_STAGE_ID = 9;
+  var ASSET_STAGES = 5;
+  function clampStageId(value) {
+    var id = Number(value);
+    if (!Number.isFinite(id)) return 0;
+    return Math.max(0, Math.min(MAX_STAGE_ID, Math.floor(id)));
+  }
+  function assetStageId(stageId) {
+    return clampStageId(stageId) % ASSET_STAGES;
+  }
+  function recipeStageIds(recipe) {
+    if (!recipe) return [0];
+    var ids = [];
+    for (var key in recipe) {
+      var m = /^stage(\d+)$/.exec(key);
+      if (!m) continue;
+      var id = Number(m[1]);
+      if (id >= 0 && id <= MAX_STAGE_ID) ids.push(id);
+    }
+    ids.sort(function(a, b) {
+      return a - b;
+    });
+    return ids.length ? ids : [0];
+  }
+  function lastStageId(recipe) {
+    var ids = recipeStageIds(recipe);
+    return ids[ids.length - 1];
+  }
+
   // ../2019-es7/src/phaser/BootScene.js
   var EDITOR_PLAY_RECIPE_KEY = "__editorPhaserRecipe__";
   var EDITOR_PLAY_STAGE_KEY = "__editorPhaserStageId__";
@@ -1510,11 +1544,7 @@
     });
   }
   function parseStageId2(value) {
-    var stageId = Number(value);
-    if (!Number.isFinite(stageId)) {
-      return 0;
-    }
-    return Math.max(0, Math.min(4, Math.floor(stageId)));
+    return clampStageId(value);
   }
   function readEditorPlayRequest() {
     if (typeof window === "undefined") {
@@ -1591,6 +1621,117 @@
         };
       });
     });
+  }
+  var EDITOR_BRIDGE_DB_NAME = "editorViewerBridge";
+  var EDITOR_BRIDGE_STORE = "assets";
+  var EDITOR_BRIDGE_GAME_ASSET_KEY = "atlas:game_asset";
+  function readEditorAtlasBridge2() {
+    if (typeof indexedDB === "undefined") {
+      return Promise.resolve(null);
+    }
+    return new Promise(function(resolve) {
+      var req;
+      try {
+        req = indexedDB.open(EDITOR_BRIDGE_DB_NAME);
+      } catch (error) {
+        resolve(null);
+        return;
+      }
+      var created = false;
+      req.onupgradeneeded = function() {
+        created = true;
+      };
+      req.onerror = function() {
+        resolve(null);
+      };
+      req.onsuccess = function(e) {
+        var db = e.target.result;
+        if (created || !db.objectStoreNames.contains(EDITOR_BRIDGE_STORE)) {
+          try {
+            db.close();
+            if (created) indexedDB.deleteDatabase(EDITOR_BRIDGE_DB_NAME);
+          } catch (error) {
+          }
+          resolve(null);
+          return;
+        }
+        try {
+          var tx = db.transaction(EDITOR_BRIDGE_STORE, "readonly");
+          var recordReq = tx.objectStore(EDITOR_BRIDGE_STORE).get(EDITOR_BRIDGE_GAME_ASSET_KEY);
+          tx.oncomplete = function() {
+            var record = recordReq.result;
+            if (!record || !record.frames || !record.blob) {
+              resolve(null);
+              return;
+            }
+            resolve({ frames: record.frames, blob: record.blob });
+          };
+          tx.onerror = function() {
+            resolve(null);
+          };
+        } catch (error) {
+          resolve(null);
+        }
+      };
+    });
+  }
+  function blobToImage(blob) {
+    return new Promise(function(resolve) {
+      var url = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function() {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = function() {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      img.src = url;
+    });
+  }
+  function mergeAtlasIntoGameAsset(scene, image, frames) {
+    var localAtlas = scene.textures.get("game_asset");
+    var localSource = localAtlas && localAtlas.source && localAtlas.source[0] ? localAtlas.source[0].image : null;
+    var localFrames = localAtlas ? localAtlas.frames : {};
+    if (!localSource) {
+      return false;
+    }
+    var localW = localSource.width;
+    var localH = localSource.height;
+    var mergedCanvas = document.createElement("canvas");
+    mergedCanvas.width = Math.max(localW, image.width);
+    mergedCanvas.height = localH + image.height;
+    var mctx = mergedCanvas.getContext("2d");
+    mctx.drawImage(localSource, 0, 0);
+    mctx.drawImage(image, 0, localH);
+    var mergedFrameMap = {};
+    for (var lk in localFrames) {
+      if (lk === "__BASE") continue;
+      var lf = localFrames[lk];
+      if (lf && lf.cutX !== void 0) {
+        mergedFrameMap[lk] = { frame: { x: lf.cutX, y: lf.cutY, w: lf.cutWidth, h: lf.cutHeight } };
+      }
+    }
+    for (var fname in frames) {
+      var decodedName = fname.replace(/․/g, ".");
+      var fd = frames[fname];
+      if (!fd || !fd.frame) continue;
+      var frameData = { frame: { x: fd.frame.x, y: fd.frame.y + localH, w: fd.frame.w, h: fd.frame.h } };
+      mergedFrameMap[decodedName] = frameData;
+      var altName = null;
+      if (decodedName.endsWith(".png")) {
+        altName = decodedName.slice(0, -4) + ".gif";
+      } else if (decodedName.endsWith(".gif")) {
+        altName = decodedName.slice(0, -4) + ".png";
+      }
+      if (altName && mergedFrameMap[altName]) {
+        mergedFrameMap[altName] = frameData;
+      }
+    }
+    scene.textures.remove("game_asset");
+    scene.textures.addAtlas("game_asset", mergedCanvas, { frames: mergedFrameMap });
+    return true;
   }
   function primeGameStateForStage(recipe, stageId) {
     if (recipe && recipe.playerData) {
@@ -1742,24 +1883,11 @@
         this.load.image("stage_loop" + i, "assets/img/stage/stage_loop" + i + ".png");
         this.load.image("stage_end" + i, "assets/img/stage/stage_end" + i + ".png");
       }
-      var customLoopPaths = [
-        "assets/img/stage/stage_loop3.png",
-        "assets/img/stage/stage_loop3.png",
-        "assets/img/stage/stage_loop3.png",
-        "assets/img/stage/stage_loop3.png",
-        "assets/img/stage/stage_loop4.png"
-      ];
-      var customEndPaths = [
-        "assets/img/stage/stage_end3.png",
-        "assets/img/stage/stage_end3.png",
-        "assets/img/stage/stage_end3.png",
-        "assets/img/stage/stage_end3.png",
-        "assets/img/stage/stage_end4.png"
-      ];
       for (var i = 0; i < 5; i++) {
-        this.load.image("stage_loop_c" + i, customLoopPaths[i]);
-        this.load.image("stage_end_c" + i, customEndPaths[i]);
+        this.load.image("stage_loop_c" + i, "assets/img/stage/space_stars.png");
+        this.load.image("stage_end_c" + i, "assets/img/stage/space_stars.png");
       }
+      this.load.image("stage_over_c", "assets/img/stage/space_corridor.png");
       this.load.image("loading_bg", "assets/img/loading/loading_bg.png");
       this.load.image("loading0", "assets/img/loading/loading0.gif");
       this.load.image("loading1", "assets/img/loading/loading1.gif");
@@ -1779,7 +1907,19 @@
       var self = this;
       var editorPlay = readEditorPlayRequest();
       if (editorPlay) {
-        this._finishBoot();
+        readEditorAtlasBridge2().then(function(bridge) {
+          if (!bridge) {
+            return null;
+          }
+          return blobToImage(bridge.blob).then(function(img) {
+            if (!img) return null;
+            return mergeAtlasIntoGameAsset(self, img, bridge.frames);
+          });
+        }).catch(function(err) {
+          console.warn("Editor atlas bridge unavailable, using on-disk art:", err);
+        }).then(function() {
+          self._finishBoot();
+        });
         return;
       }
       var explicitLevel = readLevelParam();
@@ -1982,50 +2122,7 @@
           var fbImg = new Image();
           fbImg.onload = function() {
             try {
-              var localAtlas = self.textures.get("game_asset");
-              var localSource = localAtlas && localAtlas.source && localAtlas.source[0] ? localAtlas.source[0].image : null;
-              var localFrames = localAtlas ? localAtlas.frames : {};
-              if (!localSource) {
-                finishLevelLoad();
-                return;
-              }
-              var mergedCanvas = document.createElement("canvas");
-              var localW = localSource.width, localH = localSource.height;
-              var fbW = fbImg.width, fbH = fbImg.height;
-              mergedCanvas.width = Math.max(localW, fbW);
-              mergedCanvas.height = localH + fbH;
-              var mctx = mergedCanvas.getContext("2d");
-              mctx.drawImage(localSource, 0, 0);
-              mctx.drawImage(fbImg, 0, localH);
-              var mergedFrameMap = {};
-              for (var lk in localFrames) {
-                if (lk === "__BASE") continue;
-                var lf = localFrames[lk];
-                if (lf && lf.cutX !== void 0) {
-                  mergedFrameMap[lk] = { frame: { x: lf.cutX, y: lf.cutY, w: lf.cutWidth, h: lf.cutHeight } };
-                }
-              }
-              for (var fname in data.atlasFrames) {
-                var decodedName = fname.replace(/\u2024/g, ".");
-                var fd = data.atlasFrames[fname];
-                if (fd && fd.frame) {
-                  var frameData = {
-                    frame: { x: fd.frame.x, y: fd.frame.y + localH, w: fd.frame.w, h: fd.frame.h }
-                  };
-                  mergedFrameMap[decodedName] = frameData;
-                  var altName = null;
-                  if (decodedName.endsWith(".png")) {
-                    altName = decodedName.slice(0, -4) + ".gif";
-                  } else if (decodedName.endsWith(".gif")) {
-                    altName = decodedName.slice(0, -4) + ".png";
-                  }
-                  if (altName && mergedFrameMap[altName]) {
-                    mergedFrameMap[altName] = frameData;
-                  }
-                }
-              }
-              self.textures.remove("game_asset");
-              self.textures.addAtlas("game_asset", mergedCanvas, { frames: mergedFrameMap });
+              mergeAtlasIntoGameAsset(self, fbImg, data.atlasFrames);
             } catch (atlasErr) {
               console.warn("Failed to merge Firebase atlas:", atlasErr);
             }
@@ -2973,16 +3070,23 @@
       this.customImages = this.scenario.customImages || {};
       this.partNum = 0;
       this.stageKey = "stage" + String(gameState.stageId);
+      if (!this.scenario[this.stageKey]) {
+        var scenarioKeys = Object.keys(this.scenario).filter(function(k) {
+          return /^stage\d+$/.test(k);
+        });
+        this.stageKey = scenarioKeys.length ? scenarioKeys[gameState.stageId % scenarioKeys.length] : scenarioKeys[0];
+      }
       this.partText = this.scenario[this.stageKey].part[this.partNum].text;
       this.partTextCursor = 0;
       this.partTextComp = false;
       this.textTimer = 0;
+      var finalStage = recipe ? lastStageId(recipe) : 4;
       this.endingFlg = false;
-      if (gameState.stageId === 5) {
+      if (gameState.stageId > finalStage) {
         this.endingFlg = true;
-      } else if (gameState.stageId === 4) {
+      } else if (gameState.stageId === finalStage) {
         this.playSound("voice_thankyou", 0.7);
-        if (!(gameState.akebonoCnt >= 4 && gameState.continueCnt === 0)) {
+        if (finalStage === 4 && !(gameState.akebonoCnt >= 4 && gameState.continueCnt === 0)) {
           this.endingFlg = true;
         }
       }
@@ -3541,6 +3645,219 @@
     return triggered;
   }
 
+  // ../2019-es7/src/phaser/dezaemon-runtime.js
+  var TILE = 16;
+  var SCROLL_PX_PER_FRAME = 2;
+  var STRIP_ROWS = 128;
+  function decodeBase64(str) {
+    var ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    var clean = String(str).replace(/=+$/, "");
+    var out = new Uint8Array(clean.length * 3 >> 2);
+    var acc = 0, bits = 0, o = 0;
+    for (var i = 0; i < clean.length; i++) {
+      var v = ALPHA.indexOf(clean[i]);
+      if (v < 0) continue;
+      acc = acc << 6 | v;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        out[o++] = acc >> bits & 255;
+      }
+    }
+    return out;
+  }
+  function buildStageBackground(scene, stageData, recipe) {
+    var bg = stageData && stageData.background;
+    var cells = recipe && recipe.backgroundCells;
+    if (!bg || !Array.isArray(cells) || !cells.length) return null;
+    var bytes = decodeBase64(bg.tiles);
+    if (bytes.length < bg.rows * bg.cols * 2) return null;
+    var atlas = scene.textures.get("game_asset");
+    if (!atlas) return null;
+    var frames = cells.map(function(name) {
+      return atlas.has(name) ? atlas.get(name) : null;
+    });
+    var GW16 = scene.scale ? scene.scale.width : 256;
+    var GH14 = scene.scale ? scene.scale.height : 480;
+    var mapHeight = bg.rows * TILE;
+    var container = scene.add.container(0, 0);
+    container.setDepth(1);
+    var stripCount = Math.ceil(bg.rows / STRIP_ROWS);
+    for (var s = 0; s < stripCount; s++) {
+      var firstRow = s * STRIP_ROWS;
+      var rowCount = Math.min(STRIP_ROWS, bg.rows - firstRow);
+      var key = "dezaBg_" + scene.stageKey + "_" + s;
+      if (scene.textures.exists(key)) scene.textures.remove(key);
+      var tex = scene.textures.createCanvas(key, bg.cols * TILE, rowCount * TILE);
+      var ctx = tex.getContext();
+      for (var r = 0; r < rowCount; r++) {
+        var row = firstRow + r;
+        for (var c = 0; c < bg.cols; c++) {
+          var o = (row * bg.cols + c) * 2;
+          var word = bytes[o] << 8 | bytes[o + 1];
+          if (word === 65535) continue;
+          var frame = frames[word & 1023];
+          if (!frame) continue;
+          var hflip = (word & 32768) !== 0;
+          var vflip = (word & 16384) !== 0;
+          var dx = c * TILE;
+          var dy = (rowCount - 1 - r) * TILE;
+          var src = frame.source.image;
+          if (hflip || vflip) {
+            ctx.save();
+            ctx.translate(dx + TILE / 2, dy + TILE / 2);
+            ctx.scale(hflip ? -1 : 1, vflip ? -1 : 1);
+            ctx.drawImage(src, frame.cutX, frame.cutY, TILE, TILE, -TILE / 2, -TILE / 2, TILE, TILE);
+            ctx.restore();
+          } else {
+            ctx.drawImage(src, frame.cutX, frame.cutY, TILE, TILE, dx, dy, TILE, TILE);
+          }
+        }
+      }
+      tex.refresh();
+      var img = scene.add.image(0, mapHeight - (firstRow + rowCount) * TILE, key);
+      img.setOrigin(0, 0);
+      container.add(img);
+    }
+    container.x = Math.floor((GW16 - bg.cols * TILE) / 2);
+    var maxScroll = Math.max(0, mapHeight - GH14);
+    var controller = {
+      container,
+      mapHeight,
+      maxScroll,
+      lastDelta: 0,
+      _scroll: -1,
+      setScroll: function(px) {
+        var clamped = Math.max(0, Math.min(maxScroll, px));
+        this.lastDelta = this._scroll < 0 ? 0 : clamped - this._scroll;
+        this._scroll = clamped;
+        container.y = GH14 - mapHeight + clamped;
+      },
+      destroy: function() {
+        container.destroy(true);
+      }
+    };
+    controller.setScroll(0);
+    return controller;
+  }
+  function makeChannel(ch, extra) {
+    if (!ch || !ch.enabled) return null;
+    var step = Math.abs(ch.step);
+    if (extra && extra.reverse) step = -step;
+    return {
+      value: ch.from,
+      from: ch.from,
+      to: ch.to,
+      step: ch.from > ch.to ? -step : step,
+      repeat: ch.repeat,
+      // 0 once, 1 loop, 2 ping-pong
+      spin: !!(extra && extra.spin) || ch.from === ch.to && ch.step !== 0 && !!(extra && extra.wrap),
+      wrap: !!(extra && extra.wrap),
+      done: false
+    };
+  }
+  function stepChannel(st) {
+    if (!st || st.done) return st ? st.value : 0;
+    if (st.spin) {
+      st.value += st.step || 1;
+      return st.value;
+    }
+    if (st.step === 0 || st.from === st.to) return st.value;
+    st.value += st.step;
+    var arrived = st.step > 0 ? st.value >= st.to : st.value <= st.to;
+    if (arrived) {
+      st.value = st.to;
+      if (st.repeat === 1) {
+        st.value = st.from;
+      } else if (st.repeat === 2) {
+        var f = st.from;
+        st.from = st.to;
+        st.to = f;
+        st.step = -st.step;
+      } else {
+        st.done = true;
+      }
+    }
+    return st.value;
+  }
+  function initEnemyBehavior(enemy, behavior) {
+    enemy.setData("deza", {
+      behavior,
+      age: 0,
+      speedCh: makeChannel(behavior.speedChange, null),
+      rotationCh: makeChannel(behavior.rotation, {
+        wrap: true,
+        reverse: behavior.rotation.mode === 2,
+        // modes 3/4 are engine-special (aim-style); play them as spin
+        spin: behavior.rotation.mode >= 3
+      }),
+      scaleCh: makeChannel(behavior.scale, null),
+      directionCh: makeChannel(behavior.direction, { wrap: true }),
+      // stagger the first volley inside the engine's randomization window
+      reload: behavior.fire.type ? behavior.fire.interval + Math.floor(Math.random() * (behavior.fire.window || 1)) : -1
+    });
+    if (behavior.ground) {
+      var shadow = enemy.getData("shadow");
+      if (shadow) shadow.setVisible(false);
+    }
+  }
+  function updateEnemyBehavior(scene, enemy) {
+    var st = enemy.getData("deza");
+    if (!st) return false;
+    var b = st.behavior;
+    st.age++;
+    var scroll = scene.dezaBg ? scene.dezaBg.lastDelta : scene.bossActive || scene.bossReached ? 0 : SCROLL_PX_PER_FRAME;
+    var mult = st.speedCh ? stepChannel(st.speedCh) : 1;
+    var dirDeg = st.directionCh ? stepChannel(st.directionCh) : 180;
+    var speed = b.speed * mult;
+    var rad = dirDeg * Math.PI / 180;
+    enemy.x += Math.sin(rad) * speed;
+    enemy.y += -Math.cos(rad) * speed + scroll;
+    if (st.rotationCh) {
+      enemy.rotation = stepChannel(st.rotationCh) * Math.PI / 180;
+    }
+    if (st.scaleCh) {
+      var f = stepChannel(st.scaleCh);
+      var axes = b.scale.axes || "xy";
+      enemy.setScale(
+        axes.indexOf("x") >= 0 ? f : enemy.scaleX,
+        axes.indexOf("y") >= 0 ? f : enemy.scaleY
+      );
+    }
+    return true;
+  }
+  function updateEnemyFire(scene, enemy, shootFn) {
+    var st = enemy.getData("deza");
+    if (!st) return false;
+    var fire = st.behavior.fire;
+    if (!fire.type || st.reload < 0) return true;
+    st.reload -= 1;
+    if (st.reload > 0) return true;
+    st.reload = fire.interval + Math.floor(Math.random() * (fire.window || 1));
+    if (!scene.playerSprite || enemy.y >= scene.playerSprite.y - 20) return true;
+    var base;
+    if (fire.direction) {
+      base = fire.direction * (360 / 32) * Math.PI / 180;
+    } else if (fire.type === 3) {
+      base = Math.PI;
+    } else {
+      var dx = scene.playerSprite.x - enemy.x;
+      var dy = scene.playerSprite.y - enemy.y;
+      base = Math.atan2(dx, -dy);
+    }
+    if (fire.type === 1) {
+      var n = Math.max(1, fire.count);
+      var spread = (fire.wide ? 90 : 40) * Math.PI / 180;
+      for (var i = 0; i < n; i++) {
+        var a = n === 1 ? base : base - spread / 2 + spread * i / (n - 1);
+        shootFn(scene, enemy, Math.sin(a), -Math.cos(a));
+      }
+    } else {
+      shootFn(scene, enemy, Math.sin(base), -Math.cos(base));
+    }
+    return true;
+  }
+
   // ../2019-es7/src/phaser/game-objects/Shadow.js
   function createShadow(scene, sprite, frameKey, shadowReverse, shadowOffsetY, textureKey) {
     var shadow = scene.add.sprite(sprite.x, sprite.y, textureKey || "game_asset", frameKey);
@@ -3837,6 +4154,9 @@
     enemy.setData("animTimer", 0);
     enemy.setData("projData", data.bulletData || data.projectileData || null);
     enemy.setData("enemyKey", data._enemyKey || null);
+    if (data.dezaemon && data.dezaemon.behavior) {
+      initEnemyBehavior(enemy, data.dezaemon.behavior);
+    }
     var shadowReverse = data.shadowReverse !== false;
     var shadowOffsetY = data.shadowOffsetY || 10;
     var enemyNameLower = String(data.name || "").toLowerCase();
@@ -3855,11 +4175,13 @@
       return;
     }
     var row = scene.stageEnemyPositionList[scene.waveCount] || [];
+    var cols = row.length || 8;
+    var cellW = GW2 / cols;
     for (var i = 0; i < row.length; i++) {
       var code = String(row[i]);
       if (code === "00") continue;
-      var enemyType = code.substr(0, 1);
-      var itemCode = code.substr(1, 1);
+      var enemyType = code.slice(0, -1);
+      var itemCode = code.slice(-1);
       var dataKey = "enemy" + enemyType;
       var enemyData = scene.recipe.enemyData ? scene.recipe.enemyData[dataKey] : null;
       if (!enemyData) continue;
@@ -3879,9 +4201,31 @@
           itemName = PLAYER_STATES.BARRIER;
           break;
       }
-      createEnemy(scene, enemyData, 32 * i + 16, -16, itemName);
+      createEnemy(scene, enemyData, cellW * i + cellW / 2, -16, itemName);
     }
     scene.waveCount++;
+  }
+  function spawnEnemyBullet(scene, enemy, rotX, rotY) {
+    var projData = enemy.getData("projData");
+    if (!projData) return null;
+    var frames = resolveFrames(scene, "game_asset", projData.texture || []);
+    var frameKey = frames[0] || "normalProjectile0.gif";
+    var bullet = scene.add.sprite(enemy.x, enemy.y + enemy.height / 2, "game_asset", frameKey);
+    bullet.setOrigin(0.5);
+    bullet.setDepth(41);
+    bullet.setData("speed", projData.speed || 1);
+    bullet.setData("damage", projData.damage || 1);
+    bullet.setData("hp", projData.hp || 1);
+    bullet.setData("score", projData.score || 0);
+    bullet.setData("spgage", projData.spgage || 0);
+    bullet.setData("frames", frames);
+    bullet.setData("animIdx", 0);
+    bullet.setData("animTimer", 0);
+    if (projData.frameRate) bullet.setData("frameRate", projData.frameRate);
+    bullet.setData("rotX", rotX);
+    bullet.setData("rotY", rotY);
+    scene.enemyBullets.push(bullet);
+    return bullet;
   }
   function enemyShoot(scene, enemy) {
     var projData = enemy.getData("projData");
@@ -3953,6 +4297,14 @@
     enemy.destroy();
   }
   function updateEnemy(scene, enemy, step) {
+    if (updateEnemyBehavior(scene, enemy)) {
+      var dShadow = enemy.getData("shadow");
+      if (dShadow && dShadow.active) {
+        updateShadowPosition(dShadow, enemy);
+      }
+      updateEnemyFire(scene, enemy, spawnEnemyBullet);
+      return;
+    }
     var speed = enemy.getData("speed") || 0.8;
     enemy.y += speed;
     var enemyName = enemy.getData("name");
@@ -5095,7 +5447,7 @@
     }
     scene.enemies.push(scene.bossSprite);
     var bossNames = ["bison", "barlog", "sagat", "vega", "fang"];
-    var voiceKey = "boss_" + (bossNames[stageId] || "bison") + "_voice_add";
+    var voiceKey = "boss_" + (bossNames[assetStageId(stageId)] || "bison") + "_voice_add";
     scene.playSound(voiceKey, 0.7);
     var pixiRestY = stageId === 4 ? 48 : GH10 / 4;
     var entryY = pixiRestY + scene.bossSprite.height / 2;
@@ -5452,7 +5804,7 @@
       scene.bossDangerShown = true;
       triggerHaptic("warning");
       var stageId = scene.bossStageId || 0;
-      var offsets = scene.bossIsGoki ? GOKI_BALLOON_OFFSET : BOSS_BALLOON_OFFSETS[stageId] || BOSS_BALLOON_OFFSETS[0];
+      var offsets = scene.bossIsGoki ? GOKI_BALLOON_OFFSET : BOSS_BALLOON_OFFSETS[assetStageId(stageId)] || BOSS_BALLOON_OFFSETS[0];
       var relX = offsets.x - scene.bossSprite.width / 2;
       var relY = offsets.y - scene.bossSprite.height / 2;
       var dangerBalloon = scene.add.sprite(
@@ -5574,7 +5926,7 @@
     }
     var bossNames = ["bison", "barlog", "sagat", "vega", "fang"];
     var stageId = gameState.stageId || 0;
-    var bossVoiceName = scene.bossIsGoki ? "goki" : bossNames[stageId] || "bison";
+    var bossVoiceName = scene.bossIsGoki ? "goki" : bossNames[assetStageId(stageId)] || "bison";
     var voiceKey = "boss_" + bossVoiceName + "_voice_ko";
     triggerHaptic("bossDefeat");
     scene.playSound(voiceKey, 0.9);
@@ -5959,19 +6311,48 @@
       this.spReadyHapticPlayed = false;
       var stageId = gameState.stageId || 0;
       this.stageKey = "stage" + String(stageId);
-      var enemyList = this.recipe[this.stageKey] ? this.recipe[this.stageKey].enemylist : [];
+      var stageData = this.recipe[this.stageKey] || {};
+      var enemyList = stageData.enemylist;
       this.stageEnemyPositionList = (enemyList || []).slice().reverse();
+      this.stageWaveRows = Array.isArray(stageData.waveRows) && stageData.waveRows.length === (enemyList || []).length ? stageData.waveRows.slice().reverse() : null;
+      if (this.stageWaveRows && Number.isFinite(stageData.waveInterval) && stageData.waveInterval > 0) {
+        this.waveInterval = stageData.waveInterval;
+      }
       if (gameState.shortFlg) {
         this.stageEnemyPositionList = [];
+        this.stageWaveRows = null;
       }
+      var assetStage = assetStageId(stageId);
       var bgSuffix = gameState.hasCustomEnemies ? "stage_loop_c" : "stage_loop";
       var bgEndSuffix = gameState.hasCustomEnemies ? "stage_end_c" : "stage_end";
-      this.stageBg = this.add.tileSprite(0, 0, GW13, GH11, bgSuffix + stageId);
+      this.stageBg = this.add.tileSprite(0, 0, GW13, GH11, bgSuffix + assetStage);
       this.stageBg.setOrigin(0, 0);
-      this.stageEndBg = this.add.image(0, 0, bgEndSuffix + stageId);
+      this.stageEndBg = this.add.image(0, 0, bgEndSuffix + assetStage);
       this.stageEndBg.setOrigin(0, 0);
       this.stageEndBg.y = -this.stageEndBg.height;
       this.stageEndBg.setVisible(false);
+      this.worldTime = 0;
+      this.dezaBg = buildStageBackground(this, stageData, this.recipe);
+      if (this.dezaBg) {
+        this.stageBg.setVisible(false);
+        if (this.stageBgOverlay) this.stageBgOverlay.setVisible(false);
+      }
+      this.waveDueTicks = null;
+      if (this.stageWaveRows) {
+        var rowsAsc = this.stageWaveRows;
+        var firstRow = rowsAsc[0] || 0;
+        var perRow = this.waveInterval || 8;
+        var self0 = this;
+        this.waveDueTicks = rowsAsc.map(function(row) {
+          return self0.dezaBg ? Math.max(0, row * perRow - 232) : (row - firstRow) * perRow;
+        });
+      }
+      this.stageBgOverlay = null;
+      if (gameState.hasCustomEnemies && this.textures.exists("stage_over_c")) {
+        this.stageBgOverlay = this.add.tileSprite(0, 0, GW13, GH11, "stage_over_c");
+        this.stageBgOverlay.setOrigin(0, 0);
+        this.stageBgOverlay.setAlpha(0.6);
+      }
       this.unitGroup = this.add.group();
       this.bulletGroup = this.add.group();
       this.enemyBulletGroup = this.add.group();
@@ -6030,7 +6411,7 @@
       this.playBossBgm(stageId);
       var self = this;
       this.time.delayedCall(2600, function() {
-        self.playSound("g_stage_voice_" + String(stageId), 0.7);
+        self.playSound("g_stage_voice_" + String(assetStage), 0.7);
       });
     }
     // =================================================================
@@ -6139,7 +6520,7 @@
       var self = this;
       var preDelay = 0;
       var preOverlay = null;
-      if (stageId === 4) {
+      if (stageId === lastStageId(this.recipe) && stageId > 0) {
         preOverlay = this.add.rectangle(GCX6, GCY3, GW13, GH11, 0);
         preOverlay.setDepth(202);
         preOverlay.setAlpha(1);
@@ -6162,7 +6543,7 @@
         bg.fillRect(0, 0, GW13, GH11);
         bg.setDepth(200);
         bg.setAlpha(0);
-        var stageNumIdx = Math.min(stageId + 1, 4);
+        var stageNumIdx = Math.min(assetStageId(stageId) + 1, 4);
         var stageNumSprite = self.add.image(0, GCY3 - 20, "game_ui", "stageNum" + String(stageNumIdx) + ".gif");
         stageNumSprite.setOrigin(0, 0);
         stageNumSprite.setDepth(201);
@@ -6174,7 +6555,7 @@
         fightSprite.setScale(1.2);
         self.tweens.add({ targets: bg, alpha: 1, duration: 300 });
         self.time.delayedCall(300, function() {
-          self.playSound("voice_round" + String(Math.min(stageId, 3)), 0.7);
+          self.playSound("voice_round" + String(Math.min(assetStageId(stageId), 3)), 0.7);
           self.tweens.add({ targets: stageNumSprite, alpha: 1, duration: 300 });
         });
         self.time.delayedCall(1600, function() {
@@ -6527,7 +6908,7 @@
     // =================================================================
     playBossBgm(stageId) {
       var bossNames = ["bison", "barlog", "sagat", "vega", "fang"];
-      var name = bossNames[stageId] || "bison";
+      var name = bossNames[assetStageId(stageId)] || "bison";
       var key = "boss_" + name + "_bgm";
       this.stageBgmName = key;
       if (gameState.bgmContinuityActive && gameState.currentBgmKey) {
@@ -6595,15 +6976,22 @@
       }
     }
     fixedUpdate(time, step) {
-      if (this.stageBg && !this.playerDead && !this.stageCleared) {
+      if (this.gameStarted && !this.playerDead && !this.stageCleared && !this.theWorldFlg) {
+        this.worldTime += 1;
+      }
+      if (this.dezaBg) {
+        this.dezaBg.setScroll(this.worldTime * SCROLL_PX_PER_FRAME);
+      } else if (this.stageBg && !this.playerDead && !this.stageCleared) {
         if (!this.bossActive && !this.bossReached) {
           var bgMove = this.gameStarted ? this.stageBgAmountMove || 0.7 : 0.7;
           this.stageBg.tilePositionY -= bgMove;
+          if (this.stageBgOverlay) this.stageBgOverlay.tilePositionY -= bgMove * 3;
         }
         if (this.bossAppearBgFlg) {
           var scrollAmt = this.stageBgAmountMove || 0.7;
           this.stageBg.y += scrollAmt;
           this.stageEndBg.y += scrollAmt;
+          if (this.stageBgOverlay) this.stageBgOverlay.y += scrollAmt;
           this.bossAppearBgScroll = (this.bossAppearBgScroll || 0) + scrollAmt;
           if (this.bossAppearBgScroll >= 214 || this.stageEndBg.y >= 42) {
             this.bossAppearBgFlg = false;
@@ -6872,7 +7260,15 @@
       }
       if (this.enemyWaveFlg) {
         this.enemyWaveFrameCounter += 1;
-        if (this.enemyWaveFrameCounter >= this.waveInterval) {
+        if (this.waveDueTicks) {
+          var waveClock = this.dezaBg ? this.worldTime : this.enemyWaveFrameCounter;
+          while (this.waveCount < this.stageEnemyPositionList.length && waveClock >= this.waveDueTicks[this.waveCount]) {
+            enemyWave(this);
+          }
+          if (this.waveCount >= this.stageEnemyPositionList.length && waveClock >= this.waveDueTicks[this.waveDueTicks.length - 1] + this.waveInterval) {
+            enemyWave(this);
+          }
+        } else if (this.enemyWaveFrameCounter >= this.waveInterval) {
           this.enemyWaveFrameCounter -= this.waveInterval;
           enemyWave(this);
         }

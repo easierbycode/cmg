@@ -296,6 +296,35 @@ Deno.test({
       );
       assert(applied.notes.includes("nothing dropped"), applied.notes);
 
+      // Attributes decoded from the engine's field map, and the save's own
+      // scenery — same axes the 2019-es7 spec locks, through the vendored lib.
+      const decoded = await page.evaluate(() => {
+        const HP = [60, 30, 15, 10, 5, 3, 2, 1];
+        // deno-lint-ignore no-explicit-any
+        const recs = Object.values(gameData.enemyData) as any[];
+        const stageKeys = Object.keys(gameData).filter((k) =>
+          /^stage\d+$/.test(k)
+        );
+        return {
+          withBehavior: recs.filter((e) =>
+            e.dezaemon && e.dezaemon.behavior
+          ).length,
+          hpFromTable: recs.filter((e) => HP.includes(e.hp)).length,
+          withTransforms: recs.filter((e) => {
+            const b = e.dezaemon && e.dezaemon.behavior;
+            return b && (b.rotation.enabled || b.scale.enabled ||
+              b.direction.enabled || b.speedChange.enabled);
+          }).length,
+          bgStages: stageKeys.filter((k) => gameData[k].background).length,
+          bgCells: (gameData.backgroundCells || []).length,
+        };
+      });
+      assertEquals(decoded.withBehavior, ENEMY_TYPES);
+      assertEquals(decoded.hpFromTable, ENEMY_TYPES);
+      assertGreaterOrEqual(decoded.withTransforms, 100);
+      assertEquals(decoded.bgStages, 8); // stage 8's background is empty
+      assertEquals(decoded.bgCells, 250);
+
       // The player the save does not have: the Duke character, art and all.
       assertEquals(applied.player.texture, [
         "duke_0",

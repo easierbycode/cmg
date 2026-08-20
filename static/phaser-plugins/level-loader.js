@@ -480,6 +480,12 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
           recipe[stageKey].waveInterval = levelData.waveInterval;
         }
       }
+      // Imported scenery: the stage's tile grid plus the cell list it
+      // indexes. Both must travel or the runtime draws nothing.
+      if (levelData.background && Array.isArray(levelData.backgroundCells)) {
+        recipe[stageKey].background = levelData.background;
+        recipe.backgroundCells = levelData.backgroundCells;
+      }
 
       const atlasFrames = (() => {
         try {
