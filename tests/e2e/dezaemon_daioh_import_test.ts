@@ -299,7 +299,6 @@ Deno.test({
       // Attributes decoded from the engine's field map, and the save's own
       // scenery — same axes the 2019-es7 spec locks, through the vendored lib.
       const decoded = await page.evaluate(() => {
-        const HP = [60, 30, 15, 10, 5, 3, 2, 1];
         // deno-lint-ignore no-explicit-any
         const recs = Object.values(gameData.enemyData) as any[];
         const stageKeys = Object.keys(gameData).filter((k) =>
@@ -309,7 +308,8 @@ Deno.test({
           withBehavior: recs.filter((e) =>
             e.dezaemon && e.dezaemon.behavior
           ).length,
-          hpFromTable: recs.filter((e) => HP.includes(e.hp)).length,
+          // engine damage units -> 1-3 hits of the runtime's shot
+          hpAsHits: recs.filter((e) => e.hp >= 1 && e.hp <= 3).length,
           withTransforms: recs.filter((e) => {
             const b = e.dezaemon && e.dezaemon.behavior;
             return b && (b.rotation.enabled || b.scale.enabled ||
@@ -320,7 +320,7 @@ Deno.test({
         };
       });
       assertEquals(decoded.withBehavior, ENEMY_TYPES);
-      assertEquals(decoded.hpFromTable, ENEMY_TYPES);
+      assertEquals(decoded.hpAsHits, ENEMY_TYPES);
       assertGreaterOrEqual(decoded.withTransforms, 100);
       assertEquals(decoded.bgStages, 8); // stage 8's background is empty
       assertEquals(decoded.bgCells, 250);

@@ -3794,7 +3794,7 @@
       scaleCh: makeChannel(behavior.scale, null),
       directionCh: makeChannel(behavior.direction, { wrap: true }),
       // stagger the first volley inside the engine's randomization window
-      reload: behavior.fire.type ? behavior.fire.interval + Math.floor(Math.random() * (behavior.fire.window || 1)) : -1
+      reload: behavior.fire.enabled ? behavior.fire.interval + Math.floor(Math.random() * (behavior.fire.window || 1)) : -1
     });
     if (behavior.ground) {
       var shadow = enemy.getData("shadow");
@@ -3830,15 +3830,17 @@
     var st = enemy.getData("deza");
     if (!st) return false;
     var fire = st.behavior.fire;
-    if (!fire.type || st.reload < 0) return true;
+    if (!fire.enabled || st.reload < 0) return true;
     st.reload -= 1;
     if (st.reload > 0) return true;
     st.reload = fire.interval + Math.floor(Math.random() * (fire.window || 1));
-    if (!scene.playerSprite || enemy.y >= scene.playerSprite.y - 20) return true;
+    var GH14 = scene.scale ? scene.scale.height : 480;
+    if (!scene.playerSprite) return true;
+    if (enemy.y < 16 || enemy.y > GH14 * 0.4) return true;
     var base;
     if (fire.direction) {
       base = fire.direction * (360 / 32) * Math.PI / 180;
-    } else if (fire.type === 3) {
+    } else if (fire.type === 0 || fire.type === 3) {
       base = Math.PI;
     } else {
       var dx = scene.playerSprite.x - enemy.x;
