@@ -940,10 +940,32 @@
                 <button class="enemy-editor-tab" data-tab="enemies" onclick="switchEditorTab('enemies')">Enemies <span class="tab-count" id="enemy-tab-count"></span></button>
                 <button class="enemy-editor-tab" data-tab="bosses" onclick="switchEditorTab('bosses')">Bosses <span class="tab-count" id="boss-tab-count"></span></button>
             </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+                <button class="menu-btn" id="char-new-btn" onclick="addNewCharacterEntry()">+ NEW</button>
+                <button class="menu-btn" onclick="openCharacterLibrary()">+ FROM LIBRARY</button>
+                <button class="menu-btn" onclick="publishCharacterToLibrary()">PUBLISH TO LIBRARY</button>
+                <button class="menu-btn" onclick="openLibraryEditor()">LIBRARY EDITOR</button>
+            </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px" id="enemy-list"></div>
             <input id="enemy-key" type="text" placeholder="Key (e.g. enemyA)" class="menu-input">
             <textarea id="enemy-json" rows="12" class="menu-input" style="font-family:monospace;font-size:11px;resize:vertical;"></textarea>
             <button onclick="saveCurrentEnemy()" class="menu-btn" style="background:#84cc16;color:#000;font-weight:700;">Save</button>
+        </div>
+    </div>
+
+    <!-- CHARACTER LIBRARY (shared /characters in Firebase) -->
+    <div id="character-library-modal" class="picker-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="picker-panel" style="max-height:80vh">
+            <div class="picker-title">CHARACTER LIBRARY</div>
+            <div id="character-library-list" style="display:flex;flex-direction:column;gap:6px;padding:0 4px;"></div>
+        </div>
+    </div>
+
+    <!-- CHARACTER LIBRARY EDITOR (<character-editor> custom element) -->
+    <div id="library-editor-modal" class="picker-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="picker-panel" style="max-height:90vh;width:min(1100px,94vw);max-width:94vw;">
+            <div class="picker-title">CHARACTER LIBRARY EDITOR</div>
+            <div id="library-editor-host" style="height:72vh;"></div>
         </div>
     </div>
 
@@ -2446,6 +2468,9 @@
                 keyInput.placeholder = tab === 'bosses' ? 'Key (e.g. boss0)' : 'Key (e.g. enemyA)';
                 keyInput.disabled = false;
             }
+            // The player is a single entry — "+ NEW" only makes sense for lists.
+            const newBtn = document.getElementById('char-new-btn');
+            if (newBtn) newBtn.style.display = tab === 'player' ? 'none' : '';
             renderEnemyList();
         }
 
@@ -2578,6 +2603,357 @@
                     }
                 }
                 alert(label + ' saved');
+            }
+        }
+
+        // ================== CHARACTER LIBRARY ==================
+        // The shared, cross-game character library: /characters + /atlases in
+        // the same RTDB. Browsable, importable into this level, and writable
+        // from here ("publish"). The full editor is the <character-editor>
+        // custom element served with the characters module.
+        function charactersBase() {
+            return window.__CHARACTERS_BASE__ || 'https://easierbycode.com/2019-es7/characters';
+        }
+
+        function characterKindOf(rec) {
+            if (rec && rec.anim && typeof rec.anim === 'object') return 'boss';
+            if (rec && (rec.maxHp !== undefined || rec.shootNormal || rec.spDamage !== undefined)) return 'player';
+            return 'enemy';
+        }
+
+        // Frames a library record stands on (anim.idle -> texture -> any set).
+        function libraryFrames(rec) {
+            const ok = (v) => Array.isArray(v) && v.length && v.every(s => typeof s === 'string');
+            if (rec && rec.anim && ok(rec.anim.idle)) return rec.anim.idle;
+            if (rec && ok(rec.texture)) return rec.texture;
+            if (rec && rec.anim) for (const v of Object.values(rec.anim)) if (ok(v)) return v;
+            return [];
+        }
+
+        const libraryAtlasCache = {}; // atlasKey -> Promise<{img, frames}|null>
+        function loadLibraryAtlas(key) {
+            if (!key) return Promise.resolve(null);
+            if (!libraryAtlasCache[key]) {
+                libraryAtlasCache[key] = (async () => {
+                    const res = await fetch(`${FIREBASE_CONFIG.databaseURL}/atlases/${encodeURIComponent(key)}.json`);
+                    if (!res.ok) return null;
+                    const rec = await res.json();
+                    if (!rec || !rec.png || !rec.json) return null;
+                    const img = new Image();
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = () => reject(new Error('atlas image failed'));
+                        img.src = rec.png.startsWith('data:') ? rec.png : 'data:image/png;base64,' + rec.png;
+                    });
+                    const json = typeof rec.json === 'string' ? JSON.parse(rec.json) : rec.json;
+                    return { img, frames: json.frames || {} };
+                })().catch(() => { delete libraryAtlasCache[key]; return null; });
+            }
+            return libraryAtlasCache[key];
+        }
+
+        function libraryFrameOf(atlas, name) {
+            if (!atlas || !name) return null;
+            let f = atlas.frames[name];
+            if (!f) {
+                const alt = name.endsWith('.gif') ? name.slice(0, -4) + '.png'
+                    : name.endsWith('.png') ? name.slice(0, -4) + '.gif' : null;
+                if (alt) f = atlas.frames[alt];
+            }
+            return f && f.frame ? f : null;
+        }
+
+        async function drawLibraryThumb(canvas, rec, name) {
+            try {
+                const atlas = await loadLibraryAtlas((rec && rec.textureKey) || name);
+                const f = libraryFrameOf(atlas, libraryFrames(rec)[0]);
+                if (!f) return;
+                const { x, y, w, h } = f.frame;
+                const s = Math.min(canvas.width / w, canvas.height / h);
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(atlas.img, x, y, w, h, (canvas.width - w * s) / 2, (canvas.height - h * s) / 2, w * s, h * s);
+            } catch (e) { /* row stays thumbless */ }
+        }
+
+        async function openCharacterLibrary() {
+            const overlay = document.getElementById('character-library-modal');
+            overlay.classList.remove('hidden');
+            const list = document.getElementById('character-library-list');
+            list.textContent = 'Loading…';
+            try {
+                const res = await fetch(`${FIREBASE_CONFIG.databaseURL}/characters.json`);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const all = (await res.json()) || {};
+                list.textContent = '';
+                Object.keys(all).sort().forEach((name) => {
+                    const rec = all[name];
+                    const kind = characterKindOf(rec);
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 8px;border:1px solid #333;border-radius:6px;';
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 40; canvas.height = 40;
+                    canvas.style.cssText = 'image-rendering:pixelated;background:#111;flex:none;border-radius:4px;';
+                    row.appendChild(canvas);
+                    drawLibraryThumb(canvas, rec, name);
+                    const label = document.createElement('div');
+                    label.style.cssText = 'flex:1;font-size:12px;';
+                    // levels/ and characters/ are open-write paths: names are
+                    // attacker-controllable, so textContent only (see the BP notes).
+                    label.textContent = name + '  ·  ' + kind + (rec && rec.hp !== undefined ? '  ·  hp ' + rec.hp : '');
+                    row.appendChild(label);
+                    const add = document.createElement('button');
+                    add.className = 'menu-btn';
+                    add.textContent = kind === 'player' ? 'SET AS PLAYER' : 'ADD';
+                    add.onclick = () => importCharacterFromLibrary(name, rec);
+                    row.appendChild(add);
+                    list.appendChild(row);
+                });
+                if (!list.children.length) list.textContent = 'Library is empty.';
+            } catch (e) {
+                list.textContent = 'Could not load the library: ' + e.message;
+            }
+        }
+
+        function nextEnemyKey() {
+            const letters = window.Dezaemon && window.Dezaemon.enemyLetters;
+            for (let i = 0; i < 999; i++) {
+                const suffix = letters ? letters(i) : (i < 26 ? String.fromCharCode(65 + i) : null);
+                if (!suffix) break;
+                const k = 'enemy' + suffix;
+                if (!enemyData[k]) return k;
+            }
+            return null;
+        }
+
+        function nextBossKey() {
+            for (let i = 0; i <= 9; i++) { // MAX_STAGE_ID
+                const k = 'boss' + i;
+                if (!bossData[k]) return k;
+            }
+            return null;
+        }
+
+        // "+ NEW": seed a fresh entry from the same defaults a new game uses.
+        function addNewCharacterEntry() {
+            const defaults = getDezaemonDefaults();
+            if (!defaults) {
+                alert(typeof dezaemonUnavailableMessage === 'function'
+                    ? dezaemonUnavailableMessage() : 'Starter templates unavailable');
+                return;
+            }
+            let key;
+            if (currentEditorTab === 'bosses') {
+                key = nextBossKey();
+                if (!key) return alert('All boss slots (boss0–boss9) are taken');
+                bossData[key] = dezaClone(defaults.starterBoss);
+                gameData.bossData = bossData;
+                storeBossDataForViewers();
+            } else {
+                key = nextEnemyKey();
+                if (!key) return alert('No free enemy key');
+                enemyData[key] = dezaClone(defaults.starterEnemy);
+                gameData.enemyData = enemyData;
+            }
+            renderEnemyList();
+            editEnemy(key);
+        }
+
+        // "+ FROM LIBRARY": copy a shared character into this level — its art
+        // is cropped out of the library atlas and folded into the level atlas
+        // under collision-safe names, and the entry's frame lists are rewritten
+        // to match.
+        async function importCharacterFromLibrary(name, rec) {
+            if (!atlasData || !atlasImage) {
+                alert("Load or start a game first — the character's art is copied into this level's atlas.");
+                return;
+            }
+            const kind = characterKindOf(rec);
+            if (kind === 'player' && !confirm(`Replace this level's player with '${name}'?`)) return;
+            const atlas = await loadLibraryAtlas((rec && rec.textureKey) || name);
+            if (!atlas) { alert("Could not load this character's atlas"); return; }
+
+            const entry = dezaClone(rec);
+            delete entry.textureKey;
+
+            const safe = String(name).replace(/[^A-Za-z0-9_]/g, '_');
+            const renames = {};
+            let idx = 0;
+            const existing = atlasData.frames || {};
+            const mapFrames = (arr) => arr.map((old) => {
+                if (renames[old]) return renames[old];
+                const f = libraryFrameOf(atlas, old);
+                if (!f) return old; // unresolved names are left as-is
+                const nk = safe + '_' + (idx++) + '.png';
+                const c = document.createElement('canvas');
+                c.width = f.frame.w; c.height = f.frame.h;
+                c.getContext('2d').drawImage(atlas.img, f.frame.x, f.frame.y, f.frame.w, f.frame.h, 0, 0, f.frame.w, f.frame.h);
+                const spr = { key: nk, canvas: c, w: f.frame.w, h: f.frame.h };
+                if (existing[nk]) replacedFrames[nk] = spr; else extraSprites.push(spr);
+                customFrameKeys.add(nk);
+                renames[old] = nk;
+                return nk;
+            });
+            const walk = (obj, depth) => {
+                if (!obj || typeof obj !== 'object' || depth > 2) return;
+                for (const k of Object.keys(obj)) {
+                    const v = obj[k];
+                    if (Array.isArray(v) && v.length && v.every((s) => typeof s === 'string')) obj[k] = mapFrames(v);
+                    else if (v && typeof v === 'object') walk(v, depth + 1);
+                }
+            };
+            walk(entry, 0);
+            await mergeExtraSpritesIntoAtlas();
+
+            let key;
+            if (kind === 'boss') {
+                key = nextBossKey();
+                if (!key) return alert('All boss slots are taken');
+                if (!entry.anim) { entry.anim = { idle: entry.texture || [] }; delete entry.texture; }
+                if (!entry.anim.idle || !entry.anim.idle.length) entry.anim.idle = libraryFrames(entry);
+                if (!entry.bulletData) entry.bulletData = {};
+                if (entry.hp === undefined) entry.hp = 150;
+                bossData[key] = entry;
+                gameData.bossData = bossData;
+                storeBossDataForViewers();
+                switchEditorTab('bosses');
+            } else if (kind === 'player') {
+                playerData = entry;
+                gameData.playerData = playerData;
+                key = 'playerData';
+                switchEditorTab('player');
+            } else {
+                if (entry.hp === undefined) entry.hp = 1;
+                if (entry.score === undefined) entry.score = 100;
+                key = nextEnemyKey();
+                if (!key) return alert('No free enemy key');
+                enemyData[key] = entry;
+                gameData.enemyData = enemyData;
+                switchEditorTab('enemies');
+            }
+            document.getElementById('character-library-modal').classList.add('hidden');
+            editEnemy(key);
+            alert(`'${name}' added as ${key}. Save to keep it in this level.`);
+        }
+
+        // "PUBLISH TO LIBRARY": pack the current entry's frames from the level
+        // atlas into a fresh atlas record and write both halves to the shared
+        // library, so any game (or an import) can use this character.
+        async function publishCharacterToLibrary() {
+            if (!syncEnemyEditorForm(true)) return;
+            if (!atlasData || !atlasImage) return alert('Load a game first');
+            let entry, suggested;
+            if (currentEditorTab === 'player') {
+                entry = playerData;
+                suggested = (playerData && playerData.name) || 'player';
+            } else {
+                if (!currentEnemyKey) return alert('Select an entry first');
+                entry = (currentEditorTab === 'bosses' ? bossData : enemyData)[currentEnemyKey];
+                suggested = (entry && entry.name) || currentEnemyKey;
+            }
+            if (!entry) return alert('Nothing to publish');
+            let name = prompt('Publish to the shared library as:', String(suggested).replace(/[^A-Za-z0-9_]/g, '_'));
+            if (!name) return;
+            name = name.trim();
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return alert('Use letters, digits and underscores only');
+
+            // Every frame name the entry references, in order, deduped.
+            const wanted = [];
+            const seen = new Set();
+            const collect = (obj, depth) => {
+                if (!obj || typeof obj !== 'object' || depth > 2) return;
+                for (const v of Object.values(obj)) {
+                    if (Array.isArray(v) && v.length && v.every((s) => typeof s === 'string')) {
+                        for (const f of v) if (!seen.has(f)) { seen.add(f); wanted.push(f); }
+                    } else if (v && typeof v === 'object') collect(v, depth + 1);
+                }
+            };
+            collect(entry, 0);
+
+            const frames = atlasData.frames || {};
+            const sprites = [];
+            const missing = [];
+            for (const fk of wanted) {
+                let f = frames[fk];
+                if (!f) {
+                    const alt = fk.endsWith('.gif') ? fk.slice(0, -4) + '.png'
+                        : fk.endsWith('.png') ? fk.slice(0, -4) + '.gif' : null;
+                    if (alt) f = frames[alt];
+                }
+                if (!f || !f.frame) { missing.push(fk); continue; }
+                const c = document.createElement('canvas');
+                c.width = f.frame.w; c.height = f.frame.h;
+                c.getContext('2d').drawImage(atlasImage, f.frame.x, f.frame.y, f.frame.w, f.frame.h, 0, 0, f.frame.w, f.frame.h);
+                sprites.push({ key: fk, canvas: c, w: f.frame.w, h: f.frame.h });
+            }
+            if (!sprites.length) return alert('None of the frames this entry references are in the atlas');
+            if (missing.length && !confirm(`${missing.length} referenced frame(s) are missing from the atlas and will be skipped. Publish anyway?`)) return;
+
+            // Shelf-pack the frames (same scheme as buildAtlasWithReplacements).
+            sprites.sort((a, b) => b.h - a.h);
+            const MW = 1024, P = 2;
+            let cx = P, cy = P, rh = 0, fh = 0;
+            const pos = {};
+            sprites.forEach((s) => {
+                if (cx + s.w + P > MW) { cy += rh + P; cx = P; rh = 0; }
+                pos[s.key] = { x: cx, y: cy }; cx += s.w + P;
+                rh = Math.max(rh, s.h); fh = Math.max(fh, cy + s.h + P);
+            });
+            const canvas = document.createElement('canvas');
+            canvas.width = MW; canvas.height = fh;
+            const nc = canvas.getContext('2d');
+            const outFrames = {};
+            sprites.forEach((s) => {
+                const p = pos[s.key];
+                nc.drawImage(s.canvas, p.x, p.y);
+                outFrames[s.key] = {
+                    frame: { x: p.x, y: p.y, w: s.w, h: s.h }, rotated: false, trimmed: false,
+                    spriteSourceSize: { x: 0, y: 0, w: s.w, h: s.h }, sourceSize: { w: s.w, h: s.h },
+                };
+            });
+            const atlasJson = {
+                frames: outFrames,
+                meta: { app: 'cmg level editor', version: '1.0', image: 'atlas.png', format: 'RGBA8888', scale: '1', size: { w: canvas.width, h: canvas.height } },
+            };
+            const record = dezaClone(entry);
+            if (!record.name) record.name = name;
+            record.textureKey = name;
+
+            const DB = FIREBASE_CONFIG.databaseURL;
+            try {
+                const existing = await fetch(`${DB}/characters/${encodeURIComponent(name)}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+                if (existing && !confirm(`'${name}' already exists in the library. Overwrite it?`)) return;
+                const put = (path, body) => fetch(`${DB}/${path}.json`, {
+                    method: 'PUT',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(body),
+                }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); });
+                await put('atlases/' + encodeURIComponent(name), { json: JSON.stringify(atlasJson), png: canvas.toDataURL('image/png') });
+                await put('characters/' + encodeURIComponent(name), record);
+                alert(`Published '${name}' to the shared library.`);
+            } catch (e) {
+                alert('Publish failed: ' + e.message);
+            }
+        }
+
+        // "LIBRARY EDITOR": the full <character-editor> custom element, loaded
+        // from the deployed characters module (override with __CHARACTERS_BASE__).
+        async function openLibraryEditor() {
+            const modal = document.getElementById('library-editor-modal');
+            const host = document.getElementById('library-editor-host');
+            modal.classList.remove('hidden');
+            if (host.dataset.loaded) return;
+            host.textContent = 'Loading editor…';
+            try {
+                await import(charactersBase() + '/editor.js');
+                host.textContent = '';
+                const el = document.createElement('character-editor');
+                el.style.cssText = 'display:block;width:100%;height:100%;';
+                el.addEventListener('close', () => modal.classList.add('hidden'));
+                host.appendChild(el);
+                host.dataset.loaded = '1';
+            } catch (e) {
+                host.textContent = 'Could not load the character editor from ' + charactersBase() + ' — ' + e.message;
             }
         }
 

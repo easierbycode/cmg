@@ -66,6 +66,12 @@ export const SCENE_SCRIPT_DEFAULTS = {
   gistUserApiBase: "https://api.github.com/users",
   sucraseCdn: "https://esm.sh/sucrase@3.35.0",
   svelteCdn: "https://esm.sh/svelte@5.16.0",
+  // The importable characters library. GitHub Pages can't serve the bare URL
+  // as JavaScript, so imports of it are rewritten to the real module — the
+  // browser build, whose svelte imports are pinned to svelteCdn so characters
+  // share one runtime with compiled scene scripts.
+  charactersUrl: "https://easierbycode.com/2019-es7/characters",
+  charactersModule: "https://easierbycode.com/2019-es7/characters/browser.js",
 };
 
 export const SCENE_SCRIPT_TARGETS = ["title", "adv"];
@@ -152,12 +158,25 @@ export async function compileSvelte(code, filename) {
   return js;
 }
 
+// Rewrite imports of the bare characters-library URL (with or without a
+// trailing "/") to the actual browser module. Applied to every script lang —
+// the bare URL is documentation-friendly but not directly fetchable.
+export function rewriteCharacterImports(code) {
+  const { charactersUrl, charactersModule } = SCENE_SCRIPT_DEFAULTS;
+  if (!charactersUrl || !charactersModule) return code;
+  return code.replace(
+    /((?:from|import)\s*\(?\s*)(["'])(https?:\/\/[^"']+?)\/?\2/g,
+    (m, pre, q, url) => (url === charactersUrl ? pre + q + charactersModule + q : m),
+  );
+}
+
 // Compile any supported source to a plain ES module (JS passes through).
-export function compileSceneScript(code, lang, filename) {
+export async function compileSceneScript(code, lang, filename) {
   const l = lang || inferSceneScriptLang(filename);
-  if (l === "ts") return compileTypeScript(code);
-  if (l === "svelte") return compileSvelte(code, filename);
-  return Promise.resolve(code);
+  let js = code;
+  if (l === "ts") js = await compileTypeScript(code);
+  else if (l === "svelte") js = await compileSvelte(code, filename);
+  return rewriteCharacterImports(js);
 }
 
 export async function importModuleFromSource(jsCode) {
