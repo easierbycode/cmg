@@ -3897,7 +3897,6 @@
     19,
     18
   ];
-  var DEZA_TRANSPOSE_TABLE = [-3, -2, -1, 0, 1, 2, 3, 4, 5, 6, -5, -4];
   function bgmStepSeconds(tempoIndex) {
     return DEZA_TEMPO_TABLE[tempoIndex & 31] / 240;
   }
@@ -3923,25 +3922,25 @@
   }
   function parseBgmSong(b64) {
     var raw = b64ToBytes(b64);
-    var parts = [[], [], [], [], [], [], [], []];
+    var parts = [[], [], [], []];
     for (var p = 0; p < 4; p++) {
-      for (var v0 = 0; v0 < 2; v0++) {
-        var stream = parts[p * 2 + v0];
-        var current = null;
-        for (var m = 0; m < 32; m++) {
-          var base = 4 + m * 132 + 4 + p * 32 + v0 * 16;
-          var trans = DEZA_TRANSPOSE_TABLE[raw[4 + m * 132 + 3]] || 0;
-          for (var st = 0; st < 16; st++) {
-            var v = raw[base + st];
-            var abs = m * 16 + st;
-            if (v >= 1 && v <= 59) {
-              current = { step: abs, note: Math.max(1, v + trans), len: 1 };
-              stream.push(current);
-            } else if (v >= 128 && v <= 136 && current) {
-              current.len = abs - current.step + 1;
-            } else if (v === 0) {
-              current = null;
-            }
+      var stream = parts[p];
+      var current = null;
+      for (var m = 0; m < 32; m++) {
+        var base = 4 + m * 132 + 4 + p * 32;
+        for (var st = 0; st < 16; st++) {
+          var voice = raw[base + st];
+          var pitch = raw[base + 16 + st];
+          var abs = m * 16 + st;
+          if (voice === 0) {
+            current = null;
+          } else if (voice & 128) {
+            if (current) current.len = abs - current.step + 1;
+          } else if (pitch >= 1 && pitch <= 59) {
+            current = { step: abs, note: pitch, len: 1 };
+            stream.push(current);
+          } else {
+            current = null;
           }
         }
       }
@@ -3997,7 +3996,7 @@
       stepSeconds: song.stepSeconds,
       songIndex: idx,
       which,
-      cursor: [0, 0, 0, 0, 0, 0, 0, 0],
+      cursor: [0, 0, 0, 0],
       startTime: ctx.currentTime + 0.05,
       loop: 0,
       master: ctx.createGain(),
@@ -4038,7 +4037,7 @@
     for (var p = 0; p < n; p++) {
       var events = song.parts[p];
       if (!events.length) continue;
-      var voice = PART_VOICES[p >> 1];
+      var voice = PART_VOICES[p];
       for (; ; ) {
         var i = st.cursor[p];
         if (i >= events.length) {
