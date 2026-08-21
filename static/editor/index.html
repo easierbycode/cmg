@@ -3596,6 +3596,77 @@
             return stage;
         }
 
+        // One stage as a cloud record stores it, and as level-loader.js reads
+        // it back: the wave grid, the per-wave scroll rows that keep an
+        // imported stage's pacing, and the tile grid that replaces the stock
+        // backdrop. Absent fields are left off rather than set to undefined —
+        // the Realtime Database rejects undefined values.
+        function stageRecordForCloud(src) {
+            const stage = { enemylist: normalizeGrid(src && src.enemylist) };
+            if (Array.isArray(src && src.waveRows) && src.waveRows.length === stage.enemylist.length) {
+                stage.waveRows = src.waveRows;
+                if (Number.isFinite(src.waveInterval) && src.waveInterval > 0) {
+                    stage.waveInterval = src.waveInterval;
+                }
+            }
+            if (src && src.background) stage.background = src.background;
+            if (src && Array.isArray(src.items) && src.items.length) stage.items = src.items;
+            return stage;
+        }
+
+        // The per-stage half of a cloud save: every stageN the open game has,
+        // keyed the way the runtime looks them up. A .sav import is 5-14
+        // stages; before this only the stage the editor happened to have open
+        // was written, so playing any other one fell through to the base
+        // recipe's stage of that number. The open stage takes its grid from
+        // the live edit buffer, which gameData only receives on a stage switch.
+        function buildStagesForCloudSave() {
+            const keys = gameData ? Object.keys(gameData).filter(k => /^stage\d+$/.test(k)) : [];
+            if (!keys.includes(currentStageKey)) keys.push(currentStageKey);
+            const stages = {};
+            for (const key of keys) {
+                const stage = stageRecordForCloud((gameData && gameData[key]) || {});
+                if (key === currentStageKey) writeStageGrid(stage, currentGrid);
+                stages[key] = stage;
+            }
+            return stages;
+        }
+
+        // Rebuild the open game's stage set from a cloud record. A record saved
+        // with `stages` is the whole game, so it replaces the stages currently
+        // open; an older record carries only its one stage in the flat fields,
+        // which folds into whatever game is loaded exactly as it did before.
+        function applyCloudStages(d) {
+            if (!gameData) gameData = {};
+            if (!currentStageKey) currentStageKey = 'stage0';
+            const cloudKeys = (d.stages && typeof d.stages === 'object')
+                ? Object.keys(d.stages).filter(k => /^stage\d+$/.test(k) && d.stages[k])
+                : [];
+            if (cloudKeys.length) {
+                for (const k of Object.keys(gameData)) {
+                    if (/^stage\d+$/.test(k)) delete gameData[k];
+                }
+                for (const k of cloudKeys) gameData[k] = stageRecordForCloud(d.stages[k]);
+                if (!gameData[currentStageKey]) {
+                    currentStageKey = cloudKeys
+                        .sort((a, b) => parseInt(a.slice(5)) - parseInt(b.slice(5)))[0];
+                }
+            } else {
+                // Old shape: the record's single stage lives in the flat fields.
+                // It lands on the stage it was saved from, creating that stage
+                // if the open game does not have one, and the rest of the open
+                // game's stages are left alone.
+                gameData[currentStageKey] = stageRecordForCloud({
+                    enemylist: d.enemylist,
+                    waveRows: d.waveRows,
+                    waveInterval: d.waveInterval,
+                    background: d.background,
+                });
+            }
+            populateStagePills();
+            loadCurrentStage();
+        }
+
         function quickSave() {
             if (dirHandle && gameData) {
                 saveAll();
@@ -6879,12 +6950,33 @@ function GAME3D_RUNTIME(DATA) {
                     payload.waveRows = stageRec.waveRows;
                     payload.waveInterval = stageRec.waveInterval;
                 }
-                // Imported scenery rides with the level: the stage's tile grid
-                // plus the cell list it indexes (level-loader reads both).
-                if (stageRec && stageRec.background && Array.isArray(gameData.backgroundCells)) {
-                    payload.background = stageRec.background;
+                // The whole game's stages, beside the flat fields rather than
+                // instead of them: readers written against the old shape decide
+                // a level exists by `data.enemylist` and copy the record
+                // verbatim, so the open stage stays exactly where it has always
+                // been and `stages` is purely additive.
+                payload.stages = buildStagesForCloudSave();
+                var anyStageHasBg = Object.keys(payload.stages)
+                    .some(function (k) { return !!payload.stages[k].background; });
+                // Imported scenery rides with the level: each stage's tile grid
+                // plus the one cell list they all index (level-loader reads
+                // both). The cells are needed if ANY saved stage has scenery,
+                // not just the one the editor has open.
+                if (anyStageHasBg && gameData && Array.isArray(gameData.backgroundCells)) {
                     payload.backgroundCells = gameData.backgroundCells;
+                    payload.background = (stageRec && stageRec.background) || null;
+                } else {
+                    // The write below is an update(), i.e. a merge — a level that
+                    // no longer carries scenery has to clear the old snapshot or
+                    // it keeps scrolling a backdrop that is no longer its own.
+                    payload.background = null;
+                    payload.backgroundCells = null;
                 }
+                // The save's own soundtrack rides with the level too. It is the
+                // only music a Dezaemon import has — there is no mp3 in
+                // customAudioURLs to fall back on — so a level saved without it
+                // plays in silence everywhere it is loaded from the cloud.
+                payload.dezaemonBgm = (gameData && gameData.dezaemonBgm) || null;
                 // Save audio URL overrides
                 var urlEntries = {};
                 for (var ak in audioURLs) { if (audioURLs[ak]) urlEntries[ak] = audioURLs[ak]; }
@@ -7011,6 +7103,18 @@ function GAME3D_RUNTIME(DATA) {
                 };
                 ssSyncToGameData();
                 if (d.stageKey) currentStageKey = d.stageKey;
+                // Fold the cloud level's stages and soundtrack back into
+                // gameData. saveToFirebase() reads scenery, wave pacing and BGM
+                // from there, so without this a load-then-save round-trip wrote
+                // whatever the previously-open game happened to hold — and Play
+                // (which builds its recipe from gameData) ran the level with the
+                // wrong backdrop. A record with `stages` is the whole game, so
+                // every stage comes back, not just the one the flat fields hold.
+                applyCloudStages(d);
+                if (Array.isArray(d.backgroundCells)) gameData.backgroundCells = d.backgroundCells;
+                else delete gameData.backgroundCells;
+                if (d.dezaemonBgm) gameData.dezaemonBgm = d.dezaemonBgm;
+                else delete gameData.dezaemonBgm;
                 titleBgDataURL = d.titleBgDataURL || null;
                 logoDataURL = d.logoDataURL || null;
                 subTitleDataURL = d.subTitleDataURL || null;

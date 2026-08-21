@@ -42,6 +42,21 @@
   function deepClone(value) {
     return value == null ? value : JSON.parse(JSON.stringify(value));
   }
+  function stageRecordFromLevel(src) {
+    if (!src || !Array.isArray(src.enemylist) || !src.enemylist.length) {
+      return null;
+    }
+    const stage = { enemylist: src.enemylist };
+    if (Array.isArray(src.waveRows) && src.waveRows.length === src.enemylist.length) {
+      stage.waveRows = src.waveRows;
+      if (Number.isFinite(src.waveInterval) && src.waveInterval > 0) {
+        stage.waveInterval = src.waveInterval;
+      }
+    }
+    if (src.background) stage.background = src.background;
+    if (src.items) stage.items = src.items;
+    return stage;
+  }
   function readParam(name) {
     if (typeof globalThis === "undefined" || !globalThis.location) {
       return null;
@@ -360,16 +375,19 @@
         const recipe = deepClone(baseRecipe) || {};
         const localEnemyData = recipe.enemyData ? deepClone(recipe.enemyData) : {};
         const stageKey = levelData.stageKey || "stage0";
-        recipe[stageKey] = { enemylist: levelData.enemylist };
-        if (Array.isArray(levelData.waveRows) && levelData.waveRows.length === (levelData.enemylist || []).length) {
-          recipe[stageKey].waveRows = levelData.waveRows;
-          if (Number.isFinite(levelData.waveInterval)) {
-            recipe[stageKey].waveInterval = levelData.waveInterval;
+        recipe[stageKey] = stageRecordFromLevel(levelData) || { enemylist: levelData.enemylist };
+        if (levelData.stages && typeof levelData.stages === "object") {
+          for (const sKey of Object.keys(levelData.stages)) {
+            if (!/^stage\d+$/.test(sKey)) continue;
+            const sRec = stageRecordFromLevel(levelData.stages[sKey]);
+            if (sRec) recipe[sKey] = sRec;
           }
         }
-        if (levelData.background && Array.isArray(levelData.backgroundCells)) {
-          recipe[stageKey].background = levelData.background;
+        if (Array.isArray(levelData.backgroundCells)) {
           recipe.backgroundCells = levelData.backgroundCells;
+        }
+        if (levelData.dezaemonBgm && typeof levelData.dezaemonBgm === "object") {
+          recipe.dezaemonBgm = levelData.dezaemonBgm;
         }
         const atlasFrames = (() => {
           try {
@@ -1733,6 +1751,25 @@
     scene.textures.addAtlas("game_asset", mergedCanvas, { frames: mergedFrameMap });
     return true;
   }
+  function cloudStageRecord(src) {
+    if (!src || !Array.isArray(src.enemylist) || !src.enemylist.length) {
+      return null;
+    }
+    var stage = { enemylist: src.enemylist };
+    if (Array.isArray(src.waveRows) && src.waveRows.length === src.enemylist.length) {
+      stage.waveRows = src.waveRows;
+      if (Number.isFinite(src.waveInterval) && src.waveInterval > 0) {
+        stage.waveInterval = src.waveInterval;
+      }
+    }
+    if (src.background) {
+      stage.background = src.background;
+    }
+    if (src.items) {
+      stage.items = src.items;
+    }
+    return stage;
+  }
   function primeGameStateForStage(recipe, stageId) {
     if (recipe && recipe.playerData) {
       gameState.spDamage = recipe.playerData.spDamage;
@@ -1934,7 +1971,22 @@
         var baseRecipe = self.cache.json.get("recipe") || {};
         var localEnemyData = baseRecipe.enemyData ? JSON.parse(JSON.stringify(baseRecipe.enemyData)) : {};
         var stageKey = data.stageKey || "stage0";
-        baseRecipe[stageKey] = { enemylist: data.enemylist };
+        var loadedStage = { enemylist: data.enemylist };
+        if (data.background) loadedStage.background = data.background;
+        if (data.waveRows) {
+          loadedStage.waveRows = data.waveRows;
+          loadedStage.waveInterval = data.waveInterval;
+        }
+        baseRecipe[stageKey] = loadedStage;
+        if (data.stages && typeof data.stages === "object") {
+          for (var sKey in data.stages) {
+            if (!/^stage\d+$/.test(sKey)) continue;
+            var sRec = cloudStageRecord(data.stages[sKey]);
+            if (sRec) baseRecipe[sKey] = sRec;
+          }
+        }
+        if (data.backgroundCells) baseRecipe.backgroundCells = data.backgroundCells;
+        if (data.dezaemonBgm) baseRecipe.dezaemonBgm = data.dezaemonBgm;
         function finishLevelLoad() {
           if (data.enemyData) {
             var merged = JSON.parse(JSON.stringify(data.enemyData));

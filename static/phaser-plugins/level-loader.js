@@ -91,6 +91,30 @@ function deepClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+// One stage of a level record, in the shape the game scene reads: the wave
+// grid, the per-wave scroll rows that keep an imported stage's pacing (only
+// meaningful with one entry per wave, or the runtime gets a mismatched pair),
+// and the tile grid that replaces the stock backdrop. Used for both the flat
+// open-stage fields and each entry of the `stages` map.
+function stageRecordFromLevel(src) {
+  if (!src || !Array.isArray(src.enemylist) || !src.enemylist.length) {
+    return null;
+  }
+  const stage = { enemylist: src.enemylist };
+  if (
+    Array.isArray(src.waveRows) &&
+    src.waveRows.length === src.enemylist.length
+  ) {
+    stage.waveRows = src.waveRows;
+    if (Number.isFinite(src.waveInterval) && src.waveInterval > 0) {
+      stage.waveInterval = src.waveInterval;
+    }
+  }
+  if (src.background) stage.background = src.background;
+  if (src.items) stage.items = src.items;
+  return stage;
+}
+
 function readParam(name) {
   if (typeof globalThis === "undefined" || !globalThis.location) {
     return null;
@@ -467,24 +491,34 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
       const localEnemyData = recipe.enemyData ? deepClone(recipe.enemyData) : {};
 
       const stageKey = levelData.stageKey || "stage0";
-      recipe[stageKey] = { enemylist: levelData.enemylist };
-      // Wave pacing, when the level carries it: the scroll row each wave came
-      // from, plus the frames per row. A Dezaemon 2 import keeps its rhythm
-      // through this; dropping it would deal every wave on a fixed beat.
-      if (
-        Array.isArray(levelData.waveRows) &&
-        levelData.waveRows.length === (levelData.enemylist || []).length
-      ) {
-        recipe[stageKey].waveRows = levelData.waveRows;
-        if (Number.isFinite(levelData.waveInterval)) {
-          recipe[stageKey].waveInterval = levelData.waveInterval;
+      // The flat fields are the level's open stage — the only shape records
+      // written before multi-stage saves have.
+      recipe[stageKey] = stageRecordFromLevel(levelData) ||
+        { enemylist: levelData.enemylist };
+      // A newer record carries every other stage of the game under `stages`,
+      // so ?stage=3 plays stage 3's own enemies and scenery instead of falling
+      // through to the base recipe's stage of that number. A .sav import is
+      // 5-14 stages and only one of them used to travel.
+      if (levelData.stages && typeof levelData.stages === "object") {
+        for (const sKey of Object.keys(levelData.stages)) {
+          if (!/^stage\d+$/.test(sKey)) continue;
+          const sRec = stageRecordFromLevel(levelData.stages[sKey]);
+          if (sRec) recipe[sKey] = sRec;
         }
       }
-      // Imported scenery: the stage's tile grid plus the cell list it
-      // indexes. Both must travel or the runtime draws nothing.
-      if (levelData.background && Array.isArray(levelData.backgroundCells)) {
-        recipe[stageKey].background = levelData.background;
+      // The cell list every stage's tile grid indexes into. Both halves must
+      // travel or the runtime draws nothing.
+      if (Array.isArray(levelData.backgroundCells)) {
         recipe.backgroundCells = levelData.backgroundCells;
+      }
+      // A Dezaemon import's soundtrack: dezaemon-runtime.js sequences it
+      // straight out of the recipe, and no other path supplies music for such
+      // a level — there is no mp3 in customAudioURLs to fall back on — so
+      // without this the level plays in silence. Its own per-stage table
+      // assigns a (main, boss) pair per stage, which only pays off now that
+      // every stage is reachable.
+      if (levelData.dezaemonBgm && typeof levelData.dezaemonBgm === "object") {
+        recipe.dezaemonBgm = levelData.dezaemonBgm;
       }
 
       const atlasFrames = (() => {
