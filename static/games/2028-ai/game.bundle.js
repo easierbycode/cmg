@@ -3863,7 +3863,12 @@
     }
     return true;
   }
-  var BGM_STEP_SECONDS = 1 / 15;
+  var BGM_TICK_HZ = 30;
+  function bgmStepSeconds(tempoIndex) {
+    var t = typeof tempoIndex === "number" ? tempoIndex & 7 : 3;
+    var rate = ((t + 1) * 32 - 1) / 256;
+    return 1 / (BGM_TICK_HZ * rate);
+  }
   var BGM_LOOKAHEAD = 0.35;
   var BGM_TICK_MS = 90;
   var BGM_GAIN = 0.1;
@@ -3905,15 +3910,13 @@
         }
       }
     }
-    var last = 0;
-    for (p = 0; p < 4; p++) {
-      for (var i = 0; i < parts[p].length; i++) {
-        var e = parts[p][i];
-        if (e.step + e.len > last) last = e.step + e.len;
-      }
+    var loopStartStep = Math.min(raw[0], 31) * 32;
+    var loopEndStep = (Math.min(raw[1], 31) + 1) * 32;
+    if (loopEndStep <= loopStartStep) {
+      loopStartStep = 0;
+      loopEndStep = 32 * 32;
     }
-    var loopSteps = Math.max(32, Math.ceil(last / 32) * 32);
-    return { parts, loopSteps };
+    return { parts, loopStartStep, loopEndStep };
   }
   function audioCtx(scene) {
     var snd = scene.sound;
@@ -3948,6 +3951,7 @@
     var st = scene._dezaBgm = {
       ctx,
       song: parseBgmSong(bgm.songs[idx]),
+      stepSeconds: bgmStepSeconds(bgm.tempos ? bgm.tempos[idx] : void 0),
       songIndex: idx,
       which,
       cursor: [0, 0, 0, 0],
@@ -3970,30 +3974,46 @@
   function scheduleBgm(scene, st) {
     var ctx = st.ctx;
     var horizon = ctx.currentTime + BGM_LOOKAHEAD;
+    var song = st.song;
+    var span = song.loopEndStep - song.loopStartStep;
     for (var p = 0; p < 4; p++) {
-      var events = st.song.parts[p];
+      var events = song.parts[p];
       if (!events.length) continue;
       var voice = PART_VOICES[p];
       for (; ; ) {
         var i = st.cursor[p];
-        var loopBase = st.loop * st.song.loopSteps;
         if (i >= events.length) {
           var allDone = true;
           for (var q = 0; q < 4; q++) {
-            if (st.cursor[q] < st.song.parts[q].length) {
+            if (st.cursor[q] < song.parts[q].length) {
               allDone = false;
               break;
             }
           }
           if (allDone) {
             st.loop += 1;
-            for (var r = 0; r < 4; r++) st.cursor[r] = 0;
+            for (var r = 0; r < 4; r++) {
+              var evs = song.parts[r];
+              var at = evs.length;
+              for (var k = 0; k < evs.length; k++) {
+                if (evs[k].step >= song.loopStartStep) {
+                  at = k;
+                  break;
+                }
+              }
+              st.cursor[r] = at;
+            }
             continue;
           }
           break;
         }
         var e = events[i];
-        var t = st.startTime + (loopBase + e.step) * BGM_STEP_SECONDS;
+        if (e.step >= song.loopEndStep) {
+          st.cursor[p] = events.length;
+          continue;
+        }
+        var pos = st.loop === 0 ? e.step : song.loopEndStep + (st.loop - 1) * span + (e.step - song.loopStartStep);
+        var t = st.startTime + pos * st.stepSeconds;
         if (t > horizon) break;
         st.cursor[p] = i + 1;
         if (t < ctx.currentTime - 0.02) continue;
@@ -4004,7 +4024,7 @@
   }
   function playBgmNote(st, voice, e, t) {
     var ctx = st.ctx;
-    var dur = Math.max(0.05, e.len * BGM_STEP_SECONDS * 0.95);
+    var dur = Math.max(0.05, e.len * st.stepSeconds * 0.95);
     var g = ctx.createGain();
     g.gain.setValueAtTime(1e-4, t);
     g.gain.linearRampToValueAtTime(voice.gain * 0.5, t + 0.01);
