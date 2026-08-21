@@ -6496,7 +6496,7 @@
       bossDie(this, boss);
     }
     bossAdd() {
-      if (this.recipe && this.recipe.dezaemonBgm && !this.bossActive) {
+      if (this.recipe && this.recipe.dezaemonBgm && !this.bossActive && !gameState.lowModeFlg) {
         startDezaemonBgm(this, "boss");
       }
       bossAdd(this);
@@ -7158,7 +7158,7 @@
     // Sound
     // =================================================================
     playBossBgm(stageId) {
-      if (this.recipe && this.recipe.dezaemonBgm) {
+      if (this.recipe && this.recipe.dezaemonBgm && !gameState.lowModeFlg) {
         this.bossStageId = stageId;
         if (startDezaemonBgm(this, "main")) {
           this.stageBgmName = "__dezaemon__";
