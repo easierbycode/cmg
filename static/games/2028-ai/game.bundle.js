@@ -3838,7 +3838,11 @@
     if (!scene.playerSprite) return true;
     if (enemy.y < 16 || enemy.y > GH14 * 0.4) return true;
     var base;
-    if (fire.direction) {
+    if (fire.pattern !== null && fire.pattern !== void 0) {
+      var pdx = scene.playerSprite.x - enemy.x;
+      var pdy = scene.playerSprite.y - enemy.y;
+      base = Math.atan2(pdx, -pdy);
+    } else if (fire.direction) {
       base = fire.direction * (360 / 32) * Math.PI / 180;
     } else if (fire.type === 0 || fire.type === 3) {
       base = Math.PI;
