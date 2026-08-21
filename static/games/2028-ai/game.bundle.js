@@ -3863,11 +3863,43 @@
     }
     return true;
   }
-  var BGM_TICK_HZ = 30;
+  var DEZA_TEMPO_TABLE = [
+    66,
+    60,
+    57,
+    54,
+    52,
+    49,
+    47,
+    45,
+    43,
+    42,
+    40,
+    39,
+    38,
+    36,
+    35,
+    34,
+    33,
+    32,
+    31,
+    30,
+    29,
+    28,
+    27,
+    26,
+    25,
+    24,
+    23,
+    22,
+    21,
+    20,
+    19,
+    18
+  ];
+  var DEZA_TRANSPOSE_TABLE = [-3, -2, -1, 0, 1, 2, 3, 4, 5, 6, -5, -4];
   function bgmStepSeconds(tempoIndex) {
-    var t = typeof tempoIndex === "number" ? tempoIndex & 7 : 3;
-    var rate = ((t + 1) * 32 - 1) / 256;
-    return 1 / (BGM_TICK_HZ * rate);
+    return DEZA_TEMPO_TABLE[tempoIndex & 31] / 240;
   }
   var BGM_LOOKAHEAD = 0.35;
   var BGM_TICK_MS = 90;
@@ -3891,32 +3923,42 @@
   }
   function parseBgmSong(b64) {
     var raw = b64ToBytes(b64);
-    var parts = [[], [], [], []];
+    var parts = [[], [], [], [], [], [], [], []];
     for (var p = 0; p < 4; p++) {
-      var current = null;
-      for (var m = 0; m < 32; m++) {
-        var base = 4 + m * 132 + 4 + p * 32;
-        for (var st = 0; st < 32; st++) {
-          var v = raw[base + st];
-          var abs = m * 32 + st;
-          if (v >= 1 && v <= 59) {
-            current = { step: abs, note: v, len: 1 };
-            parts[p].push(current);
-          } else if (v >= 128 && v <= 136 && current) {
-            current.len = abs - current.step + 1;
-          } else if (v === 0) {
-            current = null;
+      for (var v0 = 0; v0 < 2; v0++) {
+        var stream = parts[p * 2 + v0];
+        var current = null;
+        for (var m = 0; m < 32; m++) {
+          var base = 4 + m * 132 + 4 + p * 32 + v0 * 16;
+          var trans = DEZA_TRANSPOSE_TABLE[raw[4 + m * 132 + 3]] || 0;
+          for (var st = 0; st < 16; st++) {
+            var v = raw[base + st];
+            var abs = m * 16 + st;
+            if (v >= 1 && v <= 59) {
+              current = { step: abs, note: Math.max(1, v + trans), len: 1 };
+              stream.push(current);
+            } else if (v >= 128 && v <= 136 && current) {
+              current.len = abs - current.step + 1;
+            } else if (v === 0) {
+              current = null;
+            }
           }
         }
       }
     }
-    var loopStartStep = Math.min(raw[0], 31) * 32;
-    var loopEndStep = (Math.min(raw[1], 31) + 1) * 32;
+    var loopStartStep = Math.min(raw[0], 31) * 16;
+    var loopEndStep = (Math.min(raw[1], 31) + 1) * 16;
     if (loopEndStep <= loopStartStep) {
       loopStartStep = 0;
-      loopEndStep = 32 * 32;
+      loopEndStep = 32 * 16;
     }
-    return { parts, loopStartStep, loopEndStep };
+    return {
+      parts,
+      loopStartStep,
+      loopEndStep,
+      stepSeconds: bgmStepSeconds(raw[3]),
+      echoLevel: raw[2] & 7
+    };
   }
   function audioCtx(scene) {
     var snd = scene.sound;
@@ -3948,22 +3990,38 @@
     var idx = pair ? which === "boss" ? pair[1] : pair[0] : null;
     if (idx == null || !bgm.songs || bgm.songs[idx] == null) return false;
     stopDezaemonBgm(scene);
+    var song = parseBgmSong(bgm.songs[idx]);
     var st = scene._dezaBgm = {
       ctx,
-      song: parseBgmSong(bgm.songs[idx]),
-      stepSeconds: bgmStepSeconds(bgm.tempos ? bgm.tempos[idx] : void 0),
+      song,
+      stepSeconds: song.stepSeconds,
       songIndex: idx,
       which,
-      cursor: [0, 0, 0, 0],
+      cursor: [0, 0, 0, 0, 0, 0, 0, 0],
       startTime: ctx.currentTime + 0.05,
       loop: 0,
       master: ctx.createGain(),
       noise: makeNoiseBuffer(ctx),
       timer: null,
-      scheduled: 0
+      scheduled: 0,
+      echo: null
     };
     st.master.gain.value = BGM_GAIN;
     st.master.connect(ctx.destination);
+    if (song.echoLevel > 0) {
+      var delay = ctx.createDelay(0.5);
+      delay.delayTime.value = 0.18;
+      var fb = ctx.createGain();
+      fb.gain.value = 0.3;
+      var wet = ctx.createGain();
+      wet.gain.value = 0.45 * (song.echoLevel / 7);
+      st.master.connect(delay);
+      delay.connect(fb);
+      fb.connect(delay);
+      delay.connect(wet);
+      wet.connect(ctx.destination);
+      st.echo = wet;
+    }
     var pump = function() {
       scheduleBgm(scene, st);
     };
@@ -3976,15 +4034,16 @@
     var horizon = ctx.currentTime + BGM_LOOKAHEAD;
     var song = st.song;
     var span = song.loopEndStep - song.loopStartStep;
-    for (var p = 0; p < 4; p++) {
+    var n = song.parts.length;
+    for (var p = 0; p < n; p++) {
       var events = song.parts[p];
       if (!events.length) continue;
-      var voice = PART_VOICES[p];
+      var voice = PART_VOICES[p >> 1];
       for (; ; ) {
         var i = st.cursor[p];
         if (i >= events.length) {
           var allDone = true;
-          for (var q = 0; q < 4; q++) {
+          for (var q = 0; q < n; q++) {
             if (st.cursor[q] < song.parts[q].length) {
               allDone = false;
               break;
@@ -3992,7 +4051,7 @@
           }
           if (allDone) {
             st.loop += 1;
-            for (var r = 0; r < 4; r++) {
+            for (var r = 0; r < n; r++) {
               var evs = song.parts[r];
               var at = evs.length;
               for (var k = 0; k < evs.length; k++) {
@@ -4053,6 +4112,12 @@
     try {
       st.master.disconnect();
     } catch (e) {
+    }
+    if (st.echo) {
+      try {
+        st.echo.disconnect();
+      } catch (e2) {
+      }
     }
     scene._dezaBgm = null;
   }
