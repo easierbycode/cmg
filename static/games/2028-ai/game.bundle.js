@@ -1160,7 +1160,7 @@
     }
   }
 
-  // ../2019-es7/src/constants.js
+  // ../2019-es7-0822/src/constants.js
   var LANG = (() => {
     if (typeof document !== "undefined" && document.documentElement) {
       switch (document.documentElement.lang) {
@@ -1296,7 +1296,7 @@
     CENTER_Y: typeof window !== "undefined" ? window.innerHeight / 2 : GAME_DIMENSIONS.CENTER_Y
   };
 
-  // ../2019-es7/src/gameState.js
+  // ../2019-es7-0822/src/gameState.js
   function ensureGameState() {
     if (!globalThis.__GAME_STATE__ || typeof globalThis.__GAME_STATE__ !== "object") {
       globalThis.__GAME_STATE__ = {};
@@ -1418,7 +1418,7 @@
     return highScore;
   }
 
-  // ../2019-es7/src/globals.js
+  // ../2019-es7-0822/src/globals.js
   function ensureResources() {
     if (!globalThis.__GAME_RESOURCES__ || typeof globalThis.__GAME_RESOURCES__ !== "object") {
       globalThis.__GAME_RESOURCES__ = {};
@@ -1472,7 +1472,7 @@
     }
   });
 
-  // ../2019-es7/src/phaser/stages.js
+  // ../2019-es7-0822/src/phaser/stages.js
   var MAX_STAGE_ID = 9;
   var ASSET_STAGES = 5;
   function clampStageId(value) {
@@ -1502,7 +1502,7 @@
     return ids[ids.length - 1];
   }
 
-  // ../2019-es7/src/phaser/BootScene.js
+  // ../2019-es7-0822/src/phaser/BootScene.js
   var EDITOR_PLAY_RECIPE_KEY = "__editorPhaserRecipe__";
   var EDITOR_PLAY_STAGE_KEY = "__editorPhaserStageId__";
   var FIREBASE_LEVELS_PATH = "levels";
@@ -2323,7 +2323,7 @@
     }
   };
 
-  // ../2019-es7/src/highScoreUi.js
+  // ../2019-es7-0822/src/highScoreUi.js
   var SYNC_COPY = {
     idle: "WORLD BEST STANDBY",
     loading: "SYNCING WORLD BEST",
@@ -2355,7 +2355,7 @@
     return SYNC_TINT[status] || SYNC_TINT.idle;
   }
 
-  // ../2019-es7/src/phaser/StaffRollPanel.js
+  // ../2019-es7-0822/src/phaser/StaffRollPanel.js
   function openExternalUrl(url) {
     if (!url) {
       return;
@@ -2498,7 +2498,7 @@
     }
   };
 
-  // ../2019-es7/src/phaser/GamepadInput.js
+  // ../2019-es7-0822/src/phaser/GamepadInput.js
   var FACE_BOTTOM = 0;
   var FACE_RIGHT = 1;
   var FACE_LEFT = 2;
@@ -2608,7 +2608,7 @@
     return result;
   }
 
-  // ../2019-es7/src/phaser/TitleScene.js
+  // ../2019-es7-0822/src/phaser/TitleScene.js
   var PhaserTitleScene = class extends Phaser.Scene {
     constructor() {
       super({ key: "PhaserTitleScene" });
@@ -3014,7 +3014,7 @@
     }
   };
 
-  // ../2019-es7/src/phaser/AdvScene.js
+  // ../2019-es7-0822/src/phaser/AdvScene.js
   var ADV_SCENARIO_JA = {
     stage0: {
       part: [
@@ -3336,7 +3336,7 @@
     }
   };
 
-  // ../2019-es7/src/enums/player-boss-states.js
+  // ../2019-es7-0822/src/enums/player-boss-states.js
   var PLAYER_STATES = {
     SHOOT_NAME_NORMAL: "normal",
     SHOOT_NAME_BIG: "big",
@@ -3346,7 +3346,7 @@
     BARRIER: "barrier"
   };
 
-  // ../2019-es7/src/haptics.js
+  // ../2019-es7-0822/src/haptics.js
   var HAPTIC_PRESETS = {
     ui: {
       cooldown: 60,
@@ -3697,7 +3697,7 @@
     return triggered;
   }
 
-  // ../2019-es7/src/phaser/dezaemon-runtime.js
+  // ../2019-es7-0822/src/phaser/dezaemon-runtime.js
   var TILE = 16;
   var SCROLL_PX_PER_FRAME = 2;
   var STRIP_ROWS = 128;
@@ -3718,7 +3718,7 @@
     }
     return out;
   }
-  function buildStageBackground(scene, stageData, recipe) {
+  function buildStageBackground(scene, stageData, recipe, bossRow) {
     var bg = stageData && stageData.background;
     var cells = recipe && recipe.backgroundCells;
     if (!bg || !Array.isArray(cells) || !cells.length) return null;
@@ -3773,14 +3773,22 @@
     }
     container.x = Math.floor((GW16 - bg.cols * TILE) / 2);
     var maxScroll = Math.max(0, mapHeight - GH14);
+    var stopScroll = maxScroll;
+    if (typeof bossRow === "number") {
+      stopScroll = Math.max(0, Math.min(
+        maxScroll,
+        (bossRow + 1) * TILE - GH14 + Math.floor(GH14 / 4)
+      ));
+    }
     var controller = {
       container,
       mapHeight,
       maxScroll,
+      stopScroll,
       lastDelta: 0,
       _scroll: -1,
       setScroll: function(px) {
-        var clamped = Math.max(0, Math.min(maxScroll, px));
+        var clamped = Math.max(0, Math.min(stopScroll, px));
         this.lastDelta = this._scroll < 0 ? 0 : clamped - this._scroll;
         this._scroll = clamped;
         container.y = GH14 - mapHeight + clamped;
@@ -3914,6 +3922,349 @@
       shootFn(scene, enemy, Math.sin(base), -Math.cos(base));
     }
     return true;
+  }
+  var BOSS_ENTRY_FRAMES = 360;
+  var BEAM_WARN_FRAMES = 45;
+  var BEAM_ON_FRAMES = 100;
+  var BEAM_WIDTH = 22;
+  var DEZA_BOSS_BULLET = {
+    speed: 2.5,
+    damage: 1,
+    hp: 1,
+    score: 0,
+    spgage: 0,
+    texture: ["normalProjectile0.gif", "normalProjectile1.gif", "normalProjectile2.gif"]
+  };
+  function fpKey(fp) {
+    var rec = fp.spawn ? fp.spawn.record : null;
+    return fp.type + ":" + rec + ":" + fp.dx + ":" + fp.dy;
+  }
+  function playlistPattern(boss, band, entry) {
+    var row = boss.playlist && boss.playlist[band] || [0, 0, 0, 0];
+    return row[entry & 3] & 3;
+  }
+  function initDezaBoss(scene, bossData) {
+    var deza = bossData && bossData.dezaemon;
+    if (!deza || !deza.boss || bossData.attackPattern) return false;
+    scene.dezaBossState = {
+      boss: deza.boss,
+      partArt: deza.partArt || null,
+      frameCache: {},
+      active: false,
+      age: 0,
+      bandIdx: 0,
+      entryIdx: 0,
+      entryAge: 0,
+      patternId: -1,
+      pattern: null,
+      tickCnt: 0,
+      tickIdx: 0,
+      parts: [],
+      beams: [],
+      partRespawn: {}
+    };
+    return true;
+  }
+  function startDezaBoss(scene) {
+    var st = scene.dezaBossState;
+    if (!st || st.active) return false;
+    st.active = true;
+    activatePattern(scene, st, playlistPattern(st.boss, 0, 0));
+    return true;
+  }
+  function partFrames(scene, st, record) {
+    if (record == null) return null;
+    if (st.frameCache[record] !== void 0) return st.frameCache[record];
+    var frames = null;
+    var art = st.partArt && st.partArt[record];
+    if (art && art.length) frames = art;
+    if (!frames) {
+      var data = scene.recipe && scene.recipe.enemyData || {};
+      for (var k in data) {
+        var d = data[k];
+        if (d && d.dezaemon && d.dezaemon.stage === scene.bossStageId && d.dezaemon.record === record && d.texture && d.texture.length) {
+          frames = d.texture;
+          break;
+        }
+      }
+    }
+    if (frames) {
+      var atlas = scene.textures.get("game_asset");
+      frames = frames.filter(function(f) {
+        return atlas && atlas.has(f);
+      });
+      if (!frames.length) frames = null;
+    }
+    st.frameCache[record] = frames;
+    return frames;
+  }
+  function spawnDezaPart(scene, st, fp) {
+    var boss = scene.bossSprite;
+    if (!boss || !boss.active || !fp.spawn) return null;
+    var frames = partFrames(scene, st, fp.spawn.record);
+    if (!frames) return null;
+    var large = fp.spawn.record >= 48;
+    var part = scene.add.sprite(boss.x + fp.dx, boss.y + fp.dy, "game_asset", frames[0]);
+    part.setOrigin(0.5);
+    part.setDepth(46);
+    part.setData("type", "enemy");
+    part.setData("name", "dezaPart");
+    part.setData("hp", large ? 32 : 16);
+    part.setData("maxHp", large ? 32 : 16);
+    part.setData("score", large ? 2e3 : 800);
+    part.setData("spgage", large ? 4 : 2);
+    part.setData("interval", -1);
+    part.setData("shootCnt", 0);
+    part.setData("itemName", null);
+    part.setData("frames", frames);
+    part.setData("animIdx", 0);
+    part.setData("animTimer", 0);
+    part.setData("projData", null);
+    part.setData("dezaBossPart", {
+      dx: fp.dx,
+      dy: fp.dy,
+      key: fpKey(fp),
+      mobile: !fp.spawn.oneShot,
+      phase: Math.random() * 125
+    });
+    scene.enemies.push(part);
+    st.parts.push(part);
+    return part;
+  }
+  function removeDezaPart(scene, part) {
+    var idx = scene.enemies.indexOf(part);
+    if (idx >= 0) scene.enemies.splice(idx, 1);
+    part.destroy();
+  }
+  function clearBeams(st) {
+    for (var i = 0; i < st.beams.length; i++) {
+      if (st.beams[i].sprite) st.beams[i].sprite.destroy();
+    }
+    st.beams = [];
+  }
+  function activatePattern(scene, st, patternId) {
+    st.patternId = patternId;
+    st.pattern = (st.boss.patterns || [])[patternId] || null;
+    st.tickCnt = 0;
+    st.tickIdx = 0;
+    st.partRespawn = {};
+    clearBeams(st);
+    if (!st.pattern) return;
+    var wanted = {};
+    st.pattern.firePoints.forEach(function(fp) {
+      if ((fp.type === 3 || fp.type === 4) && fp.spawn) wanted[fpKey(fp)] = fp;
+    });
+    for (var i = st.parts.length - 1; i >= 0; i--) {
+      var part = st.parts[i];
+      if (!part || !part.active) {
+        st.parts.splice(i, 1);
+        continue;
+      }
+      var key = part.getData("dezaBossPart").key;
+      if (wanted[key]) {
+        delete wanted[key];
+      } else {
+        removeDezaPart(scene, part);
+        st.parts.splice(i, 1);
+      }
+    }
+    for (var k in wanted) spawnDezaPart(scene, st, wanted[k]);
+  }
+  function findLiveDezaPart(st, key) {
+    for (var i = 0; i < st.parts.length; i++) {
+      var p = st.parts[i];
+      if (p && p.active && p.getData("dezaBossPart").key === key) return p;
+    }
+    return null;
+  }
+  function bossWeapon(scene, weapon) {
+    var pd = weapon === 1 ? scene.bossProjDataB : weapon === 2 ? scene.bossProjDataC : scene.bossProjDataA;
+    return pd && pd.texture && pd.texture.length ? pd : DEZA_BOSS_BULLET;
+  }
+  function spawnDezaBossBullet(scene, x, y, dirX, dirY, projData, tint) {
+    var frames = projData.texture || [];
+    var bullet = scene.add.sprite(x, y, "game_asset", frames[0] || "normalProjectile0.gif");
+    bullet.setOrigin(0.5);
+    bullet.setDepth(47);
+    bullet.setData("speed", projData.speed || DEZA_BOSS_BULLET.speed);
+    bullet.setData("damage", projData.damage || 1);
+    bullet.setData("hp", projData.hp || 1);
+    bullet.setData("score", projData.score || 0);
+    bullet.setData("spgage", projData.spgage || 0);
+    bullet.setData("rotX", dirX);
+    bullet.setData("rotY", dirY);
+    if (frames.length > 1) {
+      bullet.setData("frames", frames);
+      bullet.setData("animIdx", 0);
+      bullet.setData("animTimer", 0);
+      if (projData.frameRate) bullet.setData("frameRate", projData.frameRate);
+    }
+    if (tint) bullet.setTint(tint);
+    scene.enemyBullets.push(bullet);
+    return bullet;
+  }
+  function fireDezaBullet(scene, fp) {
+    var boss = scene.bossSprite;
+    var x = boss.x + fp.dx;
+    var y = boss.y + fp.dy;
+    var dirX = 0;
+    var dirY = 1;
+    if (fp.shot && fp.shot.aimed && scene.playerSprite) {
+      var dx = scene.playerSprite.x - x;
+      var dy = scene.playerSprite.y - y;
+      var d = Math.sqrt(dx * dx + dy * dy) || 1;
+      dirX = dx / d;
+      dirY = dy / d;
+    }
+    spawnDezaBossBullet(scene, x, y, dirX, dirY, bossWeapon(scene, fp.shot ? fp.shot.weapon : 0), 0);
+  }
+  function fireDezaFlame(scene, fp) {
+    var boss = scene.bossSprite;
+    var x = boss.x + fp.dx;
+    var y = boss.y + fp.dy;
+    for (var i = 0; i < 5; i++) {
+      var a = (-40 + 20 * i) * Math.PI / 180;
+      var speed = 1.1 + Math.random() * 0.7;
+      var b = spawnDezaBossBullet(
+        scene,
+        x,
+        y,
+        Math.sin(a),
+        Math.cos(a),
+        DEZA_BOSS_BULLET,
+        16750916
+      );
+      b.setData("speed", speed);
+      b.setScale(1 + Math.random() * 0.5);
+    }
+  }
+  function startDezaBeam(scene, st, fp) {
+    var key = fpKey(fp);
+    for (var i = 0; i < st.beams.length; i++) {
+      if (st.beams[i].key === key) return;
+    }
+    var boss = scene.bossSprite;
+    var GH14 = scene.scale ? scene.scale.height : 480;
+    var topY = boss.y + fp.dy;
+    var h = Math.max(1, GH14 - topY);
+    var rect = scene.add.rectangle(boss.x + fp.dx, topY + h / 2, BEAM_WIDTH, h, 10083839, 0.25);
+    rect.setDepth(44);
+    rect.setScale(0.25, 1);
+    st.beams.push({ key, fp, sprite: rect, topY, age: 0, cooldown: 0 });
+  }
+  function updateDezaBeams(scene, st) {
+    var boss = scene.bossSprite;
+    for (var i = st.beams.length - 1; i >= 0; i--) {
+      var beam = st.beams[i];
+      beam.age++;
+      beam.sprite.x = boss.x + beam.fp.dx;
+      if (beam.age <= BEAM_WARN_FRAMES) {
+        beam.sprite.setAlpha(0.2 + 0.15 * Math.sin(beam.age * 0.5));
+      } else if (beam.age <= BEAM_WARN_FRAMES + BEAM_ON_FRAMES) {
+        beam.sprite.setScale(1, 1);
+        beam.sprite.setAlpha(0.65 + 0.15 * Math.sin(beam.age * 0.6));
+        if (beam.cooldown > 0) beam.cooldown--;
+        var player = scene.playerSprite;
+        if (player && beam.cooldown <= 0 && !scene.barrierActive && player.y > beam.topY && Math.abs(player.x - beam.sprite.x) < BEAM_WIDTH / 2 + 8) {
+          beam.cooldown = 60;
+          scene.playerDamage(1);
+        }
+      } else {
+        beam.sprite.destroy();
+        st.beams.splice(i, 1);
+      }
+    }
+  }
+  function updateDezaBoss(scene) {
+    var st = scene.dezaBossState;
+    if (!st || !st.active) return;
+    var boss = scene.bossSprite;
+    if (!boss || !boss.active) {
+      clearDezaBoss(scene);
+      return;
+    }
+    var b = st.boss;
+    st.age++;
+    var stages = Math.max(1, Math.min(4, b.hpStages || 1));
+    var frac = scene.bossMaxHp > 0 ? scene.bossHp / scene.bossMaxHp : 1;
+    var band = Math.min(stages - 1, Math.max(0, Math.floor((1 - frac) * stages)));
+    if (band > st.bandIdx) {
+      st.bandIdx = band;
+      st.entryIdx = 0;
+      st.entryAge = 0;
+      activatePattern(scene, st, playlistPattern(b, band, 0));
+    } else {
+      st.entryAge++;
+      if (st.entryAge >= BOSS_ENTRY_FRAMES) {
+        st.entryAge = 0;
+        st.entryIdx = st.entryIdx + 1 & 3;
+        activatePattern(scene, st, playlistPattern(b, st.bandIdx, st.entryIdx));
+      }
+    }
+    var pattern = st.pattern;
+    if (pattern && pattern.moveSpeed > 0 && !scene.bossEntering) {
+      var GW16 = scene.scale ? scene.scale.width : 256;
+      var amp = Math.min(10 + pattern.moveSpeed * 8, (GW16 - boss.width) / 2);
+      boss.x = GW16 / 2 + Math.sin(st.age * (6e-3 + pattern.moveSpeed * 2e-3)) * amp;
+    }
+    if (b.rotate) boss.rotation += 0.02;
+    updateDezaBeams(scene, st);
+    if (!pattern) return;
+    st.tickCnt++;
+    if (st.tickCnt < (pattern.fireTickFrames || 60)) return;
+    st.tickCnt = 0;
+    st.tickIdx++;
+    for (var i = 0; i < pattern.firePoints.length; i++) {
+      var fp = pattern.firePoints[i];
+      var due = st.tickIdx % ((fp.rate || 0) + 1) === 0;
+      if (fp.type <= 2) {
+        if (due) fireDezaBullet(scene, fp);
+      } else if (fp.type === 3) {
+        var key = fpKey(fp);
+        if (!findLiveDezaPart(st, key)) {
+          var wait = st.partRespawn[key];
+          if (wait === void 0) {
+            st.partRespawn[key] = (fp.rate || 0) + 2;
+          } else if (wait <= 1) {
+            delete st.partRespawn[key];
+            spawnDezaPart(scene, st, fp);
+          } else {
+            st.partRespawn[key] = wait - 1;
+          }
+        }
+      } else if (fp.type === 5) {
+        if (due) startDezaBeam(scene, st, fp);
+      } else if (fp.type === 6) {
+        if (due) fireDezaFlame(scene, fp);
+      }
+    }
+  }
+  function updateDezaBossPart(scene, part) {
+    var pd = part.getData("dezaBossPart");
+    if (!pd) return false;
+    var boss = scene.bossSprite;
+    if (!boss || !boss.active) {
+      removeDezaPart(scene, part);
+      return true;
+    }
+    var dx = pd.dx;
+    if (pd.mobile) {
+      dx += Math.sin((scene.worldTime + pd.phase) * 0.05) * 6;
+    }
+    part.x = boss.x + dx;
+    part.y = boss.y + pd.dy;
+    return true;
+  }
+  function clearDezaBoss(scene) {
+    var st = scene.dezaBossState;
+    if (!st) return;
+    for (var i = 0; i < st.parts.length; i++) {
+      var part = st.parts[i];
+      if (part && part.active) removeDezaPart(scene, part);
+    }
+    st.parts = [];
+    clearBeams(st);
+    scene.dezaBossState = null;
   }
   var DEZA_TEMPO_TABLE = [
     66,
@@ -4234,7 +4585,7 @@
     src.stop(t + dur + 0.2);
   }
 
-  // ../2019-es7/src/phaser/game-objects/Shadow.js
+  // ../2019-es7-0822/src/phaser/game-objects/Shadow.js
   function createShadow(scene, sprite, frameKey, shadowReverse, shadowOffsetY, textureKey) {
     var shadow = scene.add.sprite(sprite.x, sprite.y, textureKey || "game_asset", frameKey);
     shadow.setOrigin(0.5);
@@ -4254,7 +4605,7 @@
     shadow.y = sprite.y + sprite.height - offsetY;
   }
 
-  // ../2019-es7/src/phaser/game-objects/Player.js
+  // ../2019-es7-0822/src/phaser/game-objects/Player.js
   var GW = GAME_DIMENSIONS.WIDTH;
   var GH = GAME_DIMENSIONS.HEIGHT;
   var GCX = GAME_DIMENSIONS.CENTER_X;
@@ -4488,7 +4839,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/game-objects/Enemy.js
+  // ../2019-es7-0822/src/phaser/game-objects/Enemy.js
   var GW2 = GAME_DIMENSIONS.WIDTH;
   var GH2 = GAME_DIMENSIONS.HEIGHT;
   function resolveFrame(scene, atlasKey, frameName) {
@@ -4673,6 +5024,7 @@
     enemy.destroy();
   }
   function updateEnemy(scene, enemy, step) {
+    if (updateDezaBossPart(scene, enemy)) return;
     if (updateEnemyBehavior(scene, enemy)) {
       var dShadow = enemy.getData("shadow");
       if (dShadow && dShadow.active) {
@@ -4747,7 +5099,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/game-objects/Bullet.js
+  // ../2019-es7-0822/src/phaser/game-objects/Bullet.js
   var GW3 = GAME_DIMENSIONS.WIDTH;
   function attachAnim(bullet, frames, frameRate) {
     bullet.setData("frames", frames);
@@ -4871,7 +5223,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/effects/Explosions.js
+  // ../2019-es7-0822/src/phaser/effects/Explosions.js
   var GW4 = GAME_DIMENSIONS.WIDTH;
   var GH3 = GAME_DIMENSIONS.HEIGHT;
   function showExplosion(scene, x, y) {
@@ -5025,11 +5377,11 @@
     });
   }
 
-  // ../2019-es7/src/phaser/bosses/BossBison.js
+  // ../2019-es7-0822/src/phaser/bosses/BossBison.js
   var GW5 = GAME_DIMENSIONS.WIDTH;
   var GH4 = GAME_DIMENSIONS.HEIGHT;
 
-  // ../2019-es7/src/phaser/bosses/BossBarlog.js
+  // ../2019-es7-0822/src/phaser/bosses/BossBarlog.js
   var GW6 = GAME_DIMENSIONS.WIDTH;
   var GH5 = GAME_DIMENSIONS.HEIGHT;
   function clamp2(v, lo, hi) {
@@ -5112,7 +5464,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/bosses/BossSagat.js
+  // ../2019-es7-0822/src/phaser/bosses/BossSagat.js
   var GW7 = GAME_DIMENSIONS.WIDTH;
   var GH6 = GAME_DIMENSIONS.HEIGHT;
   function clamp3(v, lo, hi) {
@@ -5228,7 +5580,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/bosses/BossVega.js
+  // ../2019-es7-0822/src/phaser/bosses/BossVega.js
   var GW8 = GAME_DIMENSIONS.WIDTH;
   var GH7 = GAME_DIMENSIONS.HEIGHT;
   var GCX2 = GAME_DIMENSIONS.CENTER_X;
@@ -5404,7 +5756,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/bosses/BossFang.js
+  // ../2019-es7-0822/src/phaser/bosses/BossFang.js
   var GW9 = GAME_DIMENSIONS.WIDTH;
   function clamp5(v, lo, hi) {
     return v < lo ? lo : v > hi ? hi : v;
@@ -5477,7 +5829,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/bosses/BossGoki.js
+  // ../2019-es7-0822/src/phaser/bosses/BossGoki.js
   var GW10 = GAME_DIMENSIONS.WIDTH;
   var GH8 = GAME_DIMENSIONS.HEIGHT;
   function clamp6(v, lo, hi) {
@@ -5602,7 +5954,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/bosses/BossPyramid.js
+  // ../2019-es7-0822/src/phaser/bosses/BossPyramid.js
   var GW11 = GAME_DIMENSIONS.WIDTH;
   var GH9 = GAME_DIMENSIONS.HEIGHT;
   var GCX3 = GAME_DIMENSIONS.CENTER_X;
@@ -5737,7 +6089,7 @@
     }
   }
 
-  // ../2019-es7/src/phaser/game-objects/Boss.js
+  // ../2019-es7-0822/src/phaser/game-objects/Boss.js
   var GW12 = GAME_DIMENSIONS.WIDTH;
   var GH10 = GAME_DIMENSIONS.HEIGHT;
   var GCX4 = GAME_DIMENSIONS.CENTER_X;
@@ -5822,6 +6174,7 @@
       scene.pyramidAnimWarp = bossData.anim.warp || [];
     }
     scene.enemies.push(scene.bossSprite);
+    initDezaBoss(scene, bossData);
     var bossNames = ["bison", "barlog", "sagat", "vega", "fang"];
     var voiceKey = "boss_" + (bossNames[assetStageId(stageId)] || "bison") + "_voice_add";
     scene.playSound(voiceKey, 0.7);
@@ -6006,6 +6359,10 @@
           bossShootStart(scene);
         });
       }
+      return;
+    }
+    if (scene.dezaBossState) {
+      startDezaBoss(scene);
       return;
     }
     var seed = Math.random();
@@ -6315,6 +6672,7 @@
     }
     var idx = scene.enemies.indexOf(boss);
     if (idx >= 0) scene.enemies.splice(idx, 1);
+    clearDezaBoss(scene);
     scene.bossSprite = null;
     scene.bossActive = false;
     scene.bossDangerShown = false;
@@ -6497,7 +6855,7 @@
     });
   }
 
-  // ../2019-es7/src/phaser/effects/AkebonoFinish.js
+  // ../2019-es7-0822/src/phaser/effects/AkebonoFinish.js
   var GCX5 = GAME_DIMENSIONS.CENTER_X;
   var GCY2 = GAME_DIMENSIONS.CENTER_Y;
   function showAkebonoFinish(scene) {
@@ -6545,7 +6903,7 @@
     scene.playSound("voice_ko", 0.7);
   }
 
-  // ../2019-es7/src/phaser/ui/ScorePopup.js
+  // ../2019-es7-0822/src/phaser/ui/ScorePopup.js
   function showScorePopup(scene, x, y, score, ratio) {
     var container = scene.add.container(0, 0);
     container.setDepth(110);
@@ -6581,7 +6939,7 @@
     });
   }
 
-  // ../2019-es7/src/phaser/GameScene.js
+  // ../2019-es7-0822/src/phaser/GameScene.js
   var DEZA_SFX_MAP = {
     se_explosion: "explosion",
     se_bomb: "explosion",
@@ -6722,7 +7080,9 @@
       this.stageEndBg.y = -this.stageEndBg.height;
       this.stageEndBg.setVisible(false);
       this.worldTime = 0;
-      this.dezaBg = buildStageBackground(this, stageData, this.recipe);
+      var dezaBossRec = this.recipe && this.recipe.bossData && this.recipe.bossData["boss" + stageId];
+      var dezaBossRow = dezaBossRec && dezaBossRec.dezaemon && typeof dezaBossRec.dezaemon.row === "number" ? dezaBossRec.dezaemon.row : null;
+      this.dezaBg = buildStageBackground(this, stageData, this.recipe, dezaBossRow);
       if (this.dezaBg) {
         this.stageBg.setVisible(false);
         if (this.stageBgOverlay) this.stageBgOverlay.setVisible(false);
@@ -6737,6 +7097,7 @@
           return self0.dezaBg ? Math.max(0, row * perRow - 232) : (row - firstRow) * perRow;
         });
       }
+      this.bossDueTick = this.dezaBg && dezaBossRow !== null ? Math.ceil(this.dezaBg.stopScroll / SCROLL_PX_PER_FRAME) : null;
       this.stageBgOverlay = null;
       if (gameState.hasCustomEnemies && this.textures.exists("stage_over_c")) {
         this.stageBgOverlay = this.add.tileSprite(0, 0, GW13, GH11, "stage_over_c");
@@ -6770,6 +7131,7 @@
       this.bossStageId = stageId;
       this.bossProjCnt = 0;
       this.bossDangerShown = false;
+      this.dezaBossState = null;
       this.showTitle();
       this.input.setTopOnly(true);
       this.input.on("pointerup", function(pointer) {
@@ -7441,6 +7803,7 @@
             continue;
           }
           syncBossVisuals(this);
+          updateDezaBoss(this);
         }
         animateEnemy(enemy, step);
         var eRect = { x: enemy.x - enemy.width / 2, y: enemy.y - enemy.height / 2, w: enemy.width, h: enemy.height };
@@ -7668,7 +8031,8 @@
           while (this.waveCount < this.stageEnemyPositionList.length && waveClock >= this.waveDueTicks[this.waveCount]) {
             enemyWave(this);
           }
-          if (this.waveCount >= this.stageEnemyPositionList.length && waveClock >= this.waveDueTicks[this.waveDueTicks.length - 1] + this.waveInterval) {
+          var bossDue = this.bossDueTick !== null ? waveClock >= this.bossDueTick : waveClock >= this.waveDueTicks[this.waveDueTicks.length - 1] + this.waveInterval;
+          if (this.waveCount >= this.stageEnemyPositionList.length && bossDue) {
             enemyWave(this);
           }
         } else if (this.enemyWaveFrameCounter >= this.waveInterval) {
@@ -7788,7 +8152,7 @@
     }
   };
 
-  // ../2019-es7/src/firebaseScores.js
+  // ../2019-es7-0822/src/firebaseScores.js
   var DEFAULT_DATABASE_PATH = "leaderboards/globalHighScore";
   var databaseRef = null;
   function getFirebaseConfig() {
@@ -7882,7 +8246,7 @@
     });
   }
 
-  // ../2019-es7/src/phaser/ui/BigNumberDisplay.js
+  // ../2019-es7-0822/src/phaser/ui/BigNumberDisplay.js
   var BigNumberDisplay = class {
     constructor(scene, maxDigit) {
       this.scene = scene;
@@ -7911,7 +8275,7 @@
     }
   };
 
-  // ../2019-es7/src/phaser/ContinueScene.js
+  // ../2019-es7-0822/src/phaser/ContinueScene.js
   var GW14 = GAME_DIMENSIONS.WIDTH;
   var GH12 = GAME_DIMENSIONS.HEIGHT;
   var GCX7 = GAME_DIMENSIONS.CENTER_X;
@@ -8376,7 +8740,7 @@
     }
   };
 
-  // ../2019-es7/src/phaser/EndingScene.js
+  // ../2019-es7-0822/src/phaser/EndingScene.js
   var GW15 = GAME_DIMENSIONS.WIDTH;
   var GH13 = GAME_DIMENSIONS.HEIGHT;
   var GCX8 = GAME_DIMENSIONS.CENTER_X;
@@ -8741,7 +9105,7 @@
     }
   };
 
-  // ../2019-es7/src/forge/slug.js
+  // ../2019-es7-0822/src/forge/slug.js
   function slugify(name) {
     return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 30) || "level";
   }
@@ -8749,7 +9113,7 @@
     return "com.easierbycode." + slugify(name);
   }
 
-  // ../2019-es7/src/forge/fetch-level.js
+  // ../2019-es7-0822/src/forge/fetch-level.js
   var FIREBASE_DB_URL = "https://evil-invaders-default-rtdb.firebaseio.com";
   var LEVELS_PATH = "levels";
   async function fetchLevel(levelName) {
@@ -8769,7 +9133,7 @@
     return data;
   }
 
-  // ../2019-es7/src/forge/merge-atlas.js
+  // ../2019-es7-0822/src/forge/merge-atlas.js
   function fbKeyDecode(name) {
     return String(name).replace(/․/g, ".");
   }
@@ -8873,7 +9237,7 @@
     return { pngBlob, json: mergedJson, merged: true, localH, fbH };
   }
 
-  // ../2019-es7/src/forge/download-bgm.js
+  // ../2019-es7-0822/src/forge/download-bgm.js
   async function sha1Hex(str) {
     const enc = new TextEncoder().encode(str);
     const buf = await crypto.subtle.digest("SHA-1", enc);
@@ -8918,7 +9282,7 @@
     return { manifest, blobs };
   }
 
-  // ../2019-es7/src/forge/stage-www.js
+  // ../2019-es7-0822/src/forge/stage-www.js
   var KEEP_DIRS = [
     "assets/img/stage",
     "assets/img/loading",
@@ -8991,7 +9355,7 @@
     return rec;
   }
 
-  // ../2019-es7/src/forge/rebrand-html.js
+  // ../2019-es7-0822/src/forge/rebrand-html.js
   function xmlEscape(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
   }
@@ -9023,7 +9387,7 @@
     return html;
   }
 
-  // ../2019-es7/src/forge/forge-driver.js
+  // ../2019-es7-0822/src/forge/forge-driver.js
   function blobToBase64(blob) {
     return new Promise(function(resolve, reject) {
       const r = new FileReader();
@@ -9129,7 +9493,7 @@
     return !!(typeof window !== "undefined" && window.ApkForge && window.ApkForge.isAvailable && window.ApkForge.isAvailable());
   }
 
-  // ../2019-es7/src/phaser/ForgeScene.js
+  // ../2019-es7-0822/src/phaser/ForgeScene.js
   var PhaserForgeScene = class extends Phaser.Scene {
     constructor() {
       super({ key: "PhaserForgeScene" });
