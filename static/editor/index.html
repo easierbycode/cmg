@@ -866,6 +866,10 @@
         <button class="menu-row" onclick="loadDirectory();closeMenu()"><span class="mono-badge">LD</span>LOAD DIRECTORY</button>
         <button class="menu-row" onclick="saveAll();closeMenu()"><span class="mono-badge">SA</span>SAVE ALL</button>
         <button class="menu-row" onclick="playCurrentStage();closeMenu()"><span class="mono-badge">PL</span>PLAY IN PHASER</button>
+        <button class="display-row toggle-row" onclick="toggleGodMode()" title="Launch PLAY with player invincibility (?god=1)">
+            <span class="display-lbl">GOD MODE</span>
+            <span class="toggle"><span id="god-knob" class="knob off"></span></span>
+        </button>
         <button class="menu-row" onclick="exportCurrentLevelJSON();closeMenu()"><span class="mono-badge">EX</span>EXPORT JSON</button>
         <button class="menu-row" onclick="saveAs3D();closeMenu()"><span class="mono-badge">3D</span>SAVE AS 3D</button>
         <button class="menu-row" onclick="play3D();closeMenu()"><span class="mono-badge">P3</span>PLAY 3D</button>
@@ -2317,6 +2321,24 @@
             applyScanlines(s !== null ? s === '1' : tw.scanlines !== false);
         } catch (e) { applyTheme('xbox'); applyScanlines(true); }
 
+        // GOD MODE: PLAY launches carry ?god=1, so the runtime skips player
+        // damage (gameState.godFlg) — an author can watch a whole stage, boss
+        // patterns included, without dying mid-check. Persisted like the other
+        // editor toggles.
+        let godModeOn = false;
+        function applyGodMode(on) {
+            godModeOn = !!on;
+            const k = document.getElementById('god-knob');
+            if (k) k.classList.toggle('off', !godModeOn);
+        }
+        function toggleGodMode() {
+            applyGodMode(!godModeOn);
+            try { localStorage.setItem('__editorGodMode__', godModeOn ? '1' : '0'); } catch (e) {}
+            flash(godModeOn ? 'GOD MODE ON · PLAYER INVINCIBLE' : 'GOD MODE OFF');
+        }
+        function godModeParam() { return godModeOn ? '&god=1' : ''; }
+        try { applyGodMode(localStorage.getItem('__editorGodMode__') === '1'); } catch (e) { applyGodMode(false); }
+
         // ================== GRID RENDERING ==================
         function renderGrid() {
             currentGrid = normalizeGrid(currentGrid);
@@ -3729,7 +3751,7 @@
             // this is normally a fast no-op rewrite; it settles well inside the
             // window where a click still authorizes window.open.
             await storeAtlasForViewers();
-            window.open(`${GAME_PLAY_URL}?editorPlay=1&stage=${sid}`, '_blank');
+            window.open(`${GAME_PLAY_URL}?editorPlay=1&stage=${sid}${godModeParam()}`, '_blank');
         }
 
         function exportCurrentLevelJSON() {
@@ -7262,7 +7284,7 @@ function GAME3D_RUNTIME(DATA) {
 if (!name) { name = prompt('Level name:'); if (!name) return; }
             name = sanitizeLevelName(name);
             document.getElementById('firebase-level-name').value = name;
-            window.open(`${GAME_PLAY_URL}?level=${encodeURIComponent(name)}&stage=${getCurrentStageId()}`, '_blank');
+            window.open(`${GAME_PLAY_URL}?level=${encodeURIComponent(name)}&stage=${getCurrentStageId()}${godModeParam()}`, '_blank');
         }
 
         // Export the saved Firebase "Game" to an installable APK. The heavy build

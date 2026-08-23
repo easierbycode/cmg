@@ -1378,6 +1378,7 @@
     } else if (typeof state.secondLoop !== "boolean") {
       state.secondLoop = false;
     }
+    state.godFlg = readBooleanSearchParam("god", typeof state.godFlg === "boolean" ? state.godFlg : false);
   }
   syncRuntimeFlagsFromLocation(gameState);
   function setHighScore(value, source = "merged") {
@@ -3700,6 +3701,7 @@
   // ../2019-es7-0822/src/phaser/dezaemon-runtime.js
   var TILE = 16;
   var SCROLL_PX_PER_FRAME = 2;
+  var BOSS_PARK_SHIFT = 48;
   var STRIP_ROWS = 128;
   function decodeBase64(str) {
     var ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -3777,7 +3779,7 @@
     if (typeof bossRow === "number") {
       stopScroll = Math.max(0, Math.min(
         maxScroll,
-        (bossRow + 1) * TILE - GH14 + Math.floor(GH14 / 4)
+        (bossRow + 1) * TILE - GH14 + Math.floor(GH14 / 4) + BOSS_PARK_SHIFT
       ));
     }
     var controller = {
@@ -3924,9 +3926,41 @@
     return true;
   }
   var BOSS_ENTRY_FRAMES = 360;
-  var BEAM_WARN_FRAMES = 45;
-  var BEAM_ON_FRAMES = 100;
-  var BEAM_WIDTH = 22;
+  var BEAM_LOOP_FRAMES = 150;
+  var BEAM_LOOPS = 2;
+  var BEAM_KEYS = [
+    [0, 300, 18],
+    // screen-wide horizontal band...
+    [0.17, 300, 18],
+    // ...holds
+    [0.24, 130, 17],
+    // contracts to a lens
+    [0.3, 70, 85],
+    // rounds into a ball at the chest
+    [0.47, 52, null],
+    // stretches into the full veil
+    [0.73, 22, null],
+    // narrows, still full height
+    [0.87, 8, null],
+    // a thin line down the column
+    [1, 300, 18]
+    // swings back out to the band
+  ];
+  function beamShape(age, hFull) {
+    var t = age % BEAM_LOOP_FRAMES / BEAM_LOOP_FRAMES;
+    var prev = BEAM_KEYS[0];
+    for (var i = 1; i < BEAM_KEYS.length; i++) {
+      var next = BEAM_KEYS[i];
+      if (t <= next[0]) {
+        var f = (t - prev[0]) / (next[0] - prev[0]);
+        var ph = prev[2] === null ? hFull : prev[2];
+        var nh = next[2] === null ? hFull : next[2];
+        return { w: prev[1] + (next[1] - prev[1]) * f, h: ph + (nh - ph) * f };
+      }
+      prev = next;
+    }
+    return { w: prev[1], h: prev[2] === null ? hFull : prev[2] };
+  }
   var DEZA_BOSS_BULLET = {
     speed: 2.5,
     damage: 1,
@@ -4116,7 +4150,16 @@
       dirX = dx / d;
       dirY = dy / d;
     }
-    spawnDezaBossBullet(scene, x, y, dirX, dirY, bossWeapon(scene, fp.shot ? fp.shot.weapon : 0), 0);
+    var projData = bossWeapon(scene, fp.shot ? fp.shot.weapon : 0);
+    spawnDezaBossBullet(
+      scene,
+      x,
+      y,
+      dirX,
+      dirY,
+      projData,
+      projData === DEZA_BOSS_BULLET ? 8368895 : 0
+    );
   }
   function fireDezaFlame(scene, fp) {
     var boss = scene.bossSprite;
@@ -4144,34 +4187,41 @@
       if (st.beams[i].key === key) return;
     }
     var boss = scene.bossSprite;
-    var GH14 = scene.scale ? scene.scale.height : 480;
-    var topY = boss.y + fp.dy;
-    var h = Math.max(1, GH14 - topY);
-    var rect = scene.add.rectangle(boss.x + fp.dx, topY + h / 2, BEAM_WIDTH, h, 10083839, 0.25);
-    rect.setDepth(44);
-    rect.setScale(0.25, 1);
-    st.beams.push({ key, fp, sprite: rect, topY, age: 0, cooldown: 0 });
+    var oval = scene.add.ellipse(boss.x + fp.dx, boss.y + fp.dy, 100, 100, 14492211, 0.45);
+    oval.setDepth(44);
+    oval.setScale(0, 0);
+    st.beams.push({ key, fp, sprite: oval, age: 0, cooldown: 0 });
   }
   function updateDezaBeams(scene, st) {
     var boss = scene.bossSprite;
+    var GH14 = scene.scale ? scene.scale.height : 480;
+    var life = BEAM_LOOP_FRAMES * BEAM_LOOPS;
     for (var i = st.beams.length - 1; i >= 0; i--) {
       var beam = st.beams[i];
       beam.age++;
-      beam.sprite.x = boss.x + beam.fp.dx;
-      if (beam.age <= BEAM_WARN_FRAMES) {
-        beam.sprite.setAlpha(0.2 + 0.15 * Math.sin(beam.age * 0.5));
-      } else if (beam.age <= BEAM_WARN_FRAMES + BEAM_ON_FRAMES) {
-        beam.sprite.setScale(1, 1);
-        beam.sprite.setAlpha(0.65 + 0.15 * Math.sin(beam.age * 0.6));
-        if (beam.cooldown > 0) beam.cooldown--;
-        var player = scene.playerSprite;
-        if (player && beam.cooldown <= 0 && !scene.barrierActive && player.y > beam.topY && Math.abs(player.x - beam.sprite.x) < BEAM_WIDTH / 2 + 8) {
+      if (beam.age > life) {
+        beam.sprite.destroy();
+        st.beams.splice(i, 1);
+        continue;
+      }
+      var topY = boss.y + beam.fp.dy;
+      var shape = beamShape(beam.age, Math.max(60, GH14 - topY));
+      var cx = boss.x + beam.fp.dx;
+      var cy = topY + shape.h / 2;
+      beam.sprite.x = cx;
+      beam.sprite.y = cy;
+      beam.sprite.setScale(shape.w / 100, shape.h / 100);
+      var fade = Math.min(1, beam.age / 12, (life - beam.age) / 25);
+      beam.sprite.setFillStyle(14492211, (0.4 + 0.1 * Math.sin(beam.age * 0.5)) * fade);
+      if (beam.cooldown > 0) beam.cooldown--;
+      var player = scene.playerSprite;
+      if (player && fade > 0.6 && beam.cooldown <= 0 && !scene.barrierActive) {
+        var nx = (player.x - cx) / (shape.w / 2 + 8);
+        var ny = (player.y - cy) / (shape.h / 2 + 8);
+        if (nx * nx + ny * ny <= 1) {
           beam.cooldown = 60;
           scene.playerDamage(1);
         }
-      } else {
-        beam.sprite.destroy();
-        st.beams.splice(i, 1);
       }
     }
   }
@@ -4192,6 +4242,9 @@
       st.bandIdx = band;
       st.entryIdx = 0;
       st.entryAge = 0;
+      if (scene.cameras && scene.cameras.main) {
+        scene.cameras.main.flash(350, 255, 255, 255);
+      }
       activatePattern(scene, st, playlistPattern(b, band, 0));
     } else {
       st.entryAge++;
@@ -4202,7 +4255,7 @@
       }
     }
     var pattern = st.pattern;
-    if (pattern && pattern.moveSpeed > 0 && !scene.bossEntering) {
+    if (pattern && pattern.moveScript > 0 && pattern.moveSpeed > 0 && !scene.bossEntering) {
       var GW16 = scene.scale ? scene.scale.width : 256;
       var amp = Math.min(10 + pattern.moveSpeed * 8, (GW16 - boss.width) / 2);
       boss.x = GW16 / 2 + Math.sin(st.age * (6e-3 + pattern.moveSpeed * 2e-3)) * amp;
@@ -4255,12 +4308,15 @@
     part.y = boss.y + pd.dy;
     return true;
   }
-  function clearDezaBoss(scene) {
+  function clearDezaBoss(scene, explode) {
     var st = scene.dezaBossState;
     if (!st) return;
     for (var i = 0; i < st.parts.length; i++) {
       var part = st.parts[i];
-      if (part && part.active) removeDezaPart(scene, part);
+      if (part && part.active) {
+        if (explode && scene.showExplosion) scene.showExplosion(part.x, part.y);
+        removeDezaPart(scene, part);
+      }
     }
     st.parts = [];
     clearBeams(st);
@@ -4715,6 +4771,7 @@
     }
   }
   function playerDamage(scene, amount) {
+    if (gameState.godFlg) return;
     if (scene.barrierActive) return;
     if (scene.damageAnimationFlg) return;
     scene.damageAnimationFlg = true;
@@ -6174,12 +6231,21 @@
       scene.pyramidAnimWarp = bossData.anim.warp || [];
     }
     scene.enemies.push(scene.bossSprite);
-    initDezaBoss(scene, bossData);
+    var dezaArmed = initDezaBoss(scene, bossData);
+    if (dezaArmed && bossData.dezaemon && bossData.dezaemon.coreArt === false) {
+      scene.bossSprite.setVisible(false);
+      if (scene.bossShadow) scene.bossShadow.setVisible(false);
+    }
     var bossNames = ["bison", "barlog", "sagat", "vega", "fang"];
     var voiceKey = "boss_" + (bossNames[assetStageId(stageId)] || "bison") + "_voice_add";
     scene.playSound(voiceKey, 0.7);
     var pixiRestY = stageId === 4 ? 48 : GH10 / 4;
     var entryY = pixiRestY + scene.bossSprite.height / 2;
+    if (dezaArmed && bossData.dezaemon && scene.dezaBg && typeof bossData.dezaemon.row === "number") {
+      var coreH = [64, 64, 128, 128][(bossData.dezaemon.sizeClass || 0) & 3];
+      var rowTopY = GH10 - (bossData.dezaemon.row + 1) * 16 + scene.dezaBg.stopScroll;
+      entryY = rowTopY - coreH / 2;
+    }
     scene.bossBaseY = entryY;
     scene.tweens.add({
       targets: scene.bossSprite,
@@ -6207,9 +6273,11 @@
         });
       }
     });
-    scene.stageEndBg.setVisible(true);
-    scene.bossAppearBgFlg = true;
-    scene.bossAppearBgScroll = 0;
+    if (!scene.dezaBg) {
+      scene.stageEndBg.setVisible(true);
+      scene.bossAppearBgFlg = true;
+      scene.bossAppearBgScroll = 0;
+    }
   }
   function _startGokiSequence(scene) {
     scene.theWorldFlg = true;
@@ -6672,7 +6740,7 @@
     }
     var idx = scene.enemies.indexOf(boss);
     if (idx >= 0) scene.enemies.splice(idx, 1);
-    clearDezaBoss(scene);
+    clearDezaBoss(scene, true);
     scene.bossSprite = null;
     scene.bossActive = false;
     scene.bossDangerShown = false;
@@ -6833,6 +6901,13 @@
     });
     scene.time.delayedCall(2700, function() {
       scene.playerDamage(100);
+      if (gameState.godFlg) {
+        scene.time.delayedCall(800, function() {
+          scene.theWorldFlg = false;
+          scene.spBtn.setAlpha(1);
+          bossShootStart(scene);
+        });
+      }
     });
     scene.time.delayedCall(3e3, function() {
       scene.showAkebonoFinish();
@@ -7098,8 +7173,11 @@
         });
       }
       this.bossDueTick = this.dezaBg && dezaBossRow !== null ? Math.ceil(this.dezaBg.stopScroll / SCROLL_PX_PER_FRAME) : null;
+      if (gameState.shortFlg && this.bossDueTick !== null) {
+        this.worldTime = this.bossDueTick;
+      }
       this.stageBgOverlay = null;
-      if (gameState.hasCustomEnemies && this.textures.exists("stage_over_c")) {
+      if (gameState.hasCustomEnemies && !this.dezaBg && this.textures.exists("stage_over_c")) {
         this.stageBgOverlay = this.add.tileSprite(0, 0, GW13, GH11, "stage_over_c");
         this.stageBgOverlay.setOrigin(0, 0);
         this.stageBgOverlay.setAlpha(0.6);
@@ -7251,7 +7329,7 @@
       this.bossHpBarFg.setVisible(false);
     }
     createCover() {
-      if (!this.textures.getFrame("game_asset", "stagebgOver.gif")) {
+      if (this.dezaBg || !this.textures.getFrame("game_asset", "stagebgOver.gif")) {
         this.coverOverlay = null;
         return;
       }
@@ -8040,7 +8118,7 @@
           enemyWave(this);
         }
       }
-      if (this.bossTimerStartFlg) {
+      if (this.bossTimerStartFlg && !gameState.godFlg) {
         this.bossTimerFrameCnt += step;
         if (this.bossTimerFrameCnt >= 1e3) {
           this.bossTimerFrameCnt -= 1e3;
@@ -8215,6 +8293,9 @@
     return mergedHighScore;
   }
   function submitHighScore(score) {
+    if (gameState.godFlg) {
+      return Promise.resolve(normalizeScore(gameState.highScore));
+    }
     const candidate = normalizeScore(score);
     const ref = ensureDatabaseRef();
     const firebaseNamespace = getFirebaseNamespace();
@@ -8514,7 +8595,7 @@
       }
     }
     showGameOverPanel() {
-      if (Number(gameState.score || 0) > Number(gameState.highScore || 0)) {
+      if (!gameState.godFlg && Number(gameState.score || 0) > Number(gameState.highScore || 0)) {
         gameState.highScore = Number(gameState.score || 0);
         saveHighScore();
         this.add.sprite(
@@ -8776,7 +8857,7 @@
       var game = this.game;
       this.add.rectangle(GCX8, GCY5, GW15, GH13, 0);
       this.continueFlg = false;
-      if (Number(gameState.score || 0) > Number(gameState.highScore || 0)) {
+      if (!gameState.godFlg && Number(gameState.score || 0) > Number(gameState.highScore || 0)) {
         gameState.highScore = Number(gameState.score || 0);
         saveHighScore();
         this.continueFlg = true;
