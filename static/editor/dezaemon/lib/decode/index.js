@@ -20,7 +20,7 @@ import { decodeCg } from "./decode-cg.js";
 import { decodeStages, sec5Regions, projectForEditor } from "./decode-stage.js";
 import { decodeSongs } from "./decode-song.js";
 import { decodeSettings } from "./decode-settings.js";
-import { extractEnemySprites, extractBossSprites, extractBackgroundCells } from "./decode-sprites.js";
+import { extractEnemySprites, extractBossSprites, extractBossPartSprites, extractBackgroundCells } from "./decode-sprites.js";
 import { readBossTrailer } from "./decode-boss.js";
 
 export function decodeSave(payload) {
@@ -162,7 +162,23 @@ export function decodeSave(payload) {
                                 b.coreArt = entry.core;
                             }
                         }
-                        result.sprites = sprites.concat(boss.sprites);
+                        // Part art for the trailer's type-3/4 fire points:
+                        // pieces the roster already extracted are referenced
+                        // in place, the rest render from the boss's own stage
+                        // bank and append after the boss frames.
+                        const parts = extractBossPartSprites(
+                            assembly.decompressed,
+                            cgPages,
+                            result.cg.palettes,
+                            result.bosses,
+                            result.enemies,
+                            sprites.length + boss.sprites.length,
+                        );
+                        for (const b of result.bosses) {
+                            const partArt = parts.partKeysByStage.get(b.stage);
+                            if (partArt) b.partArt = partArt;
+                        }
+                        result.sprites = sprites.concat(boss.sprites, parts.sprites);
                         if (result.sprites.length) result.confidence.sprites = "heuristic";
                         // Stage backgrounds as art: one sprite per distinct
                         // tile plus a compact per-stage grid, so the game can

@@ -372,6 +372,17 @@ export function mapSaveToGame(decoded, { defaults = BUILTIN_DEFAULTS, sourceEntr
                 rec.hp = Math.max(1, Math.ceil(decodedBoss.behavior.hp / (shotDamage * 1024)));
                 rec.score = decodedBoss.behavior.score;
             }
+            if (decodedBoss.partArt) {
+                // Fire-point part art (types 3/4): record -> atlas frame
+                // names, so the runtime can dress the destructible parts the
+                // boss record spawns.
+                const partArt = {};
+                for (const [record, keys] of Object.entries(decodedBoss.partArt)) {
+                    const frames = keys.map((i) => spriteKeyByIndex[i]).filter(Boolean);
+                    if (frames.length) partArt[record] = frames;
+                }
+                if (Object.keys(partArt).length) rec.dezaemon.partArt = partArt;
+            }
             if (Array.isArray(decodedBoss.spriteKeys) && decodedBoss.spriteKeys.length) {
                 const frames = decodedBoss.spriteKeys
                     .map((idx) => spriteKeyByIndex[idx])

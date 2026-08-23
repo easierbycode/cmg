@@ -350,3 +350,55 @@ export function extractBossSprites(sec5, sections, palettes, bosses) {
     }
     return { sprites, spriteKeysByStage };
 }
+
+// Art for the parts a boss's fire points spawn (trailer types 3/4). A part
+// names its art as (group, piece) — a (stage, record) pair that reaches the
+// atlas only when that piece also happens to be placed as a zako. Pieces the
+// enemy roster already extracted are referenced by their existing indices;
+// the rest are rendered here from the boss's own stage bank. `baseIndex` is
+// where this function's sprites land in the caller's shared list, so every
+// returned key is an absolute index into it.
+// Returns {sprites, partKeysByStage: Map<stage, {record: keys[]}>}.
+export function extractBossPartSprites(sec5, sections, palettes, bosses, enemies, baseIndex) {
+    const sprites = [];
+    const partKeysByStage = new Map();
+    const placeholder = findPlaceholderCell(sec5).cell;
+    const byPair = new Map();
+    for (const e of enemies || []) {
+        if (e.spriteKeys && e.spriteKeys.length) byPair.set(`${e.stage}:${e.record}`, e.spriteKeys);
+    }
+    const bySignature = new Map(); // CG cells are global, so parts dedupe across stages too
+    for (const boss of bosses) {
+        if (!boss.behavior) continue;
+        const records = new Set();
+        for (const pattern of boss.behavior.patterns) {
+            for (const fp of pattern.firePoints) {
+                if (fp.spawn && fp.spawn.record != null) records.add(fp.spawn.record);
+            }
+        }
+        const art = {};
+        for (const record of records) {
+            const existing = byPair.get(`${boss.stage}:${record}`);
+            if (existing) { art[record] = existing; continue; }
+            const a = readEnemyFrames(sec5, boss.stage, record);
+            if (!a || isUnpainted(a, placeholder)) continue;
+            const sig = artSignature(a);
+            const shared = bySignature.get(sig);
+            if (shared) { art[record] = shared; continue; }
+            const keys = [];
+            a.frames.forEach((frame, i) => {
+                const { w, h, rgba } = renderFrame(sections, palettes, frame);
+                let opaque = false;
+                for (let p = 3; p < rgba.length; p += 4) if (rgba[p]) { opaque = true; break; }
+                if (!opaque) return;
+                keys.push(baseIndex + sprites.length);
+                sprites.push({ key: `dezaPart${boss.stage}_${record}_${i}`, w, h, rgba });
+            });
+            if (!keys.length) continue;
+            bySignature.set(sig, keys);
+            art[record] = keys;
+        }
+        if (Object.keys(art).length) partKeysByStage.set(boss.stage, art);
+    }
+    return { sprites, partKeysByStage };
+}

@@ -32,6 +32,7 @@
 // Environment-neutral ESM (Node + browser).
 
 import { SEC5_REGIONS } from "./decode-stage.js";
+import { RECORD_ART } from "./decode-sprites.js";
 
 export const BOSS_TRAILER_OFFSET = 0x438; // after the 60 x 18-byte records
 export const BOSS_TRAILER_SIZE = 0x40;
@@ -44,6 +45,16 @@ export const PART_GROUPS = ["zako16x16", "zako32x16", "zako16x32", "zako32x32", 
 
 const s8 = (b) => (b >= 128 ? b - 256 : b);
 
+// A part's (group, piece) names a zako/large enemy record: the group IS the
+// art band index (RECORD_ART) and the piece its slot within the band. The
+// piece field is 4 bits but the small bands hold 8 or 4 records, so overflow
+// wraps — the editor never writes past the band size.
+export function partRecord(group, piece) {
+    const band = RECORD_ART[group];
+    if (!band) return null;
+    return band.first + (piece % band.count);
+}
+
 // Decode one fire point's 4 bytes.
 function decodeFirePoint(f) {
     const type = f[2] & 7;
@@ -55,9 +66,11 @@ function decodeFirePoint(f) {
         param: f[3],
     };
     if (type === 3 || type === 4) {
+        const group = (f[3] >> 4) & 7;
         fp.spawn = {
-            group: PART_GROUPS[(f[3] >> 4) & 7],
+            group: PART_GROUPS[group],
             piece: f[3] & 15,
+            record: partRecord(group, f[3] & 15),
             oneShot: type === 4,
         };
     } else if (type <= 2) {
