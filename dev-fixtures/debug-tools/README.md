@@ -24,6 +24,32 @@ Read them together: `contact-sheet.mjs` tells you record 22 is the winged
 statue, `dump-behavior.mjs` tells you record 22 is ground, max-LIFE, and carries
 an untraced special fire pattern.
 
+## Reading the engine itself
+
+When record fields and captures disagree, the answer is in the play engine's
+SH-2 code:
+
+```sh
+# pull GAME.CMP off the disc image and decompress it (4-byte LE length
+# header, then the saves' Okumura LZSS) -> GAME.bin, load address 0x06064000
+node dev-fixtures/debug-tools/extract-cmp.mjs GAME.CMP --out /tmp/deza
+
+# disassemble; PC-relative literal pools are resolved inline
+cd /tmp/deza
+node ~/CODE/cmg/dev-fixtures/debug-tools/sh2dis.mjs 0x0607d810 0x0607d8e0
+
+# who touches a RAM array? (readers, writers, and jsr-via-literal callers)
+node ~/CODE/cmg/dev-fixtures/debug-tools/sh2dis.mjs --xref 0x06090830
+```
+
+File offset = RAM address − 0x06064000. FORMAT.md's "Zako firing, re-traced"
+section (in the 2019-es7 importer) is the worked example: the fire dispatcher at
+`+0x1989e`, the bullet-geometry table at `0x6086074`, and the spawn-time
+interval fill at `+0x1548e` all came out of these two tools. Verify a fresh
+extraction before trusting offsets — the byte-exact anchors (interval tables at
+`0x6085f60..f9x`, u16be, values in the low bytes) must match, or the LZSS phase
+is off.
+
 ## Comparing against hardware
 
 ```sh
@@ -62,6 +88,7 @@ plain reload re-runs the **stale** module and the change appears to do nothing.
 confirm in the page before trusting a result:
 
 ```js
+// probe for a string your edit just introduced, e.g.:
 String((await import("/es7/src/phaser/dezaemon-runtime.js")).initEnemyBehavior)
-  .includes("MIN_ZAKO_RELOAD_FRAMES");
+  .includes("patrols");
 ```
