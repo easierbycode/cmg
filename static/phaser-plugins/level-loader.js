@@ -532,6 +532,9 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
       if (typeof levelData.noStory === "boolean") {
         recipe.noStory = levelData.noStory;
       }
+      if (typeof levelData.godMode === "boolean") {
+        recipe.godMode = levelData.godMode;
+      }
 
       const atlasFrames = (() => {
         try {

@@ -398,6 +398,9 @@
         if (typeof levelData.noStory === "boolean") {
           recipe.noStory = levelData.noStory;
         }
+        if (typeof levelData.godMode === "boolean") {
+          recipe.godMode = levelData.godMode;
+        }
         const atlasFrames = (() => {
           try {
             const atlas = this.scene.textures.get(atlasKey);
@@ -1787,6 +1790,9 @@
       gameState.playerHp = recipe.playerData.maxHp;
       gameState.shootMode = recipe.playerData.defaultShootName;
       gameState.shootSpeed = recipe.playerData.defaultShootSpeed;
+    }
+    if (recipe && typeof recipe.godMode === "boolean") {
+      gameState.godFlg = recipe.godMode;
     }
     gameState.combo = 0;
     gameState.maxCombo = 0;

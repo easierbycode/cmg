@@ -7185,6 +7185,7 @@ function GAME3D_RUNTIME(DATA) {
                 payload.dezaemonTitle = (gameData && gameData.dezaemonTitle) || null;
                 payload.dezaemonCredits = (gameData && gameData.dezaemonCredits) || null;
                 payload.noStory = !!(gameData && gameData.noStory);
+                payload.godMode = godModeOn;
                 // Save audio URL overrides
                 var urlEntries = {};
                 for (var ak in audioURLs) { if (audioURLs[ak]) urlEntries[ak] = audioURLs[ak]; }
@@ -7330,6 +7331,7 @@ function GAME3D_RUNTIME(DATA) {
                 if (d.noStory) gameData.noStory = true;
                 else delete gameData.noStory;
                 syncNoStoryKnob();
+                if (typeof d.godMode === 'boolean') applyGodMode(d.godMode);
                 titleBgDataURL = d.titleBgDataURL || null;
                 logoDataURL = d.logoDataURL || null;
                 subTitleDataURL = d.subTitleDataURL || null;
