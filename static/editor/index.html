@@ -870,6 +870,10 @@
             <span class="display-lbl">GOD MODE</span>
             <span class="toggle"><span id="god-knob" class="knob off"></span></span>
         </button>
+        <button class="display-row toggle-row" onclick="toggleNoStory()" title="Skip the story (AdvScene) between stages — on by default for Dezaemon imports">
+            <span class="display-lbl">NO STORY</span>
+            <span class="toggle"><span id="nostory-knob" class="knob off"></span></span>
+        </button>
         <button class="menu-row" onclick="exportCurrentLevelJSON();closeMenu()"><span class="mono-badge">EX</span>EXPORT JSON</button>
         <button class="menu-row" onclick="saveAs3D();closeMenu()"><span class="mono-badge">3D</span>SAVE AS 3D</button>
         <button class="menu-row" onclick="play3D();closeMenu()"><span class="mono-badge">P3</span>PLAY 3D</button>
@@ -887,6 +891,7 @@
         <input id="deza-url-input" type="url" placeholder="HTTPS://…/GAME.SAV" class="menu-input" style="margin-bottom:0"
                onkeydown="if(event.key==='Enter')document.getElementById('deza-url-btn').click()">
         <button class="menu-row" id="deza-url-btn" onclick="importDezaemonFromUrlInput()"><span class="mono-badge">UR</span>IMPORT .SAV FROM URL</button>
+        <button class="menu-row" id="deza-library-btn" onclick="openDezaemonLibrary()"><span class="mono-badge">LG</span>LOAD GAME</button>
         <div class="menu-note">SATURN BACKUP SAVES: .SAV / .BCR / .BKR</div>
         <div class="menu-label">ADVANCED EDITORS</div>
         <div class="adv-grid">
@@ -932,6 +937,16 @@
                     <button class="menu-row" onclick="document.getElementById('dezaemon-import-modal').classList.add('hidden')"><span class="mono-badge">✕</span>CANCEL</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- DEZAEMON 2 SAVED GAMES (local community save collection) -->
+    <div id="dezaemon-library-modal" class="picker-overlay hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="picker-panel" style="max-height:84vh">
+            <div class="picker-title">SAVED GAMES
+                <span id="deza-library-count" class="deza-kind"></span>
+            </div>
+            <div id="deza-library-list" class="deza-slots"></div>
         </div>
     </div>
 
@@ -2023,6 +2038,9 @@
 
         // ================== STAGE PILLS ==================
         function populateStagePills() {
+            // every game-landing path (import, cloud load, new game) rebuilds
+            // the pills, so the per-game NO STORY knob syncs here too
+            syncNoStoryKnob();
             const c = document.getElementById('stage-pills');
             c.innerHTML = '';
             const keys = Object.keys(gameData).filter(k => k.startsWith('stage')).sort((a, b) =>
@@ -2338,6 +2356,24 @@
         }
         function godModeParam() { return godModeOn ? '&god=1' : ''; }
         try { applyGodMode(localStorage.getItem('__editorGodMode__') === '1'); } catch (e) { applyGodMode(false); }
+
+        // NO STORY: a per-GAME property (gameData.noStory), not an editor
+        // preference — it rides the recipe into the runtime, which then skips
+        // the AdvScene interludes between stages. Dezaemon imports arrive with
+        // it on (the Saturn has no story scenes); the toggle lets an author
+        // flip it either way. syncNoStoryKnob() re-reads it whenever a
+        // different game lands in the editor (import, cloud load, new game).
+        function syncNoStoryKnob() {
+            const k = document.getElementById('nostory-knob');
+            if (k) k.classList.toggle('off', !(gameData && gameData.noStory));
+        }
+        function toggleNoStory() {
+            if (!gameData) { alert('Load a game first'); return; }
+            gameData.noStory = !gameData.noStory;
+            if (!gameData.noStory) delete gameData.noStory;
+            syncNoStoryKnob();
+            flash(gameData.noStory ? 'NO STORY · ADVSCENE SKIPPED' : 'STORY SCENES ON');
+        }
 
         // ================== GRID RENDERING ==================
         function renderGrid() {
@@ -3967,6 +4003,143 @@
             return ok;
         }
 
+        // ============ SAVED GAMES (local community save collection) ============
+        // /api/dezaemon-saves lists the machine's "Dez 2 - *.sav" collection
+        // (dev-fixtures — local-only, see the route); games-db.json carries the
+        // community metadata. A save whose title matches an entry shows its
+        // developer; rows group under genre headers, genres Z-A so the vertical
+        // shoot-em-ups lead, titles A-Z within a genre, unmatched genres last.
+        let dezaLibraryState = null;   // { available, saves: [{file,title}], byTitle: Map }
+
+        function dezaNormTitle(s) {
+            return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+        }
+
+        async function openDezaemonLibrary() {
+            if (!window.Dezaemon) { alert(dezaemonUnavailableMessage()); return; }
+            closeMenu();
+            const modal = document.getElementById('dezaemon-library-modal');
+            const list = document.getElementById('deza-library-list');
+            modal.classList.remove('hidden');
+            if (!dezaLibraryState) {
+                list.innerHTML = '<div class="menu-note">LOADING…</div>';
+                try {
+                    const [savesResp, dbResp] = await Promise.all([
+                        fetch('/api/dezaemon-saves'),
+                        fetch('dezaemon/games-db.json'),
+                    ]);
+                    const savesJson = await savesResp.json();
+                    const db = dbResp.ok ? await dbResp.json() : { games: [] };
+                    const byTitle = new Map();
+                    for (const g of (db.games || [])) {
+                        byTitle.set(dezaNormTitle(g[0]),
+                            { title: g[0], titleJa: g[1], developer: g[2], developerJa: g[3], genre: g[4] });
+                    }
+                    // Filename spellings that differ from the table (romanization
+                    // variants, source typos) map onto their table entry here, so
+                    // the table itself stays a faithful transcription.
+                    for (const [from, to] of Object.entries(db.aliases || {})) {
+                        const target = byTitle.get(to);
+                        if (target && !byTitle.has(from)) byTitle.set(from, target);
+                    }
+                    dezaLibraryState = { available: !!savesJson.available, saves: savesJson.saves || [], byTitle };
+                } catch (err) {
+                    list.innerHTML = '';
+                    const note = document.createElement('div');
+                    note.className = 'menu-note';
+                    note.textContent = 'COULD NOT LIST SAVED GAMES: ' + (err.message || err);
+                    list.appendChild(note);
+                    return;
+                }
+            }
+            renderDezaemonLibrary();
+        }
+
+        function renderDezaemonLibrary() {
+            const st = dezaLibraryState;
+            const list = document.getElementById('deza-library-list');
+            const count = document.getElementById('deza-library-count');
+            list.innerHTML = '';
+            count.textContent = st.saves.length ? st.saves.length + ' GAMES' : '';
+            if (!st.available || !st.saves.length) {
+                const note = document.createElement('div');
+                note.className = 'menu-note';
+                note.textContent = 'NO LOCAL SAVE COLLECTION FOUND — PUT "Dez 2 - *.sav" FILES IN dev-fixtures/.';
+                list.appendChild(note);
+                return;
+            }
+            const groups = new Map();
+            for (const s of st.saves) {
+                const meta = st.byTitle.get(dezaNormTitle(s.title)) || null;
+                const genre = meta ? meta.genre : 'Unknown';
+                if (!groups.has(genre)) groups.set(genre, []);
+                groups.get(genre).push({ file: s.file, title: s.title, meta });
+            }
+            // Genres Z-A ("Vertical Shoot-em-up" family first); the Unknown
+            // bucket (saves the table doesn't know) always sits last.
+            const genres = [...groups.keys()]
+                .filter((g) => g !== 'Unknown')
+                .sort((a, b) => b.localeCompare(a));
+            if (groups.has('Unknown')) genres.push('Unknown');
+            for (const genre of genres) {
+                const head = document.createElement('div');
+                head.className = 'menu-label';
+                head.textContent = genre.toUpperCase();
+                list.appendChild(head);
+                const rows = groups.get(genre).sort((a, b) =>
+                    (a.meta ? a.meta.title : a.title).localeCompare(b.meta ? b.meta.title : b.title));
+                for (const item of rows) {
+                    const card = document.createElement('div');
+                    card.className = 'deza-slot selectable';
+                    const body = document.createElement('div');
+                    body.style.cssText = 'flex:1;min-width:0;';
+                    const name = document.createElement('div');
+                    name.className = 'deza-slot-name';
+                    name.textContent = item.meta
+                        ? item.meta.title + (item.meta.titleJa && item.meta.titleJa !== item.meta.title ? ' · ' + item.meta.titleJa : '')
+                        : item.title;
+                    body.appendChild(name);
+                    if (item.meta) {
+                        const dev = document.createElement('div');
+                        dev.className = 'deza-slot-meta';
+                        dev.textContent = item.meta.developer +
+                            (item.meta.developerJa && item.meta.developerJa !== item.meta.developer ? ' · ' + item.meta.developerJa : '');
+                        body.appendChild(dev);
+                    }
+                    const go = document.createElement('div');
+                    go.className = 'deza-slot-go';
+                    go.textContent = 'LOAD ›';
+                    card.appendChild(body);
+                    card.appendChild(go);
+                    card.onclick = () => loadDezaemonLibraryGame(item.file, item.title, item.meta);
+                    list.appendChild(card);
+                }
+            }
+        }
+
+        async function loadDezaemonLibraryGame(file, fallbackTitle, meta) {
+            document.getElementById('dezaemon-library-modal').classList.add('hidden');
+            const ok = await loadDezaemonFromUrl('/api/dezaemon-saves?file=' + encodeURIComponent(file));
+            if (!ok) return;
+            // One click from the shelf into the editor: when the cart holds
+            // exactly one game save, select it and import without stopping at
+            // the slot sheet. Multi-slot carts keep the sheet for the choice.
+            const st = dezaImportState;
+            const usable = [];
+            st.saves.forEach((s, i) => { if (window.Dezaemon.isGameSave(s) && s.payload) usable.push(i); });
+            if (usable.length === 1) {
+                selectDezaemonSlot(usable[0]);
+                await applyDezaemonImport();
+                // The community table's credits ride the game: the runtime's
+                // STAFF ROLL shows the title and developer in both languages.
+                if (gameData) {
+                    gameData.dezaemonCredits = meta
+                        ? { title: meta.title, titleJa: meta.titleJa, developer: meta.developer, developerJa: meta.developerJa, genre: meta.genre }
+                        : { title: fallbackTitle || file.replace(/\.sav$/i, '') };
+                }
+            }
+        }
+
         function renderDezaemonSlots() {
             const list = document.getElementById('deza-slot-list');
             list.innerHTML = '';
@@ -4092,6 +4265,13 @@
                     }
                 };
                 fix(gameJson.enemyData); fix(gameJson.bossData); fix(gameJson.playerData);
+                // The drawn title screen references frames by name too — a
+                // rename (e.g. a second import in one session) must follow.
+                if (gameJson.dezaemonTitle) {
+                    for (const role of Object.keys(gameJson.dezaemonTitle)) {
+                        if (gameJson.dezaemonTitle[role] === from) gameJson.dezaemonTitle[role] = to;
+                    }
+                }
             };
             // The default player's frames ship in game_asset, and mapSaveToGame
             // appends them to `sprites` for atlases that lack them. Here they
@@ -6999,6 +7179,12 @@ function GAME3D_RUNTIME(DATA) {
                 // customAudioURLs to fall back on — so a level saved without it
                 // plays in silence everywhere it is loaded from the cloud.
                 payload.dezaemonBgm = (gameData && gameData.dezaemonBgm) || null;
+                // The import's drawn title screen, the no-story flag and the
+                // community credits ride the level record; level-loader
+                // carries them into the recipe.
+                payload.dezaemonTitle = (gameData && gameData.dezaemonTitle) || null;
+                payload.dezaemonCredits = (gameData && gameData.dezaemonCredits) || null;
+                payload.noStory = !!(gameData && gameData.noStory);
                 // Save audio URL overrides
                 var urlEntries = {};
                 for (var ak in audioURLs) { if (audioURLs[ak]) urlEntries[ak] = audioURLs[ak]; }
@@ -7137,6 +7323,13 @@ function GAME3D_RUNTIME(DATA) {
                 else delete gameData.backgroundCells;
                 if (d.dezaemonBgm) gameData.dezaemonBgm = d.dezaemonBgm;
                 else delete gameData.dezaemonBgm;
+                if (d.dezaemonTitle) gameData.dezaemonTitle = d.dezaemonTitle;
+                else delete gameData.dezaemonTitle;
+                if (d.dezaemonCredits) gameData.dezaemonCredits = d.dezaemonCredits;
+                else delete gameData.dezaemonCredits;
+                if (d.noStory) gameData.noStory = true;
+                else delete gameData.noStory;
+                syncNoStoryKnob();
                 titleBgDataURL = d.titleBgDataURL || null;
                 logoDataURL = d.logoDataURL || null;
                 subTitleDataURL = d.subTitleDataURL || null;

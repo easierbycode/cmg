@@ -520,6 +520,18 @@ export function createLevelLoaderPlugin(Phaser = globalThis.Phaser) {
       if (levelData.dezaemonBgm && typeof levelData.dezaemonBgm === "object") {
         recipe.dezaemonBgm = levelData.dezaemonBgm;
       }
+      // The import's drawn title screen (atlas frame names), its no-story
+      // flag and its community credits ride the recipe: the runtime's title
+      // scene, the AdvScene skip and the staff roll read them from there.
+      if (levelData.dezaemonTitle && typeof levelData.dezaemonTitle === "object") {
+        recipe.dezaemonTitle = levelData.dezaemonTitle;
+      }
+      if (levelData.dezaemonCredits && typeof levelData.dezaemonCredits === "object") {
+        recipe.dezaemonCredits = levelData.dezaemonCredits;
+      }
+      if (typeof levelData.noStory === "boolean") {
+        recipe.noStory = levelData.noStory;
+      }
 
       const atlasFrames = (() => {
         try {

@@ -389,6 +389,15 @@
         if (levelData.dezaemonBgm && typeof levelData.dezaemonBgm === "object") {
           recipe.dezaemonBgm = levelData.dezaemonBgm;
         }
+        if (levelData.dezaemonTitle && typeof levelData.dezaemonTitle === "object") {
+          recipe.dezaemonTitle = levelData.dezaemonTitle;
+        }
+        if (levelData.dezaemonCredits && typeof levelData.dezaemonCredits === "object") {
+          recipe.dezaemonCredits = levelData.dezaemonCredits;
+        }
+        if (typeof levelData.noStory === "boolean") {
+          recipe.noStory = levelData.noStory;
+        }
         const atlasFrames = (() => {
           try {
             const atlas = this.scene.textures.get(atlasKey);
@@ -2397,33 +2406,76 @@
         });
       }
       this.wakingG.play("staffroll_waking");
-      this.namePanel = scene.add.sprite(15, 90, "game_ui", "staffrollName.gif");
-      this.namePanel.setOrigin(0, 0);
-      this.add(this.namePanel);
       this.closeBtn = scene.add.sprite(this.GW - 12, 102, "game_ui", "staffrollCloseBtn.gif");
       this.closeBtn.setOrigin(1, 0.5);
       this.closeBtn.setInteractive({ useHandCursor: true });
       this.closeBtn.on("pointerup", this.close, this);
       this.add(this.closeBtn);
-      this.addLinkButton("staffrollTwitterBtn.gif", 165, 118, "https://twitter.com/takaNakayama");
-      this.addLinkButton("staffrollTwitterBtn.gif", 131, 276, "https://twitter.com/bengasu");
-      this.addLinkButton("staffrollTwitterBtn.gif", 178, 304, "https://twitter.com/rereibara");
-      this.addLinkButton("staffrollLinkBtn.gif", 153, 329, "https://magazine.jp.square-enix.com/biggangan/introduction/highscoregirl/");
-      this.addLinkButton("staffrollLinkBtn.gif", 161, 355, "http://hi-score-girl.com/");
-      var thanksLabelStyle = { fontSize: "8px", fontFamily: "Orbitron, Arial", fill: "#ffff00", align: "center", stroke: "#000000", strokeThickness: 2, resolution: 4 };
-      var thanksNameStyle = { fontSize: "7px", fontFamily: "Orbitron, Arial", fill: "#ffffff", align: "center", stroke: "#000000", strokeThickness: 2, resolution: 4 };
-      this.thanksLabel = scene.add.text(this.GCX, 393, "SPECIAL THANKS", thanksLabelStyle);
-      this.thanksLabel.setOrigin(0.5, 0);
-      this.add(this.thanksLabel);
-      this.thanksName = scene.add.text(this.GCX, 405, "SEAMUS MCNAMARA", thanksNameStyle);
-      this.thanksName.setOrigin(0.5, 0);
-      this.add(this.thanksName);
+      var recipe = gameState._phaserRecipe;
+      var dezaCredits = recipe && recipe.dezaemonCredits;
+      if (!dezaCredits && recipe && recipe.dezaemonTitle) {
+        var meta = recipe.meta || {};
+        dezaCredits = { title: meta.sourceTitle || meta.sourceComment || "" };
+      }
+      this.namePanel = null;
+      if (dezaCredits) {
+        this.wakingG.setVisible(false);
+        this._addDezaCredits(dezaCredits);
+      } else {
+        this.namePanel = scene.add.sprite(15, 90, "game_ui", "staffrollName.gif");
+        this.namePanel.setOrigin(0, 0);
+        this.add(this.namePanel);
+        this.bringToTop(this.closeBtn);
+        this.addLinkButton("staffrollTwitterBtn.gif", 165, 118, "https://twitter.com/takaNakayama");
+        this.addLinkButton("staffrollTwitterBtn.gif", 131, 276, "https://twitter.com/bengasu");
+        this.addLinkButton("staffrollTwitterBtn.gif", 178, 304, "https://twitter.com/rereibara");
+        this.addLinkButton("staffrollLinkBtn.gif", 153, 329, "https://magazine.jp.square-enix.com/biggangan/introduction/highscoregirl/");
+        this.addLinkButton("staffrollLinkBtn.gif", 161, 355, "http://hi-score-girl.com/");
+        var thanksLabelStyle = { fontSize: "8px", fontFamily: "Orbitron, Arial", fill: "#ffff00", align: "center", stroke: "#000000", strokeThickness: 2, resolution: 4 };
+        var thanksNameStyle = { fontSize: "7px", fontFamily: "Orbitron, Arial", fill: "#ffffff", align: "center", stroke: "#000000", strokeThickness: 2, resolution: 4 };
+        this.thanksLabel = scene.add.text(this.GCX, 393, "SPECIAL THANKS", thanksLabelStyle);
+        this.thanksLabel.setOrigin(0.5, 0);
+        this.add(this.thanksLabel);
+        this.thanksName = scene.add.text(this.GCX, 405, "SEAMUS MCNAMARA", thanksNameStyle);
+        this.thanksName.setOrigin(0.5, 0);
+        this.add(this.thanksName);
+      }
       this.setSize(this.GW, this.GH);
       this.setInteractive(new Phaser.Geom.Rectangle(0, 0, this.GW, this.GH), Phaser.Geom.Rectangle.Contains);
       this.on("pointerup", function() {
       });
       scene.add.existing(this);
       this.showWithAnimation();
+    }
+    // The import's credits card: title and developer, English and Japanese.
+    _addDezaCredits(credits) {
+      var scene = this.scene;
+      var y = 140;
+      var addLine = (text, style) => {
+        if (!text) return null;
+        var t = scene.add.text(this.GCX, y, text, style);
+        t.setOrigin(0.5, 0);
+        this.add(t);
+        y += t.height + 6;
+        return t;
+      };
+      var base = { fontFamily: "Orbitron, Arial, sans-serif", align: "center", stroke: "#000000", strokeThickness: 2, resolution: 4, wordWrap: { width: this.GW - 44 } };
+      addLine(credits.title, { ...base, fontSize: "14px", fill: "#ffd700" });
+      if (credits.titleJa && credits.titleJa !== credits.title) {
+        addLine(credits.titleJa, { ...base, fontSize: "11px", fill: "#ffffff" });
+      }
+      if (credits.developer) {
+        y += 24;
+        addLine("DEVELOPER", { ...base, fontSize: "8px", fill: "#ffff00" });
+        addLine(credits.developer, { ...base, fontSize: "12px", fill: "#ffffff" });
+        if (credits.developerJa && credits.developerJa !== credits.developer) {
+          addLine(credits.developerJa, { ...base, fontSize: "10px", fill: "#cccccc" });
+        }
+      }
+      if (credits.genre) {
+        y += 24;
+        addLine(credits.genre.toUpperCase(), { ...base, fontSize: "8px", fill: "#9be37f" });
+      }
     }
     addLinkButton(frameName, x, y, url) {
       var button = this.scene.add.sprite(x, y, "game_ui", frameName);
@@ -2437,7 +2489,7 @@
     showWithAnimation() {
       this.bg.setAlpha(0);
       this.wakingG.setY(-100);
-      this.namePanel.setY(90 + this.namePanel.height);
+      if (this.namePanel) this.namePanel.setY(90 + this.namePanel.height);
       this.closeBtn.setAlpha(0);
       this.closeBtn.setRotation(Math.PI * 2);
       this.closeBtn.setScale(2);
@@ -2458,13 +2510,15 @@
         duration: 600,
         ease: "Back.easeOut"
       });
-      this.scene.tweens.add({
-        targets: this.namePanel,
-        y: 90,
-        duration: 1e3,
-        ease: "Quint.easeOut",
-        delay: 200
-      });
+      if (this.namePanel) {
+        this.scene.tweens.add({
+          targets: this.namePanel,
+          y: 90,
+          duration: 1e3,
+          ease: "Quint.easeOut",
+          delay: 200
+        });
+      }
       this.scene.tweens.add({
         targets: this.closeBtn,
         alpha: 1,
@@ -2476,12 +2530,14 @@
       });
     }
     close() {
-      this.scene.tweens.add({
-        targets: this.namePanel,
-        y: 90 + this.namePanel.height,
-        duration: 400,
-        ease: "Quint.easeIn"
-      });
+      if (this.namePanel) {
+        this.scene.tweens.add({
+          targets: this.namePanel,
+          y: 90 + this.namePanel.height,
+          duration: 400,
+          ease: "Quint.easeIn"
+        });
+      }
       this.scene.tweens.add({
         targets: this.panelBg,
         scaleY: 0,
@@ -2607,1095 +2663,6 @@
       }
     }
     return result;
-  }
-
-  // ../2019-es7-0822/src/phaser/TitleScene.js
-  var PhaserTitleScene = class extends Phaser.Scene {
-    constructor() {
-      super({ key: "PhaserTitleScene" });
-      this.transitioning = false;
-    }
-    create() {
-      this.transitioning = false;
-      this.staffRollPanel = null;
-      this.bg = this.add.tileSprite(
-        0,
-        0,
-        GAME_DIMENSIONS.WIDTH,
-        GAME_DIMENSIONS.HEIGHT,
-        "title_bg"
-      );
-      this.bg.setOrigin(0, 0);
-      this.titleG = this.add.sprite(0, 0, "game_ui", "titleG.gif");
-      this.titleG.setOrigin(0, 0);
-      this.titleG.setPosition(GAME_DIMENSIONS.WIDTH, 100);
-      if (this.textures.exists("custom_logo")) {
-        this.logo = this.add.sprite(0, 0, "custom_logo");
-      } else {
-        this.logo = this.add.sprite(0, 0, "game_ui", "logo.gif");
-      }
-      this.logo.setOrigin(0.5);
-      this.logo.setPosition(this.logo.width / 2, -this.logo.height / 2);
-      this.logo.setScale(2);
-      if (this.textures.exists("custom_subTitle")) {
-        this.subTitle = this.add.sprite(0, 0, "custom_subTitle");
-      } else {
-        var subtitleKey = "subTitle" + (LANG === "ja" ? "" : "En") + ".gif";
-        this.subTitle = this.add.sprite(0, 0, "game_ui", subtitleKey);
-      }
-      this.subTitle.setOrigin(0.5);
-      this.subTitle.setPosition(this.subTitle.width / 2, -this.logo.height / 2);
-      this.subTitle.setScale(3);
-      this.belt = this.add.graphics();
-      this.belt.fillStyle(0, 1);
-      this.belt.fillRect(0, GAME_DIMENSIONS.HEIGHT - 120, GAME_DIMENSIONS.WIDTH, 120);
-      if (this.textures.exists("custom_titleStartText")) {
-        this.startText = this.add.sprite(
-          GAME_DIMENSIONS.CENTER_X,
-          330,
-          "custom_titleStartText"
-        );
-      } else {
-        this.startText = this.add.sprite(
-          GAME_DIMENSIONS.CENTER_X,
-          330,
-          "game_ui",
-          "titleStartText.gif"
-        );
-      }
-      this.startText.setOrigin(0.5);
-      this.startText.setAlpha(0);
-      this.startText.setInteractive({ useHandCursor: true });
-      this.copyright = this.add.sprite(0, 0, "game_ui", "titleCopyright.gif");
-      this.copyright.setOrigin(0, 0);
-      this.copyright.y = GAME_DIMENSIONS.HEIGHT - this.copyright.height - 6;
-      this.scoreTitleImg = this.add.sprite(32, 0, "game_ui", "hiScoreTxt.gif");
-      this.scoreTitleImg.setOrigin(0, 0);
-      this.scoreTitleImg.y = this.copyright.y - 58;
-      this.worldBestLabel = this.add.text(
-        32,
-        this.scoreTitleImg.y - 16,
-        getWorldBestLabel(),
-        {
-          fontFamily: "Arial",
-          fontSize: "11px",
-          fontStyle: "bold",
-          color: "#ffffff",
-          stroke: "#000000",
-          strokeThickness: 2
-        }
-      );
-      this.highScoreText = this.add.text(
-        this.scoreTitleImg.x + this.scoreTitleImg.width + 3,
-        this.scoreTitleImg.y + this.scoreTitleImg.height / 2,
-        String(getDisplayedHighScore()),
-        {
-          fontFamily: "Arial",
-          fontSize: "16px",
-          fontStyle: "bold",
-          color: "#ffffff",
-          stroke: "#000000",
-          strokeThickness: 2
-        }
-      );
-      this.highScoreText.setOrigin(0, 0.5);
-      this.scoreSyncLabel = this.add.text(
-        32,
-        this.scoreTitleImg.y + 22,
-        getHighScoreSyncText(),
-        {
-          fontFamily: "Arial",
-          fontSize: "8px",
-          fontStyle: "bold",
-          color: "#9be37f",
-          stroke: "#000000",
-          strokeThickness: 2
-        }
-      );
-      var self = this;
-      this.startText.on("pointerup", function() {
-        self.titleStart();
-      });
-      this.tapZone = this.add.zone(
-        GAME_DIMENSIONS.CENTER_X,
-        GAME_DIMENSIONS.CENTER_Y,
-        GAME_DIMENSIONS.WIDTH,
-        GAME_DIMENSIONS.HEIGHT
-      );
-      this.tapZone.setInteractive({ useHandCursor: true });
-      this.tapZone.on("pointerup", function() {
-        self.titleStart();
-      });
-      this.twitterBtn = this.createFrameButton(
-        GAME_DIMENSIONS.CENTER_X,
-        this.copyright.y - 12,
-        "twitterBtn"
-      );
-      this.twitterBtn.setOrigin(0.5);
-      this.twitterBtn.on("pointerup", this.tweet, this);
-      this.howtoBtn = this.createFrameButton(15, 10, "howtoBtn");
-      this.howtoBtn.setOrigin(0, 0);
-      this.howtoBtn.setScale(1, 0);
-      this.howtoBtn.on("pointerup", function() {
-        try {
-          if (typeof window.howtoModalOpen === "function") {
-            window.howtoModalOpen();
-          }
-        } catch (e) {
-        }
-      });
-      this.staffrollBtn = this.createFrameButton(
-        GAME_DIMENSIONS.WIDTH - 15,
-        10,
-        "staffrollBtn"
-      );
-      this.staffrollBtn.setOrigin(1, 0);
-      this.staffrollBtn.setScale(1, 0);
-      this.staffrollBtn.on("pointerup", this.showStaffroll, this);
-      if (typeof window !== "undefined" && window.cordova && window.cordova.platformId === "android") {
-        this.forgeBtn = this.add.text(
-          GAME_DIMENSIONS.WIDTH - 6,
-          GAME_DIMENSIONS.HEIGHT - 22,
-          "BUILD APK",
-          {
-            fontFamily: "Arial",
-            fontSize: "10px",
-            fontStyle: "bold",
-            color: "#0f0",
-            stroke: "#000",
-            strokeThickness: 2,
-            backgroundColor: "rgba(0,0,0,0.6)",
-            padding: { left: 4, right: 4, top: 2, bottom: 2 }
-          }
-        );
-        this.forgeBtn.setOrigin(1, 0);
-        this.forgeBtn.setInteractive({ useHandCursor: true });
-        this.forgeBtn.on("pointerup", function() {
-          self.scene.start("PhaserForgeScene");
-        });
-      }
-      this.playTitleVoice = false;
-      this.startIntroAnimation();
-      this.enterKey = null;
-      this.spaceKey = null;
-      try {
-        this.enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
-        this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-      } catch (e) {
-      }
-    }
-    startIntroAnimation() {
-      var self = this;
-      var titleGTarget = GAME_DIMENSIONS.CENTER_X - this.titleG.width / 2 + 5;
-      this.tweens.add({
-        targets: this.titleG,
-        x: titleGTarget,
-        y: 20,
-        duration: 2e3,
-        ease: "Quint.easeOut"
-      });
-      this.tweens.add({
-        targets: this.logo,
-        y: 75,
-        duration: 900,
-        delay: 1200,
-        ease: "Quint.easeIn"
-      });
-      this.tweens.add({
-        targets: this.logo,
-        scaleX: 1,
-        scaleY: 1,
-        duration: 900,
-        delay: 1100,
-        ease: "Quint.easeIn"
-      });
-      this.tweens.add({
-        targets: this.subTitle,
-        y: 130,
-        duration: 900,
-        delay: 1180,
-        ease: "Quint.easeIn"
-      });
-      this.tweens.add({
-        targets: this.subTitle,
-        scaleX: 1,
-        scaleY: 1,
-        duration: 900,
-        delay: 1100,
-        ease: "Quint.easeIn"
-      });
-      this.time.delayedCall(1500, function() {
-        self.playVoice("voice_titlecall");
-      });
-      this.tweens.add({
-        targets: this.startText,
-        alpha: 1,
-        duration: 100,
-        delay: 2200,
-        onComplete: function() {
-          self.startFlashing();
-        }
-      });
-      this.tweens.add({
-        targets: this.howtoBtn,
-        scaleY: 1,
-        duration: 300,
-        delay: 2600,
-        ease: "Elastic.easeOut"
-      });
-      this.tweens.add({
-        targets: this.staffrollBtn,
-        scaleY: 1,
-        duration: 300,
-        delay: 2750,
-        ease: "Elastic.easeOut"
-      });
-    }
-    createFrameButton(x, y, framePrefix) {
-      var button = this.add.sprite(x, y, "game_ui", framePrefix + "0.gif");
-      button.setInteractive({ useHandCursor: true });
-      button.on("pointerover", function() {
-        button.setFrame(framePrefix + "1.gif");
-      });
-      button.on("pointerout", function() {
-        button.setFrame(framePrefix + "0.gif");
-      });
-      button.on("pointerdown", function() {
-        button.setFrame(framePrefix + "2.gif");
-      });
-      button.on("pointerup", function() {
-        button.setFrame(framePrefix + "1.gif");
-      });
-      return button;
-    }
-    showStaffroll() {
-      if (this.staffRollPanel && this.staffRollPanel.active) {
-        return;
-      }
-      this.staffRollPanel = new StaffRollPanel(this);
-    }
-    tweet() {
-      var score = Number(gameState.score || 0);
-      var highScore = Number(gameState.highScore || 0);
-      var url = "";
-      var hashtags = "";
-      var text = "";
-      if (LANG === "ja") {
-        url = encodeURIComponent("https://game.capcom.com/cfn/sfv/aprilfool/2019/?lang=ja");
-        hashtags = encodeURIComponent("シャド研,SFVAE,aprilfool,エイプリルフール");
-        text = encodeURIComponent("エイプリルフール 2019 世界大統領がSTGやってみた\nHISCORE:" + highScore + "\n");
-      } else {
-        url = encodeURIComponent("https://game.capcom.com/cfn/sfv/aprilfool/2019/?lang=en");
-        hashtags = encodeURIComponent("ShadalooCRI, SFVAE, aprilfool");
-        text = encodeURIComponent("APRIL FOOL 2019 WORLD PRESIDENT CHALLENGES A STG\nBEST:" + highScore + "\n");
-      }
-      var tweetUrl = "https://twitter.com/intent/tweet?url=" + url + "&hashtags=" + hashtags + "&text=" + text + "&score=" + score;
-      try {
-        window.open(tweetUrl, "_blank");
-      } catch (e) {
-      }
-    }
-    startFlashing() {
-      if (this.startText) {
-        this.tweens.add({
-          targets: this.startText,
-          alpha: 0,
-          duration: 300,
-          delay: 100,
-          yoyo: true,
-          repeat: -1,
-          hold: 800
-        });
-      }
-    }
-    playVoice(key) {
-      if (gameState.lowModeFlg) {
-        return;
-      }
-      try {
-        if (this.sound.get(key)) {
-          this.sound.play(key, { volume: 0.7 });
-        } else if (this.cache.audio.exists(key)) {
-          this.sound.add(key).play({ volume: 0.7 });
-        }
-      } catch (e) {
-      }
-    }
-    playSound(key, volume) {
-      if (gameState.lowModeFlg) {
-        return;
-      }
-      try {
-        var vol = typeof volume === "number" ? volume : 0.75;
-        if (this.sound.get(key)) {
-          this.sound.play(key, { volume: vol });
-        } else if (this.cache.audio.exists(key)) {
-          this.sound.add(key).play({ volume: vol });
-        }
-      } catch (e) {
-      }
-    }
-    titleStart() {
-      if (this.transitioning) {
-        return;
-      }
-      if (this.staffRollPanel && this.staffRollPanel.active) {
-        return;
-      }
-      this.transitioning = true;
-      this.playSound("se_decision", 0.75);
-      this.tweens.killTweensOf(this.startText);
-      this.startText.disableInteractive();
-      this.twitterBtn.disableInteractive();
-      this.howtoBtn.disableInteractive();
-      this.staffrollBtn.disableInteractive();
-      this.tapZone.disableInteractive();
-      var self = this;
-      this.cameras.main.fade(1e3, 0, 0, 0, false, function(cam, progress) {
-        if (progress >= 1) {
-          self.goToAdvScene();
-        }
-      });
-    }
-    launchLevelEditor() {
-      try {
-        window.open("level-editor.html", "_blank");
-      } catch (e) {
-      }
-    }
-    goToAdvScene() {
-      var recipe = gameState._phaserRecipe;
-      if (recipe && recipe.playerData) {
-        gameState.spDamage = recipe.playerData.spDamage;
-        gameState.playerMaxHp = recipe.playerData.maxHp;
-        gameState.playerHp = recipe.playerData.maxHp;
-        gameState.shootMode = recipe.playerData.defaultShootName;
-        gameState.shootSpeed = recipe.playerData.defaultShootSpeed;
-      }
-      gameState.combo = 0;
-      gameState.maxCombo = 0;
-      gameState.score = 0;
-      gameState.spgage = 0;
-      gameState.stageId = 0;
-      gameState.continueCnt = 0;
-      gameState.akebonoCnt = 0;
-      gameState.shortFlg = false;
-      gameState.forceBossName = null;
-      var game = this.game;
-      setTimeout(function() {
-        game.scene.stop("PhaserTitleScene");
-        game.scene.start("PhaserAdvScene");
-      }, 50);
-    }
-    update(time, delta) {
-      var STEP = 8.333333;
-      this._accumulator = (this._accumulator || 0) + Math.min(delta, 66.67);
-      while (this._accumulator >= STEP) {
-        this._accumulator -= STEP;
-        if (this.bg) {
-          this.bg.tilePositionX -= 0.5;
-        }
-      }
-      if (this.highScoreText) {
-        this.highScoreText.setText(String(getDisplayedHighScore()));
-      }
-      if (this.scoreSyncLabel) {
-        this.scoreSyncLabel.setText(getHighScoreSyncText());
-        var syncTint = getHighScoreSyncTint();
-        this.scoreSyncLabel.setColor("#" + syncTint.toString(16).padStart(6, "0"));
-      }
-      var gp = pollGamepads();
-      if (!this.transitioning) {
-        if (gp.editor) {
-          this.launchLevelEditor();
-        } else if (this.enterKey && Phaser.Input.Keyboard.JustDown(this.enterKey) || this.spaceKey && Phaser.Input.Keyboard.JustDown(this.spaceKey) || gp.sp || gp.enter) {
-          this.titleStart();
-        }
-      }
-    }
-  };
-
-  // ../2019-es7-0822/src/phaser/AdvScene.js
-  var ADV_SCENARIO_JA = {
-    stage0: {
-      part: [
-        { background: "0", text: "君の闘いは我が闘い\nハイスコアを求めるのは\n地球人民の本能" },
-        { background: "Done", text: "STG(シューティングゲーム)\nやってみた！" }
-      ]
-    },
-    stage1: {
-      part: [
-        { background: "1", text: "君こそハイスコア\nそして、私でもあることが" },
-        { background: "Done", text: "お分かりいただけただろう！" }
-      ]
-    },
-    stage2: {
-      part: [
-        { background: "2", text: "地球人民はハイスコアを\n追い求めるからこそ美しい" },
-        { background: "Done", text: "美しさとは君であり\nそして私なのだ！" }
-      ]
-    },
-    stage3: {
-      part: [
-        { background: "3", text: "おお地球人民よ！\nハイスコアを求める地球人民よ" },
-        { background: "3", text: "私こそがハイスコア\nそう、君こそが\nハイスコアなのだ" },
-        { background: "Done", text: "存分に語り合おうではないか！" }
-      ]
-    },
-    stage4: {
-      part: [
-        { background: "Done", text: "Thank you for playing" },
-        { background: "Done", text: "ありがとう！\nハイスコアは私であり\n君であった！" }
-      ]
-    },
-    stage5: {
-      part: [
-        { background: "Done", text: "ありがとう！\nハイスコアは私であり\n君であった！！" }
-      ]
-    }
-  };
-  var ADV_SCENARIO_EN = {
-    stage0: {
-      part: [
-        { background: "0", text: "Your fight is our fight.\nIt is up to the citizens \nof the world to challenge \nthe high score" },
-        { background: "Done", text: "in this shooting \ngame (STG)!" }
-      ]
-    },
-    stage1: {
-      part: [
-        { background: "1", text: "Through achieving\nthe high score,\nboth you and I," },
-        { background: "Done", text: "can come to a mutual \nunderstanding!" }
-      ]
-    },
-    stage2: {
-      part: [
-        { background: "2", text: "The people of Earth, \ncoming together to \nachieve the high score, \nis truly a beautiful thing." },
-        { background: "Done", text: "This beauty is something \nthat both you as well as I,\nboth possess!" }
-      ]
-    },
-    stage3: {
-      part: [
-        { background: "3", text: "Now, citizens of the \nearth!\nYou fine people who \nchallenge the high score." },
-        { background: "3", text: "My high score\nis also your high score." },
-        { background: "Done", text: "Let us talk to\nour heart's content!" }
-      ]
-    },
-    stage4: {
-      part: [
-        { background: "Done", text: "Thank you for playing." },
-        { background: "Done", text: "This high score belongs\n to me,\nand it also belongs to you!" }
-      ]
-    },
-    stage5: {
-      part: [
-        { background: "Done", text: "This high score belongs\n to me,\nand it also belongs to you!" }
-      ]
-    }
-  };
-  function addPixiPositionedText(scene, x, y, value, style) {
-    var textStyle = Object.assign({}, style);
-    var padding = textStyle.padding;
-    var paddingX = 0;
-    var paddingY = 0;
-    if (typeof padding === "number") {
-      paddingX = padding;
-      paddingY = padding;
-      textStyle.padding = { x: padding, y: padding };
-    } else if (padding) {
-      paddingX = padding.x || 0;
-      paddingY = padding.y || 0;
-    }
-    var text = scene.add.text(x - paddingX, y - paddingY, value, textStyle);
-    text.setOrigin(0, 0);
-    return text;
-  }
-  var PhaserAdvScene = class extends Phaser.Scene {
-    constructor() {
-      super({ key: "PhaserAdvScene" });
-    }
-    create() {
-      var recipe = gameState._phaserRecipe;
-      if (recipe && recipe.storyData) {
-        this.scenario = recipe.storyData;
-      } else {
-        this.scenario = LANG === "ja" ? ADV_SCENARIO_JA : ADV_SCENARIO_EN;
-      }
-      this.customImages = this.scenario.customImages || {};
-      this.partNum = 0;
-      this.stageKey = "stage" + String(gameState.stageId);
-      if (!this.scenario[this.stageKey]) {
-        var scenarioKeys = Object.keys(this.scenario).filter(function(k) {
-          return /^stage\d+$/.test(k);
-        });
-        this.stageKey = scenarioKeys.length ? scenarioKeys[gameState.stageId % scenarioKeys.length] : scenarioKeys[0];
-      }
-      this.partText = this.scenario[this.stageKey].part[this.partNum].text;
-      this.partTextCursor = 0;
-      this.partTextComp = false;
-      this.textTimer = 0;
-      var finalStage = recipe ? lastStageId(recipe) : 4;
-      this.endingFlg = false;
-      if (gameState.stageId > finalStage) {
-        this.endingFlg = true;
-      } else if (gameState.stageId === finalStage) {
-        this.playSound("voice_thankyou", 0.7);
-        if (finalStage === 4 && !(gameState.akebonoCnt >= 4 && gameState.continueCnt === 0)) {
-          this.endingFlg = true;
-        }
-      }
-      if (!gameState.bgmContinuityActive) {
-        this.playBgm("adventure_bgm", 0.2);
-      }
-      var bgKey = "advBg" + this.scenario[this.stageKey].part[this.partNum].background + ".gif";
-      this.bgSprite = this.add.sprite(0, 0, "game_ui", bgKey);
-      this.bgSprite.setOrigin(0, 0);
-      this._applyCustomImage(this.stageKey, this.partNum);
-      this.txtBg = this.add.graphics();
-      this.txtBg.lineStyle(2, 16777215, 1);
-      this.txtBg.fillStyle(0, 1);
-      this.txtBg.fillRoundedRect(8, GAME_DIMENSIONS.CENTER_Y + 7, GAME_DIMENSIONS.WIDTH - 16, 180, 6);
-      this.txtBg.strokeRoundedRect(8, GAME_DIMENSIONS.CENTER_Y + 7, GAME_DIMENSIONS.WIDTH - 16, 180, 6);
-      var nameBg = this.add.graphics();
-      nameBg.lineStyle(2, 16777215, 1);
-      nameBg.fillStyle(0, 1);
-      nameBg.fillRoundedRect(16, GAME_DIMENSIONS.CENTER_Y - 5, 80, 24, 6);
-      nameBg.strokeRoundedRect(16, GAME_DIMENSIONS.CENTER_Y - 5, 80, 24, 6);
-      this.nameTxt = addPixiPositionedText(this, 50, GAME_DIMENSIONS.CENTER_Y - 4, "G", {
-        fontFamily: "sans-serif",
-        fontSize: "16px",
-        fontStyle: "bold",
-        color: "#ffffff",
-        padding: { x: 10, y: 10 }
-      });
-      this.txt = addPixiPositionedText(this, 15, GAME_DIMENSIONS.CENTER_Y + 30, "", {
-        fontFamily: "sans-serif",
-        fontSize: "16px",
-        fontStyle: "bold",
-        color: "#ffffff",
-        lineSpacing: 4,
-        wordWrap: { width: 230, useAdvancedWrap: true },
-        padding: { x: 10, y: 10 }
-      });
-      this.nextBtn = this.add.text(
-        GAME_DIMENSIONS.WIDTH - 20,
-        GAME_DIMENSIONS.HEIGHT - 30,
-        "Next▼",
-        {
-          fontFamily: "sans-serif",
-          fontSize: "16px",
-          color: "#ffffff"
-        }
-      );
-      this.nextBtn.setOrigin(1, 1);
-      this.nextBtn.setInteractive({ useHandCursor: true });
-      this.nextBtn.setVisible(false);
-      var self = this;
-      this.nextBtn.on("pointerup", function() {
-        self.onNextPress();
-      });
-      this.tapZone = this.add.zone(
-        GAME_DIMENSIONS.CENTER_X,
-        GAME_DIMENSIONS.CENTER_Y,
-        GAME_DIMENSIONS.WIDTH,
-        GAME_DIMENSIONS.HEIGHT
-      );
-      this.tapZone.setInteractive({ useHandCursor: true });
-      this.tapZone.on("pointerup", function() {
-        if (self.partTextComp) {
-          self.onNextPress();
-        }
-      });
-      this.enterKey = null;
-      this.spaceKey = null;
-      try {
-        this.enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
-        this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-      } catch (e) {
-      }
-    }
-    playSound(key, volume) {
-      if (gameState.lowModeFlg) {
-        return;
-      }
-      try {
-        var vol = typeof volume === "number" ? volume : 0.7;
-        if (this.sound.get(key)) {
-          this.sound.play(key, { volume: vol });
-        } else if (this.cache.audio.exists(key)) {
-          this.sound.add(key).play({ volume: vol });
-        }
-      } catch (e) {
-      }
-    }
-    playBgm(key, volume) {
-      if (gameState.lowModeFlg) {
-        return;
-      }
-      try {
-        var existing = this.sound.get(key);
-        if (existing) {
-          existing.play({ volume: volume || 0.2, loop: true });
-        } else if (this.cache.audio.exists(key)) {
-          this.sound.add(key, { loop: true, volume: volume || 0.2 }).play();
-        }
-      } catch (e) {
-      }
-    }
-    stopSound(key) {
-      try {
-        var snd = this.sound.get(key);
-        if (snd && snd.isPlaying) {
-          snd.stop();
-        }
-      } catch (e) {
-      }
-    }
-    _applyCustomImage(stageKey, partNum) {
-      var customKey = stageKey + "_part" + partNum;
-      var dataURL = this.customImages[customKey];
-      if (!dataURL) return;
-      var texKey = "advCustom_" + customKey;
-      var self = this;
-      if (this.textures.exists(texKey)) {
-        this.bgSprite.setTexture(texKey);
-      } else {
-        var img = new Image();
-        img.onload = function() {
-          self.textures.addImage(texKey, img);
-          if (self.bgSprite && self.bgSprite.active) {
-            self.bgSprite.setTexture(texKey);
-          }
-        };
-        img.src = dataURL;
-      }
-    }
-    onNextPress() {
-      var maxParts = this.scenario[this.stageKey].part.length;
-      if (this.partNum < maxParts - 1) {
-        this.playSound("se_cursor_sub", 0.9);
-        this.partNum++;
-        this.partText = this.scenario[this.stageKey].part[this.partNum].text;
-        this.partTextCursor = 0;
-        this.partTextComp = false;
-        this.txt.setText("");
-        this.nextBtn.setVisible(false);
-        var customKey = this.stageKey + "_part" + this.partNum;
-        if (this.customImages[customKey]) {
-          this._applyCustomImage(this.stageKey, this.partNum);
-        } else {
-          var bgKey = "advBg" + this.scenario[this.stageKey].part[this.partNum].background + ".gif";
-          if (this.textures.getFrame("game_ui", bgKey)) {
-            this.bgSprite.setTexture("game_ui", bgKey);
-          }
-        }
-        var bgKeyForSound = "advBg" + this.scenario[this.stageKey].part[this.partNum].background + ".gif";
-        if (bgKeyForSound === "advBgDone.gif") {
-          this.playSound("g_adbenture_voice0", 0.5);
-        }
-      } else {
-        this.goToNextScene();
-      }
-    }
-    goToNextScene() {
-      this.playSound("se_correct", 0.9);
-      if (!gameState.bgmContinuityActive) {
-        this.stopSound("adventure_bgm");
-      }
-      var nextScene = this.endingFlg ? "PhaserEndingScene" : "PhaserGameScene";
-      var game = this.game;
-      setTimeout(function() {
-        game.scene.stop("PhaserAdvScene");
-        game.scene.start(nextScene);
-      }, 50);
-    }
-    update(time, delta) {
-      var gp = pollGamepads();
-      if (this.partTextComp && this.nextBtn && this.nextBtn.visible && (this.enterKey && Phaser.Input.Keyboard.JustDown(this.enterKey) || this.spaceKey && Phaser.Input.Keyboard.JustDown(this.spaceKey) || gp.sp || gp.enter)) {
-        this.onNextPress();
-        return;
-      }
-      if (this.partTextComp || !this.txt) {
-        return;
-      }
-      this.textTimer += delta;
-      if (this.textTimer < 33) {
-        return;
-      }
-      this.textTimer = 0;
-      if (this.partTextCursor <= this.partText.length - 1) {
-        this.txt.setText(this.txt.text + this.partText.charAt(this.partTextCursor));
-        this.partTextCursor++;
-        return;
-      }
-      this.partTextComp = true;
-      this.nextBtn.setVisible(true);
-      if (this.partNum >= this.scenario[this.stageKey].part.length - 1) {
-        this.nextBtn.setText("LET'S GO! ▶︎");
-      } else {
-        this.nextBtn.setText("Next▼");
-      }
-    }
-  };
-
-  // ../2019-es7-0822/src/enums/player-boss-states.js
-  var PLAYER_STATES = {
-    SHOOT_NAME_NORMAL: "normal",
-    SHOOT_NAME_BIG: "big",
-    SHOOT_NAME_3WAY: "3way",
-    SHOOT_SPEED_NORMAL: "speed_normal",
-    SHOOT_SPEED_HIGH: "speed_high",
-    BARRIER: "barrier"
-  };
-
-  // ../2019-es7-0822/src/haptics.js
-  var HAPTIC_PRESETS = {
-    ui: {
-      cooldown: 60,
-      duration: 12,
-      vibration: 10,
-      weakMagnitude: 0.2,
-      strongMagnitude: 0.08,
-      tapticKind: "selection",
-      tapticImpact: "light"
-    },
-    ready: {
-      cooldown: 400,
-      duration: 18,
-      vibration: 16,
-      weakMagnitude: 0.32,
-      strongMagnitude: 0.12,
-      tapticImpact: "light"
-    },
-    pickup: {
-      cooldown: 120,
-      duration: 22,
-      vibration: 18,
-      weakMagnitude: 0.45,
-      strongMagnitude: 0.18,
-      tapticImpact: "light"
-    },
-    damage: {
-      cooldown: 180,
-      duration: 34,
-      vibration: 28,
-      weakMagnitude: 0.55,
-      strongMagnitude: 0.4,
-      tapticImpact: "medium"
-    },
-    warning: {
-      cooldown: 800,
-      duration: 30,
-      vibration: [14, 28, 14],
-      weakMagnitude: 0.6,
-      strongMagnitude: 0.35,
-      tapticNotification: "warning",
-      tapticImpact: "medium"
-    },
-    special: {
-      cooldown: 500,
-      duration: 44,
-      vibration: [18, 24, 40],
-      weakMagnitude: 0.9,
-      strongMagnitude: 0.85,
-      tapticImpact: "heavy"
-    },
-    bossEnter: {
-      cooldown: 1200,
-      duration: 40,
-      vibration: 36,
-      weakMagnitude: 0.8,
-      strongMagnitude: 0.65,
-      tapticImpact: "heavy"
-    },
-    bossDefeat: {
-      cooldown: 1500,
-      duration: 52,
-      vibration: [24, 36, 48],
-      weakMagnitude: 1,
-      strongMagnitude: 1,
-      tapticNotification: "success",
-      tapticImpact: "heavy"
-    },
-    stageClear: {
-      cooldown: 1500,
-      duration: 36,
-      vibration: [18, 28, 24],
-      weakMagnitude: 0.72,
-      strongMagnitude: 0.45,
-      tapticNotification: "success",
-      tapticImpact: "medium"
-    },
-    kill: {
-      cooldown: 80,
-      duration: 10,
-      vibration: 8,
-      weakMagnitude: 0.15,
-      strongMagnitude: 0.06,
-      tapticKind: "selection",
-      tapticImpact: "light"
-    },
-    death: {
-      cooldown: 2e3,
-      duration: 60,
-      vibration: [30, 40, 50, 30, 80],
-      weakMagnitude: 1,
-      strongMagnitude: 1,
-      tapticNotification: "error",
-      tapticImpact: "heavy"
-    },
-    deflect: {
-      cooldown: 100,
-      duration: 8,
-      vibration: 6,
-      weakMagnitude: 0.12,
-      strongMagnitude: 0.05,
-      tapticKind: "selection",
-      tapticImpact: "light"
-    }
-  };
-  var lastHapticByPreset = /* @__PURE__ */ Object.create(null);
-  var lastHapticAt = 0;
-  function nowMs() {
-    if (typeof performance !== "undefined" && typeof performance.now === "function") {
-      return performance.now();
-    }
-    return Date.now();
-  }
-  function isIOSDevice() {
-    if (typeof navigator === "undefined") {
-      return false;
-    }
-    var ua = navigator.userAgent || "";
-    return /iPad|iPhone|iPod/.test(ua) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
-  }
-  function pulseDurationFromPattern(pattern) {
-    if (!Array.isArray(pattern)) {
-      return typeof pattern === "number" ? pattern : 0;
-    }
-    var total = 0;
-    for (var i = 0; i < pattern.length; i += 2) {
-      total += Number(pattern[i]) || 0;
-    }
-    return total;
-  }
-  function resolveBrowserVibration(preset) {
-    if (Array.isArray(preset.vibration) && !isIOSDevice()) {
-      return preset.vibration.slice();
-    }
-    if (typeof preset.vibration === "number") {
-      return preset.vibration;
-    }
-    return pulseDurationFromPattern(preset.vibration || preset.duration);
-  }
-  function resolvePreset(name) {
-    return HAPTIC_PRESETS[name] || HAPTIC_PRESETS.ui;
-  }
-  function isHapticsEnabled() {
-    return gameState.vibrateFlg !== false;
-  }
-  function shouldTriggerPreset(name, preset) {
-    if (!isHapticsEnabled()) {
-      return false;
-    }
-    var now = nowMs();
-    if (now - lastHapticAt < 16) {
-      return false;
-    }
-    var cooldown = preset.cooldown || 0;
-    var lastPresetAt = lastHapticByPreset[name] || 0;
-    if (cooldown > 0 && now - lastPresetAt < cooldown) {
-      return false;
-    }
-    lastHapticByPreset[name] = now;
-    lastHapticAt = now;
-    return true;
-  }
-  function tryInvoke(target, methodName, argSets) {
-    if (!target || typeof target[methodName] !== "function") {
-      return false;
-    }
-    for (var i = 0; i < argSets.length; i++) {
-      try {
-        target[methodName].apply(target, argSets[i]);
-        return true;
-      } catch (error) {
-      }
-    }
-    return false;
-  }
-  function resolveCordovaHapticEngine() {
-    if (typeof window === "undefined") {
-      return null;
-    }
-    if (window.TapticEngine) {
-      return window.TapticEngine;
-    }
-    if (window.plugins) {
-      return window.plugins.tapticEngine || window.plugins.hapticFeedback || window.plugins.hapticfeedback || null;
-    }
-    return null;
-  }
-  function tryCordovaEngine(preset) {
-    var engine = resolveCordovaHapticEngine();
-    if (!engine) {
-      return false;
-    }
-    if (preset.tapticNotification) {
-      if (tryInvoke(engine, "notification", [
-        [{ type: preset.tapticNotification }],
-        [preset.tapticNotification]
-      ])) {
-        return true;
-      }
-      if (tryInvoke(engine, "notificationOccurred", [
-        [String(preset.tapticNotification).toUpperCase()],
-        [preset.tapticNotification]
-      ])) {
-        return true;
-      }
-    }
-    if (preset.tapticKind === "selection") {
-      if (tryInvoke(engine, "selection", [[]]) || tryInvoke(engine, "selectionChanged", [[]])) {
-        return true;
-      }
-    }
-    if (preset.tapticImpact) {
-      if (tryInvoke(engine, "impact", [
-        [{ style: preset.tapticImpact }],
-        [preset.tapticImpact],
-        []
-      ])) {
-        return true;
-      }
-      if (tryInvoke(engine, "impactOccurred", [
-        [String(preset.tapticImpact).toUpperCase()],
-        [preset.tapticImpact],
-        []
-      ])) {
-        return true;
-      }
-    }
-    return tryInvoke(engine, "vibrate", [[]]);
-  }
-  function tryCordovaNotificationVibrate(preset) {
-    if (typeof window === "undefined" || !window.cordova || typeof navigator === "undefined") {
-      return false;
-    }
-    var notification = navigator.notification;
-    if (!notification || typeof notification.vibrate !== "function") {
-      return false;
-    }
-    var payload = resolveBrowserVibration(preset);
-    return tryInvoke(notification, "vibrate", [[payload], [preset.duration]]);
-  }
-  function tryNavigatorVibrate(preset) {
-    if (typeof navigator === "undefined") {
-      return false;
-    }
-    var vibrate = navigator.vibrate || navigator.webkitVibrate || navigator.mozVibrate || navigator.msVibrate;
-    if (typeof vibrate !== "function") {
-      return false;
-    }
-    try {
-      return !!vibrate.call(navigator, resolveBrowserVibration(preset));
-    } catch (error) {
-      return false;
-    }
-  }
-  function getGamepadActuators(gamepad) {
-    var actuators = [];
-    if (!gamepad) {
-      return actuators;
-    }
-    if (gamepad.vibrationActuator) {
-      actuators.push(gamepad.vibrationActuator);
-    }
-    if (gamepad.hapticActuators && gamepad.hapticActuators.length) {
-      for (var i = 0; i < gamepad.hapticActuators.length; i++) {
-        actuators.push(gamepad.hapticActuators[i]);
-      }
-    }
-    return actuators;
-  }
-  function buildGamepadEffect(effectType, preset) {
-    var effect = {
-      startDelay: 0,
-      duration: preset.duration,
-      weakMagnitude: preset.weakMagnitude,
-      strongMagnitude: preset.strongMagnitude
-    };
-    if (effectType === "trigger-rumble") {
-      effect.leftTrigger = preset.strongMagnitude;
-      effect.rightTrigger = preset.weakMagnitude;
-    }
-    return effect;
-  }
-  function triggerActuator(actuator, preset) {
-    if (!actuator) {
-      return false;
-    }
-    if (typeof actuator.playEffect === "function") {
-      var effectType = "dual-rumble";
-      if (Array.isArray(actuator.effects) && actuator.effects.length > 0) {
-        effectType = actuator.effects.indexOf("dual-rumble") >= 0 ? "dual-rumble" : actuator.effects[0];
-      } else if (typeof actuator.type === "string" && actuator.type) {
-        effectType = actuator.type;
-      }
-      try {
-        var result = actuator.playEffect(effectType, buildGamepadEffect(effectType, preset));
-        if (result && typeof result.catch === "function") {
-          result.catch(function() {
-          });
-        }
-        return true;
-      } catch (error) {
-      }
-    }
-    if (typeof actuator.pulse === "function") {
-      try {
-        actuator.pulse(Math.max(preset.weakMagnitude, preset.strongMagnitude), preset.duration);
-        return true;
-      } catch (error) {
-      }
-    }
-    return false;
-  }
-  function tryGamepadHaptics(preset) {
-    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
-      return false;
-    }
-    var pads;
-    try {
-      pads = navigator.getGamepads();
-    } catch (error) {
-      return false;
-    }
-    if (!pads || !pads.length) {
-      return false;
-    }
-    var triggered = false;
-    for (var i = 0; i < pads.length; i++) {
-      var actuators = getGamepadActuators(pads[i]);
-      for (var j = 0; j < actuators.length; j++) {
-        triggered = triggerActuator(actuators[j], preset) || triggered;
-      }
-    }
-    return triggered;
-  }
-  function triggerHaptic(name) {
-    var presetName = name || "ui";
-    var preset = resolvePreset(presetName);
-    if (!shouldTriggerPreset(presetName, preset)) {
-      return false;
-    }
-    var triggered = false;
-    var usedCordovaDevice = tryCordovaEngine(preset) || tryCordovaNotificationVibrate(preset);
-    triggered = usedCordovaDevice || triggered;
-    if (!usedCordovaDevice) {
-      triggered = tryNavigatorVibrate(preset) || triggered;
-    }
-    triggered = tryGamepadHaptics(preset) || triggered;
-    return triggered;
   }
 
   // ../2019-es7-0822/src/phaser/dezaemon-runtime.js
@@ -3885,6 +2852,13 @@
         axes.indexOf("x") >= 0 ? f : enemy.scaleX,
         axes.indexOf("y") >= 0 ? f : enemy.scaleY
       );
+      if (axes === "xy") {
+        var a = 1;
+        if (f > 1.5) a = Math.max(0.45, 1 - (f - 1.5) * 0.45);
+        else if (f < 0.45) a = Math.max(0.3, f / 0.45);
+        enemy.setAlpha(a);
+        enemy.setData("dezaNoContact", f > 1.5 || f < 0.45);
+      }
     }
     return true;
   }
@@ -4439,13 +3413,18 @@
     return buf;
   }
   function startDezaemonBgm(scene, which) {
-    var bgm = scene.recipe && scene.recipe.dezaemonBgm;
+    var bgm = (scene.recipe || gameState._phaserRecipe || {}).dezaemonBgm;
     if (!bgm) return false;
     var ctx = audioCtx(scene);
     if (!ctx) return false;
-    var stageId = typeof scene.bossStageId === "number" ? scene.bossStageId : 0;
-    var pair = bgm.stages && bgm.stages[stageId] || null;
-    var idx = pair ? which === "boss" ? pair[1] : pair[0] : null;
+    var idx;
+    if (which === "title") {
+      idx = bgm.special ? bgm.special[0] : null;
+    } else {
+      var stageId = typeof scene.bossStageId === "number" ? scene.bossStageId : 0;
+      var pair = bgm.stages && bgm.stages[stageId] || null;
+      idx = pair ? which === "boss" ? pair[1] : pair[0] : null;
+    }
     if (idx == null || !bgm.songs || bgm.songs[idx] == null) return false;
     stopDezaemonBgm(scene);
     var song = parseBgmSong(bgm.songs[idx]);
@@ -4639,6 +3618,1145 @@
     g.connect(out);
     src.start(t);
     src.stop(t + dur + 0.2);
+  }
+
+  // ../2019-es7-0822/src/phaser/TitleScene.js
+  var PhaserTitleScene = class extends Phaser.Scene {
+    constructor() {
+      super({ key: "PhaserTitleScene" });
+      this.transitioning = false;
+    }
+    create() {
+      this.transitioning = false;
+      this.staffRollPanel = null;
+      var recipe = gameState._phaserRecipe;
+      var atlas = this.textures.get("game_asset");
+      var deza = recipe && recipe.dezaemonTitle && atlas ? recipe.dezaemonTitle : null;
+      var dezaFrame = (role) => deza && deza[role] && atlas.has(deza[role]) ? deza[role] : null;
+      this.dezaTitle = !!(dezaFrame("title1") || dezaFrame("title2") || dezaFrame("credit"));
+      var dezaLogo = dezaFrame("title1") || dezaFrame("title2");
+      this.bg = this.add.tileSprite(
+        0,
+        0,
+        GAME_DIMENSIONS.WIDTH,
+        GAME_DIMENSIONS.HEIGHT,
+        "title_bg"
+      );
+      this.bg.setOrigin(0, 0);
+      if (this.dezaTitle) this.bg.setVisible(false);
+      this.titleG = this.add.sprite(0, 0, "game_ui", "titleG.gif");
+      this.titleG.setOrigin(0, 0);
+      this.titleG.setPosition(GAME_DIMENSIONS.WIDTH, 100);
+      if (this.dezaTitle) this.titleG.setVisible(false);
+      if (this.dezaTitle && dezaLogo) {
+        this.logo = this.add.sprite(0, 0, "game_asset", dezaLogo);
+      } else if (!this.dezaTitle && this.textures.exists("custom_logo")) {
+        this.logo = this.add.sprite(0, 0, "custom_logo");
+      } else {
+        this.logo = this.add.sprite(0, 0, "game_ui", "logo.gif");
+      }
+      this.logo.setOrigin(0.5);
+      this.logo.setPosition(
+        this.dezaTitle ? GAME_DIMENSIONS.CENTER_X : this.logo.width / 2,
+        this.dezaTitle ? -this.logo.height - 8 : -this.logo.height / 2
+      );
+      this.logo.setScale(2);
+      if (this.dezaTitle && !dezaLogo) this.logo.setVisible(false);
+      var dezaSub = this.dezaTitle && dezaFrame("title1") ? dezaFrame("title2") : null;
+      if (dezaSub) {
+        this.subTitle = this.add.sprite(0, 0, "game_asset", dezaSub);
+      } else if (!this.dezaTitle && this.textures.exists("custom_subTitle")) {
+        this.subTitle = this.add.sprite(0, 0, "custom_subTitle");
+      } else {
+        var subtitleKey = "subTitle" + (LANG === "ja" ? "" : "En") + ".gif";
+        this.subTitle = this.add.sprite(0, 0, "game_ui", subtitleKey);
+      }
+      this.subTitle.setOrigin(0.5);
+      this.subTitle.setPosition(
+        this.dezaTitle ? GAME_DIMENSIONS.CENTER_X : this.subTitle.width / 2,
+        this.dezaTitle ? -this.subTitle.height * 1.5 - 8 : -this.logo.height / 2
+      );
+      this.subTitle.setScale(3);
+      if (this.dezaTitle && !dezaSub) this.subTitle.setVisible(false);
+      this.belt = this.add.graphics();
+      this.belt.fillStyle(0, 1);
+      this.belt.fillRect(0, GAME_DIMENSIONS.HEIGHT - 120, GAME_DIMENSIONS.WIDTH, 120);
+      if (this.textures.exists("custom_titleStartText")) {
+        this.startText = this.add.sprite(
+          GAME_DIMENSIONS.CENTER_X,
+          330,
+          "custom_titleStartText"
+        );
+      } else {
+        this.startText = this.add.sprite(
+          GAME_DIMENSIONS.CENTER_X,
+          330,
+          "game_ui",
+          "titleStartText.gif"
+        );
+      }
+      this.startText.setOrigin(0.5);
+      this.startText.setAlpha(0);
+      this.startText.setInteractive({ useHandCursor: true });
+      if (this.dezaTitle && dezaFrame("credit")) {
+        this.copyright = this.add.sprite(0, 0, "game_asset", deza.credit);
+        this.copyright.setOrigin(0.5, 0);
+        this.copyright.x = GAME_DIMENSIONS.CENTER_X;
+      } else {
+        this.copyright = this.add.sprite(0, 0, "game_ui", "titleCopyright.gif");
+        this.copyright.setOrigin(0, 0);
+        if (this.dezaTitle) this.copyright.setVisible(false);
+      }
+      this.copyright.y = GAME_DIMENSIONS.HEIGHT - this.copyright.height - 6;
+      this.scoreTitleImg = this.add.sprite(32, 0, "game_ui", "hiScoreTxt.gif");
+      this.scoreTitleImg.setOrigin(0, 0);
+      this.scoreTitleImg.y = this.copyright.y - 58;
+      this.worldBestLabel = this.add.text(
+        32,
+        this.scoreTitleImg.y - 16,
+        getWorldBestLabel(),
+        {
+          fontFamily: "Arial",
+          fontSize: "11px",
+          fontStyle: "bold",
+          color: "#ffffff",
+          stroke: "#000000",
+          strokeThickness: 2
+        }
+      );
+      this.highScoreText = this.add.text(
+        this.scoreTitleImg.x + this.scoreTitleImg.width + 3,
+        this.scoreTitleImg.y + this.scoreTitleImg.height / 2,
+        String(getDisplayedHighScore()),
+        {
+          fontFamily: "Arial",
+          fontSize: "16px",
+          fontStyle: "bold",
+          color: "#ffffff",
+          stroke: "#000000",
+          strokeThickness: 2
+        }
+      );
+      this.highScoreText.setOrigin(0, 0.5);
+      this.scoreSyncLabel = this.add.text(
+        32,
+        this.scoreTitleImg.y + 22,
+        getHighScoreSyncText(),
+        {
+          fontFamily: "Arial",
+          fontSize: "8px",
+          fontStyle: "bold",
+          color: "#9be37f",
+          stroke: "#000000",
+          strokeThickness: 2
+        }
+      );
+      var self = this;
+      this.startText.on("pointerup", function() {
+        self.titleStart();
+      });
+      this.tapZone = this.add.zone(
+        GAME_DIMENSIONS.CENTER_X,
+        GAME_DIMENSIONS.CENTER_Y,
+        GAME_DIMENSIONS.WIDTH,
+        GAME_DIMENSIONS.HEIGHT
+      );
+      this.tapZone.setInteractive({ useHandCursor: true });
+      this.tapZone.on("pointerup", function() {
+        self.titleStart();
+      });
+      this.twitterBtn = this.createFrameButton(
+        GAME_DIMENSIONS.CENTER_X,
+        this.copyright.y - 12,
+        "twitterBtn"
+      );
+      this.twitterBtn.setOrigin(0.5);
+      this.twitterBtn.on("pointerup", this.tweet, this);
+      this.howtoBtn = this.createFrameButton(15, 10, "howtoBtn");
+      this.howtoBtn.setOrigin(0, 0);
+      this.howtoBtn.setScale(1, 0);
+      this.howtoBtn.on("pointerup", function() {
+        try {
+          if (typeof window.howtoModalOpen === "function") {
+            window.howtoModalOpen();
+          }
+        } catch (e) {
+        }
+      });
+      this.staffrollBtn = this.createFrameButton(
+        GAME_DIMENSIONS.WIDTH - 15,
+        10,
+        "staffrollBtn"
+      );
+      this.staffrollBtn.setOrigin(1, 0);
+      this.staffrollBtn.setScale(1, 0);
+      this.staffrollBtn.on("pointerup", this.showStaffroll, this);
+      if (this.dezaTitle) {
+        this.twitterBtn.setVisible(false);
+        this.twitterBtn.disableInteractive();
+        this.howtoBtn.setVisible(false);
+        this.howtoBtn.disableInteractive();
+      }
+      if (typeof window !== "undefined" && window.cordova && window.cordova.platformId === "android") {
+        this.forgeBtn = this.add.text(
+          GAME_DIMENSIONS.WIDTH - 6,
+          GAME_DIMENSIONS.HEIGHT - 22,
+          "BUILD APK",
+          {
+            fontFamily: "Arial",
+            fontSize: "10px",
+            fontStyle: "bold",
+            color: "#0f0",
+            stroke: "#000",
+            strokeThickness: 2,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            padding: { left: 4, right: 4, top: 2, bottom: 2 }
+          }
+        );
+        this.forgeBtn.setOrigin(1, 0);
+        this.forgeBtn.setInteractive({ useHandCursor: true });
+        this.forgeBtn.on("pointerup", function() {
+          self.scene.start("PhaserForgeScene");
+        });
+      }
+      this.playTitleVoice = false;
+      this.startIntroAnimation();
+      if (this.dezaTitle && !gameState.lowModeFlg) {
+        startDezaemonBgm(this, "title");
+      }
+      this.enterKey = null;
+      this.spaceKey = null;
+      try {
+        this.enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
+        this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+      } catch (e) {
+      }
+    }
+    startIntroAnimation() {
+      var self = this;
+      var titleGTarget = GAME_DIMENSIONS.CENTER_X - this.titleG.width / 2 + 5;
+      this.tweens.add({
+        targets: this.titleG,
+        x: titleGTarget,
+        y: 20,
+        duration: 2e3,
+        ease: "Quint.easeOut"
+      });
+      this.tweens.add({
+        targets: this.logo,
+        y: 75,
+        duration: 900,
+        delay: 1200,
+        ease: "Quint.easeIn"
+      });
+      this.tweens.add({
+        targets: this.logo,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 900,
+        delay: 1100,
+        ease: "Quint.easeIn"
+      });
+      this.tweens.add({
+        targets: this.subTitle,
+        y: 130,
+        duration: 900,
+        delay: 1180,
+        ease: "Quint.easeIn"
+      });
+      this.tweens.add({
+        targets: this.subTitle,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 900,
+        delay: 1100,
+        ease: "Quint.easeIn"
+      });
+      this.time.delayedCall(1500, function() {
+        if (!self.dezaTitle) self.playVoice("voice_titlecall");
+      });
+      this.tweens.add({
+        targets: this.startText,
+        alpha: 1,
+        duration: 100,
+        delay: 2200,
+        onComplete: function() {
+          self.startFlashing();
+        }
+      });
+      this.tweens.add({
+        targets: this.howtoBtn,
+        scaleY: 1,
+        duration: 300,
+        delay: 2600,
+        ease: "Elastic.easeOut"
+      });
+      this.tweens.add({
+        targets: this.staffrollBtn,
+        scaleY: 1,
+        duration: 300,
+        delay: 2750,
+        ease: "Elastic.easeOut"
+      });
+    }
+    createFrameButton(x, y, framePrefix) {
+      var button = this.add.sprite(x, y, "game_ui", framePrefix + "0.gif");
+      button.setInteractive({ useHandCursor: true });
+      button.on("pointerover", function() {
+        button.setFrame(framePrefix + "1.gif");
+      });
+      button.on("pointerout", function() {
+        button.setFrame(framePrefix + "0.gif");
+      });
+      button.on("pointerdown", function() {
+        button.setFrame(framePrefix + "2.gif");
+      });
+      button.on("pointerup", function() {
+        button.setFrame(framePrefix + "1.gif");
+      });
+      return button;
+    }
+    showStaffroll() {
+      if (this.staffRollPanel && this.staffRollPanel.active) {
+        return;
+      }
+      this.staffRollPanel = new StaffRollPanel(this);
+    }
+    tweet() {
+      var score = Number(gameState.score || 0);
+      var highScore = Number(gameState.highScore || 0);
+      var url = "";
+      var hashtags = "";
+      var text = "";
+      if (LANG === "ja") {
+        url = encodeURIComponent("https://game.capcom.com/cfn/sfv/aprilfool/2019/?lang=ja");
+        hashtags = encodeURIComponent("シャド研,SFVAE,aprilfool,エイプリルフール");
+        text = encodeURIComponent("エイプリルフール 2019 世界大統領がSTGやってみた\nHISCORE:" + highScore + "\n");
+      } else {
+        url = encodeURIComponent("https://game.capcom.com/cfn/sfv/aprilfool/2019/?lang=en");
+        hashtags = encodeURIComponent("ShadalooCRI, SFVAE, aprilfool");
+        text = encodeURIComponent("APRIL FOOL 2019 WORLD PRESIDENT CHALLENGES A STG\nBEST:" + highScore + "\n");
+      }
+      var tweetUrl = "https://twitter.com/intent/tweet?url=" + url + "&hashtags=" + hashtags + "&text=" + text + "&score=" + score;
+      try {
+        window.open(tweetUrl, "_blank");
+      } catch (e) {
+      }
+    }
+    startFlashing() {
+      if (this.startText) {
+        this.tweens.add({
+          targets: this.startText,
+          alpha: 0,
+          duration: 300,
+          delay: 100,
+          yoyo: true,
+          repeat: -1,
+          hold: 800
+        });
+      }
+    }
+    playVoice(key) {
+      if (gameState.lowModeFlg) {
+        return;
+      }
+      try {
+        if (this.sound.get(key)) {
+          this.sound.play(key, { volume: 0.7 });
+        } else if (this.cache.audio.exists(key)) {
+          this.sound.add(key).play({ volume: 0.7 });
+        }
+      } catch (e) {
+      }
+    }
+    playSound(key, volume) {
+      if (gameState.lowModeFlg) {
+        return;
+      }
+      try {
+        var vol = typeof volume === "number" ? volume : 0.75;
+        if (this.sound.get(key)) {
+          this.sound.play(key, { volume: vol });
+        } else if (this.cache.audio.exists(key)) {
+          this.sound.add(key).play({ volume: vol });
+        }
+      } catch (e) {
+      }
+    }
+    titleStart() {
+      if (this.transitioning) {
+        return;
+      }
+      if (this.staffRollPanel && this.staffRollPanel.active) {
+        return;
+      }
+      this.transitioning = true;
+      this.playSound("se_decision", 0.75);
+      this.tweens.killTweensOf(this.startText);
+      this.startText.disableInteractive();
+      this.twitterBtn.disableInteractive();
+      this.howtoBtn.disableInteractive();
+      this.staffrollBtn.disableInteractive();
+      this.tapZone.disableInteractive();
+      var self = this;
+      this.cameras.main.fade(1e3, 0, 0, 0, false, function(cam, progress) {
+        if (progress >= 1) {
+          self.goToAdvScene();
+        }
+      });
+    }
+    launchLevelEditor() {
+      try {
+        window.open("level-editor.html", "_blank");
+      } catch (e) {
+      }
+    }
+    goToAdvScene() {
+      stopDezaemonBgm(this);
+      var recipe = gameState._phaserRecipe;
+      if (recipe && recipe.playerData) {
+        gameState.spDamage = recipe.playerData.spDamage;
+        gameState.playerMaxHp = recipe.playerData.maxHp;
+        gameState.playerHp = recipe.playerData.maxHp;
+        gameState.shootMode = recipe.playerData.defaultShootName;
+        gameState.shootSpeed = recipe.playerData.defaultShootSpeed;
+      }
+      gameState.combo = 0;
+      gameState.maxCombo = 0;
+      gameState.score = 0;
+      gameState.spgage = 0;
+      gameState.stageId = 0;
+      gameState.continueCnt = 0;
+      gameState.akebonoCnt = 0;
+      gameState.shortFlg = false;
+      gameState.forceBossName = null;
+      var game = this.game;
+      setTimeout(function() {
+        game.scene.stop("PhaserTitleScene");
+        game.scene.start("PhaserAdvScene");
+      }, 50);
+    }
+    update(time, delta) {
+      var STEP = 8.333333;
+      this._accumulator = (this._accumulator || 0) + Math.min(delta, 66.67);
+      while (this._accumulator >= STEP) {
+        this._accumulator -= STEP;
+        if (this.bg) {
+          this.bg.tilePositionX -= 0.5;
+        }
+      }
+      if (this.highScoreText) {
+        this.highScoreText.setText(String(getDisplayedHighScore()));
+      }
+      if (this.scoreSyncLabel) {
+        this.scoreSyncLabel.setText(getHighScoreSyncText());
+        var syncTint = getHighScoreSyncTint();
+        this.scoreSyncLabel.setColor("#" + syncTint.toString(16).padStart(6, "0"));
+      }
+      var gp = pollGamepads();
+      if (!this.transitioning) {
+        if (gp.editor) {
+          this.launchLevelEditor();
+        } else if (this.enterKey && Phaser.Input.Keyboard.JustDown(this.enterKey) || this.spaceKey && Phaser.Input.Keyboard.JustDown(this.spaceKey) || gp.sp || gp.enter) {
+          this.titleStart();
+        }
+      }
+    }
+  };
+
+  // ../2019-es7-0822/src/phaser/AdvScene.js
+  var ADV_SCENARIO_JA = {
+    stage0: {
+      part: [
+        { background: "0", text: "君の闘いは我が闘い\nハイスコアを求めるのは\n地球人民の本能" },
+        { background: "Done", text: "STG(シューティングゲーム)\nやってみた！" }
+      ]
+    },
+    stage1: {
+      part: [
+        { background: "1", text: "君こそハイスコア\nそして、私でもあることが" },
+        { background: "Done", text: "お分かりいただけただろう！" }
+      ]
+    },
+    stage2: {
+      part: [
+        { background: "2", text: "地球人民はハイスコアを\n追い求めるからこそ美しい" },
+        { background: "Done", text: "美しさとは君であり\nそして私なのだ！" }
+      ]
+    },
+    stage3: {
+      part: [
+        { background: "3", text: "おお地球人民よ！\nハイスコアを求める地球人民よ" },
+        { background: "3", text: "私こそがハイスコア\nそう、君こそが\nハイスコアなのだ" },
+        { background: "Done", text: "存分に語り合おうではないか！" }
+      ]
+    },
+    stage4: {
+      part: [
+        { background: "Done", text: "Thank you for playing" },
+        { background: "Done", text: "ありがとう！\nハイスコアは私であり\n君であった！" }
+      ]
+    },
+    stage5: {
+      part: [
+        { background: "Done", text: "ありがとう！\nハイスコアは私であり\n君であった！！" }
+      ]
+    }
+  };
+  var ADV_SCENARIO_EN = {
+    stage0: {
+      part: [
+        { background: "0", text: "Your fight is our fight.\nIt is up to the citizens \nof the world to challenge \nthe high score" },
+        { background: "Done", text: "in this shooting \ngame (STG)!" }
+      ]
+    },
+    stage1: {
+      part: [
+        { background: "1", text: "Through achieving\nthe high score,\nboth you and I," },
+        { background: "Done", text: "can come to a mutual \nunderstanding!" }
+      ]
+    },
+    stage2: {
+      part: [
+        { background: "2", text: "The people of Earth, \ncoming together to \nachieve the high score, \nis truly a beautiful thing." },
+        { background: "Done", text: "This beauty is something \nthat both you as well as I,\nboth possess!" }
+      ]
+    },
+    stage3: {
+      part: [
+        { background: "3", text: "Now, citizens of the \nearth!\nYou fine people who \nchallenge the high score." },
+        { background: "3", text: "My high score\nis also your high score." },
+        { background: "Done", text: "Let us talk to\nour heart's content!" }
+      ]
+    },
+    stage4: {
+      part: [
+        { background: "Done", text: "Thank you for playing." },
+        { background: "Done", text: "This high score belongs\n to me,\nand it also belongs to you!" }
+      ]
+    },
+    stage5: {
+      part: [
+        { background: "Done", text: "This high score belongs\n to me,\nand it also belongs to you!" }
+      ]
+    }
+  };
+  function addPixiPositionedText(scene, x, y, value, style) {
+    var textStyle = Object.assign({}, style);
+    var padding = textStyle.padding;
+    var paddingX = 0;
+    var paddingY = 0;
+    if (typeof padding === "number") {
+      paddingX = padding;
+      paddingY = padding;
+      textStyle.padding = { x: padding, y: padding };
+    } else if (padding) {
+      paddingX = padding.x || 0;
+      paddingY = padding.y || 0;
+    }
+    var text = scene.add.text(x - paddingX, y - paddingY, value, textStyle);
+    text.setOrigin(0, 0);
+    return text;
+  }
+  function decideEnding(recipe) {
+    var finalStage = recipe ? lastStageId(recipe) : 4;
+    if (gameState.stageId > finalStage) return true;
+    if (gameState.stageId === finalStage && finalStage === 4 && !(recipe && recipe.noStory) && !(gameState.akebonoCnt >= 4 && gameState.continueCnt === 0)) {
+      return true;
+    }
+    return false;
+  }
+  var PhaserAdvScene = class extends Phaser.Scene {
+    constructor() {
+      super({ key: "PhaserAdvScene" });
+    }
+    create() {
+      var recipe = gameState._phaserRecipe;
+      if (recipe && recipe.noStory && !this.__advSceneScripted) {
+        this.endingFlg = decideEnding(recipe);
+        var nextScene = this.endingFlg ? "PhaserEndingScene" : "PhaserGameScene";
+        var game = this.game;
+        setTimeout(function() {
+          game.scene.stop("PhaserAdvScene");
+          game.scene.start(nextScene);
+        }, 50);
+        return;
+      }
+      if (recipe && recipe.storyData) {
+        this.scenario = recipe.storyData;
+      } else {
+        this.scenario = LANG === "ja" ? ADV_SCENARIO_JA : ADV_SCENARIO_EN;
+      }
+      this.customImages = this.scenario.customImages || {};
+      this.partNum = 0;
+      this.stageKey = "stage" + String(gameState.stageId);
+      if (!this.scenario[this.stageKey]) {
+        var scenarioKeys = Object.keys(this.scenario).filter(function(k) {
+          return /^stage\d+$/.test(k);
+        });
+        this.stageKey = scenarioKeys.length ? scenarioKeys[gameState.stageId % scenarioKeys.length] : scenarioKeys[0];
+      }
+      this.partText = this.scenario[this.stageKey].part[this.partNum].text;
+      this.partTextCursor = 0;
+      this.partTextComp = false;
+      this.textTimer = 0;
+      this.endingFlg = decideEnding(recipe);
+      if (gameState.stageId === (recipe ? lastStageId(recipe) : 4)) {
+        this.playSound("voice_thankyou", 0.7);
+      }
+      if (!gameState.bgmContinuityActive) {
+        this.playBgm("adventure_bgm", 0.2);
+      }
+      var bgKey = "advBg" + this.scenario[this.stageKey].part[this.partNum].background + ".gif";
+      this.bgSprite = this.add.sprite(0, 0, "game_ui", bgKey);
+      this.bgSprite.setOrigin(0, 0);
+      this._applyCustomImage(this.stageKey, this.partNum);
+      this.txtBg = this.add.graphics();
+      this.txtBg.lineStyle(2, 16777215, 1);
+      this.txtBg.fillStyle(0, 1);
+      this.txtBg.fillRoundedRect(8, GAME_DIMENSIONS.CENTER_Y + 7, GAME_DIMENSIONS.WIDTH - 16, 180, 6);
+      this.txtBg.strokeRoundedRect(8, GAME_DIMENSIONS.CENTER_Y + 7, GAME_DIMENSIONS.WIDTH - 16, 180, 6);
+      var nameBg = this.add.graphics();
+      nameBg.lineStyle(2, 16777215, 1);
+      nameBg.fillStyle(0, 1);
+      nameBg.fillRoundedRect(16, GAME_DIMENSIONS.CENTER_Y - 5, 80, 24, 6);
+      nameBg.strokeRoundedRect(16, GAME_DIMENSIONS.CENTER_Y - 5, 80, 24, 6);
+      this.nameTxt = addPixiPositionedText(this, 50, GAME_DIMENSIONS.CENTER_Y - 4, "G", {
+        fontFamily: "sans-serif",
+        fontSize: "16px",
+        fontStyle: "bold",
+        color: "#ffffff",
+        padding: { x: 10, y: 10 }
+      });
+      this.txt = addPixiPositionedText(this, 15, GAME_DIMENSIONS.CENTER_Y + 30, "", {
+        fontFamily: "sans-serif",
+        fontSize: "16px",
+        fontStyle: "bold",
+        color: "#ffffff",
+        lineSpacing: 4,
+        wordWrap: { width: 230, useAdvancedWrap: true },
+        padding: { x: 10, y: 10 }
+      });
+      this.nextBtn = this.add.text(
+        GAME_DIMENSIONS.WIDTH - 20,
+        GAME_DIMENSIONS.HEIGHT - 30,
+        "Next▼",
+        {
+          fontFamily: "sans-serif",
+          fontSize: "16px",
+          color: "#ffffff"
+        }
+      );
+      this.nextBtn.setOrigin(1, 1);
+      this.nextBtn.setInteractive({ useHandCursor: true });
+      this.nextBtn.setVisible(false);
+      var self = this;
+      this.nextBtn.on("pointerup", function() {
+        self.onNextPress();
+      });
+      this.tapZone = this.add.zone(
+        GAME_DIMENSIONS.CENTER_X,
+        GAME_DIMENSIONS.CENTER_Y,
+        GAME_DIMENSIONS.WIDTH,
+        GAME_DIMENSIONS.HEIGHT
+      );
+      this.tapZone.setInteractive({ useHandCursor: true });
+      this.tapZone.on("pointerup", function() {
+        if (self.partTextComp) {
+          self.onNextPress();
+        }
+      });
+      this.enterKey = null;
+      this.spaceKey = null;
+      try {
+        this.enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
+        this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+      } catch (e) {
+      }
+    }
+    playSound(key, volume) {
+      if (gameState.lowModeFlg) {
+        return;
+      }
+      try {
+        var vol = typeof volume === "number" ? volume : 0.7;
+        if (this.sound.get(key)) {
+          this.sound.play(key, { volume: vol });
+        } else if (this.cache.audio.exists(key)) {
+          this.sound.add(key).play({ volume: vol });
+        }
+      } catch (e) {
+      }
+    }
+    playBgm(key, volume) {
+      if (gameState.lowModeFlg) {
+        return;
+      }
+      try {
+        var existing = this.sound.get(key);
+        if (existing) {
+          existing.play({ volume: volume || 0.2, loop: true });
+        } else if (this.cache.audio.exists(key)) {
+          this.sound.add(key, { loop: true, volume: volume || 0.2 }).play();
+        }
+      } catch (e) {
+      }
+    }
+    stopSound(key) {
+      try {
+        var snd = this.sound.get(key);
+        if (snd && snd.isPlaying) {
+          snd.stop();
+        }
+      } catch (e) {
+      }
+    }
+    _applyCustomImage(stageKey, partNum) {
+      var customKey = stageKey + "_part" + partNum;
+      var dataURL = this.customImages[customKey];
+      if (!dataURL) return;
+      var texKey = "advCustom_" + customKey;
+      var self = this;
+      if (this.textures.exists(texKey)) {
+        this.bgSprite.setTexture(texKey);
+      } else {
+        var img = new Image();
+        img.onload = function() {
+          self.textures.addImage(texKey, img);
+          if (self.bgSprite && self.bgSprite.active) {
+            self.bgSprite.setTexture(texKey);
+          }
+        };
+        img.src = dataURL;
+      }
+    }
+    onNextPress() {
+      var maxParts = this.scenario[this.stageKey].part.length;
+      if (this.partNum < maxParts - 1) {
+        this.playSound("se_cursor_sub", 0.9);
+        this.partNum++;
+        this.partText = this.scenario[this.stageKey].part[this.partNum].text;
+        this.partTextCursor = 0;
+        this.partTextComp = false;
+        this.txt.setText("");
+        this.nextBtn.setVisible(false);
+        var customKey = this.stageKey + "_part" + this.partNum;
+        if (this.customImages[customKey]) {
+          this._applyCustomImage(this.stageKey, this.partNum);
+        } else {
+          var bgKey = "advBg" + this.scenario[this.stageKey].part[this.partNum].background + ".gif";
+          if (this.textures.getFrame("game_ui", bgKey)) {
+            this.bgSprite.setTexture("game_ui", bgKey);
+          }
+        }
+        var bgKeyForSound = "advBg" + this.scenario[this.stageKey].part[this.partNum].background + ".gif";
+        if (bgKeyForSound === "advBgDone.gif") {
+          this.playSound("g_adbenture_voice0", 0.5);
+        }
+      } else {
+        this.goToNextScene();
+      }
+    }
+    goToNextScene() {
+      this.playSound("se_correct", 0.9);
+      if (!gameState.bgmContinuityActive) {
+        this.stopSound("adventure_bgm");
+      }
+      var nextScene = this.endingFlg ? "PhaserEndingScene" : "PhaserGameScene";
+      var game = this.game;
+      setTimeout(function() {
+        game.scene.stop("PhaserAdvScene");
+        game.scene.start(nextScene);
+      }, 50);
+    }
+    update(time, delta) {
+      var gp = pollGamepads();
+      if (this.partTextComp && this.nextBtn && this.nextBtn.visible && (this.enterKey && Phaser.Input.Keyboard.JustDown(this.enterKey) || this.spaceKey && Phaser.Input.Keyboard.JustDown(this.spaceKey) || gp.sp || gp.enter)) {
+        this.onNextPress();
+        return;
+      }
+      if (this.partTextComp || !this.txt) {
+        return;
+      }
+      this.textTimer += delta;
+      if (this.textTimer < 33) {
+        return;
+      }
+      this.textTimer = 0;
+      if (this.partTextCursor <= this.partText.length - 1) {
+        this.txt.setText(this.txt.text + this.partText.charAt(this.partTextCursor));
+        this.partTextCursor++;
+        return;
+      }
+      this.partTextComp = true;
+      this.nextBtn.setVisible(true);
+      if (this.partNum >= this.scenario[this.stageKey].part.length - 1) {
+        this.nextBtn.setText("LET'S GO! ▶︎");
+      } else {
+        this.nextBtn.setText("Next▼");
+      }
+    }
+  };
+
+  // ../2019-es7-0822/src/enums/player-boss-states.js
+  var PLAYER_STATES = {
+    SHOOT_NAME_NORMAL: "normal",
+    SHOOT_NAME_BIG: "big",
+    SHOOT_NAME_3WAY: "3way",
+    SHOOT_SPEED_NORMAL: "speed_normal",
+    SHOOT_SPEED_HIGH: "speed_high",
+    BARRIER: "barrier"
+  };
+
+  // ../2019-es7-0822/src/haptics.js
+  var HAPTIC_PRESETS = {
+    ui: {
+      cooldown: 60,
+      duration: 12,
+      vibration: 10,
+      weakMagnitude: 0.2,
+      strongMagnitude: 0.08,
+      tapticKind: "selection",
+      tapticImpact: "light"
+    },
+    ready: {
+      cooldown: 400,
+      duration: 18,
+      vibration: 16,
+      weakMagnitude: 0.32,
+      strongMagnitude: 0.12,
+      tapticImpact: "light"
+    },
+    pickup: {
+      cooldown: 120,
+      duration: 22,
+      vibration: 18,
+      weakMagnitude: 0.45,
+      strongMagnitude: 0.18,
+      tapticImpact: "light"
+    },
+    damage: {
+      cooldown: 180,
+      duration: 34,
+      vibration: 28,
+      weakMagnitude: 0.55,
+      strongMagnitude: 0.4,
+      tapticImpact: "medium"
+    },
+    warning: {
+      cooldown: 800,
+      duration: 30,
+      vibration: [14, 28, 14],
+      weakMagnitude: 0.6,
+      strongMagnitude: 0.35,
+      tapticNotification: "warning",
+      tapticImpact: "medium"
+    },
+    special: {
+      cooldown: 500,
+      duration: 44,
+      vibration: [18, 24, 40],
+      weakMagnitude: 0.9,
+      strongMagnitude: 0.85,
+      tapticImpact: "heavy"
+    },
+    bossEnter: {
+      cooldown: 1200,
+      duration: 40,
+      vibration: 36,
+      weakMagnitude: 0.8,
+      strongMagnitude: 0.65,
+      tapticImpact: "heavy"
+    },
+    bossDefeat: {
+      cooldown: 1500,
+      duration: 52,
+      vibration: [24, 36, 48],
+      weakMagnitude: 1,
+      strongMagnitude: 1,
+      tapticNotification: "success",
+      tapticImpact: "heavy"
+    },
+    stageClear: {
+      cooldown: 1500,
+      duration: 36,
+      vibration: [18, 28, 24],
+      weakMagnitude: 0.72,
+      strongMagnitude: 0.45,
+      tapticNotification: "success",
+      tapticImpact: "medium"
+    },
+    kill: {
+      cooldown: 80,
+      duration: 10,
+      vibration: 8,
+      weakMagnitude: 0.15,
+      strongMagnitude: 0.06,
+      tapticKind: "selection",
+      tapticImpact: "light"
+    },
+    death: {
+      cooldown: 2e3,
+      duration: 60,
+      vibration: [30, 40, 50, 30, 80],
+      weakMagnitude: 1,
+      strongMagnitude: 1,
+      tapticNotification: "error",
+      tapticImpact: "heavy"
+    },
+    deflect: {
+      cooldown: 100,
+      duration: 8,
+      vibration: 6,
+      weakMagnitude: 0.12,
+      strongMagnitude: 0.05,
+      tapticKind: "selection",
+      tapticImpact: "light"
+    }
+  };
+  var lastHapticByPreset = /* @__PURE__ */ Object.create(null);
+  var lastHapticAt = 0;
+  function nowMs() {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
+  }
+  function isIOSDevice() {
+    if (typeof navigator === "undefined") {
+      return false;
+    }
+    var ua = navigator.userAgent || "";
+    return /iPad|iPhone|iPod/.test(ua) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  }
+  function pulseDurationFromPattern(pattern) {
+    if (!Array.isArray(pattern)) {
+      return typeof pattern === "number" ? pattern : 0;
+    }
+    var total = 0;
+    for (var i = 0; i < pattern.length; i += 2) {
+      total += Number(pattern[i]) || 0;
+    }
+    return total;
+  }
+  function resolveBrowserVibration(preset) {
+    if (Array.isArray(preset.vibration) && !isIOSDevice()) {
+      return preset.vibration.slice();
+    }
+    if (typeof preset.vibration === "number") {
+      return preset.vibration;
+    }
+    return pulseDurationFromPattern(preset.vibration || preset.duration);
+  }
+  function resolvePreset(name) {
+    return HAPTIC_PRESETS[name] || HAPTIC_PRESETS.ui;
+  }
+  function isHapticsEnabled() {
+    return gameState.vibrateFlg !== false;
+  }
+  function shouldTriggerPreset(name, preset) {
+    if (!isHapticsEnabled()) {
+      return false;
+    }
+    var now = nowMs();
+    if (now - lastHapticAt < 16) {
+      return false;
+    }
+    var cooldown = preset.cooldown || 0;
+    var lastPresetAt = lastHapticByPreset[name] || 0;
+    if (cooldown > 0 && now - lastPresetAt < cooldown) {
+      return false;
+    }
+    lastHapticByPreset[name] = now;
+    lastHapticAt = now;
+    return true;
+  }
+  function tryInvoke(target, methodName, argSets) {
+    if (!target || typeof target[methodName] !== "function") {
+      return false;
+    }
+    for (var i = 0; i < argSets.length; i++) {
+      try {
+        target[methodName].apply(target, argSets[i]);
+        return true;
+      } catch (error) {
+      }
+    }
+    return false;
+  }
+  function resolveCordovaHapticEngine() {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    if (window.TapticEngine) {
+      return window.TapticEngine;
+    }
+    if (window.plugins) {
+      return window.plugins.tapticEngine || window.plugins.hapticFeedback || window.plugins.hapticfeedback || null;
+    }
+    return null;
+  }
+  function tryCordovaEngine(preset) {
+    var engine = resolveCordovaHapticEngine();
+    if (!engine) {
+      return false;
+    }
+    if (preset.tapticNotification) {
+      if (tryInvoke(engine, "notification", [
+        [{ type: preset.tapticNotification }],
+        [preset.tapticNotification]
+      ])) {
+        return true;
+      }
+      if (tryInvoke(engine, "notificationOccurred", [
+        [String(preset.tapticNotification).toUpperCase()],
+        [preset.tapticNotification]
+      ])) {
+        return true;
+      }
+    }
+    if (preset.tapticKind === "selection") {
+      if (tryInvoke(engine, "selection", [[]]) || tryInvoke(engine, "selectionChanged", [[]])) {
+        return true;
+      }
+    }
+    if (preset.tapticImpact) {
+      if (tryInvoke(engine, "impact", [
+        [{ style: preset.tapticImpact }],
+        [preset.tapticImpact],
+        []
+      ])) {
+        return true;
+      }
+      if (tryInvoke(engine, "impactOccurred", [
+        [String(preset.tapticImpact).toUpperCase()],
+        [preset.tapticImpact],
+        []
+      ])) {
+        return true;
+      }
+    }
+    return tryInvoke(engine, "vibrate", [[]]);
+  }
+  function tryCordovaNotificationVibrate(preset) {
+    if (typeof window === "undefined" || !window.cordova || typeof navigator === "undefined") {
+      return false;
+    }
+    var notification = navigator.notification;
+    if (!notification || typeof notification.vibrate !== "function") {
+      return false;
+    }
+    var payload = resolveBrowserVibration(preset);
+    return tryInvoke(notification, "vibrate", [[payload], [preset.duration]]);
+  }
+  function tryNavigatorVibrate(preset) {
+    if (typeof navigator === "undefined") {
+      return false;
+    }
+    var vibrate = navigator.vibrate || navigator.webkitVibrate || navigator.mozVibrate || navigator.msVibrate;
+    if (typeof vibrate !== "function") {
+      return false;
+    }
+    try {
+      return !!vibrate.call(navigator, resolveBrowserVibration(preset));
+    } catch (error) {
+      return false;
+    }
+  }
+  function getGamepadActuators(gamepad) {
+    var actuators = [];
+    if (!gamepad) {
+      return actuators;
+    }
+    if (gamepad.vibrationActuator) {
+      actuators.push(gamepad.vibrationActuator);
+    }
+    if (gamepad.hapticActuators && gamepad.hapticActuators.length) {
+      for (var i = 0; i < gamepad.hapticActuators.length; i++) {
+        actuators.push(gamepad.hapticActuators[i]);
+      }
+    }
+    return actuators;
+  }
+  function buildGamepadEffect(effectType, preset) {
+    var effect = {
+      startDelay: 0,
+      duration: preset.duration,
+      weakMagnitude: preset.weakMagnitude,
+      strongMagnitude: preset.strongMagnitude
+    };
+    if (effectType === "trigger-rumble") {
+      effect.leftTrigger = preset.strongMagnitude;
+      effect.rightTrigger = preset.weakMagnitude;
+    }
+    return effect;
+  }
+  function triggerActuator(actuator, preset) {
+    if (!actuator) {
+      return false;
+    }
+    if (typeof actuator.playEffect === "function") {
+      var effectType = "dual-rumble";
+      if (Array.isArray(actuator.effects) && actuator.effects.length > 0) {
+        effectType = actuator.effects.indexOf("dual-rumble") >= 0 ? "dual-rumble" : actuator.effects[0];
+      } else if (typeof actuator.type === "string" && actuator.type) {
+        effectType = actuator.type;
+      }
+      try {
+        var result = actuator.playEffect(effectType, buildGamepadEffect(effectType, preset));
+        if (result && typeof result.catch === "function") {
+          result.catch(function() {
+          });
+        }
+        return true;
+      } catch (error) {
+      }
+    }
+    if (typeof actuator.pulse === "function") {
+      try {
+        actuator.pulse(Math.max(preset.weakMagnitude, preset.strongMagnitude), preset.duration);
+        return true;
+      } catch (error) {
+      }
+    }
+    return false;
+  }
+  function tryGamepadHaptics(preset) {
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
+      return false;
+    }
+    var pads;
+    try {
+      pads = navigator.getGamepads();
+    } catch (error) {
+      return false;
+    }
+    if (!pads || !pads.length) {
+      return false;
+    }
+    var triggered = false;
+    for (var i = 0; i < pads.length; i++) {
+      var actuators = getGamepadActuators(pads[i]);
+      for (var j = 0; j < actuators.length; j++) {
+        triggered = triggerActuator(actuators[j], preset) || triggered;
+      }
+    }
+    return triggered;
+  }
+  function triggerHaptic(name) {
+    var presetName = name || "ui";
+    var preset = resolvePreset(presetName);
+    if (!shouldTriggerPreset(presetName, preset)) {
+      return false;
+    }
+    var triggered = false;
+    var usedCordovaDevice = tryCordovaEngine(preset) || tryCordovaNotificationVibrate(preset);
+    triggered = usedCordovaDevice || triggered;
+    if (!usedCordovaDevice) {
+      triggered = tryNavigatorVibrate(preset) || triggered;
+    }
+    triggered = tryGamepadHaptics(preset) || triggered;
+    return triggered;
   }
 
   // ../2019-es7-0822/src/phaser/game-objects/Shadow.js
@@ -7649,6 +7767,7 @@
           if (en && en.active) {
             var ex = en.x, ey = en.y, ew = en.width || 0;
             if (ex < -ew / 2 || ex > GW13 || ey < 20 || ey > GH11) continue;
+            if (en.getData("dezaNoContact")) continue;
             var isBoss = en.getData("type") === "boss";
             if (isBoss) {
               var ehp = en.getData("hp") - spDamage;
@@ -7885,6 +8004,15 @@
         }
         animateEnemy(enemy, step);
         var eRect = { x: enemy.x - enemy.width / 2, y: enemy.y - enemy.height / 2, w: enemy.width, h: enemy.height };
+        if (enemy.getData("dezaNoContact")) {
+          if (enemy.y > GH11 + 20 || enemy.x < -40 || enemy.x > GW13 + 40) {
+            this.enemies.splice(e, 1);
+            var ncShadow = enemy.getData("shadow");
+            if (ncShadow && ncShadow.active) ncShadow.destroy();
+            enemy.destroy();
+          }
+          continue;
+        }
         for (var bb = this.playerBullets.length - 1; bb >= 0; bb--) {
           var pb = this.playerBullets[bb];
           if (!pb || !pb.active) continue;
@@ -9799,8 +9927,12 @@
         return initSceneScripts({ recipe: gameState._phaserRecipe }).then(() => {
           let nextScene = result.showTitle ? "PhaserTitleScene" : "PhaserGameScene";
           if (nextScene === "PhaserGameScene") {
+            const recipe = gameState._phaserRecipe;
             if (hasSceneScript("title")) nextScene = "PhaserTitleScene";
             else if (hasSceneScript("adv")) nextScene = "PhaserAdvScene";
+            else if (recipe && recipe.dezaemonTitle && gameState.stageId === 0) {
+              nextScene = "PhaserTitleScene";
+            }
           }
           console.log("[2028.Ai] level loaded via plugin — source=" + result.source + " stage=" + result.stageId + " → " + nextScene);
           setTimeout(() => {
@@ -9860,6 +9992,7 @@
     create() {
       this.__ssAdvanced = false;
       if (runSceneScriptCreate("adv", this, this._ssOpts())) return;
+      this.__advSceneScripted = hasSceneScript("adv");
       super.create();
       runSceneScriptStart("adv", this, this._ssOpts());
     }

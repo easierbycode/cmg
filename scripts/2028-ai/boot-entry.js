@@ -120,11 +120,20 @@ class PluginBootScene extends BootScene {
             return initSceneScripts({ recipe: gameState._phaserRecipe }).then(() => {
                 // Editor play / ?level= normally skips straight into the game,
                 // but when the player attached scene scripts, route through the
-                // scenes they customized so PLAY actually previews them.
+                // scenes they customized so PLAY actually previews them. A
+                // Dezaemon import launched from its first stage routes through
+                // the title too — the save ships its own drawn title screen,
+                // and power-on -> title -> stage 1 is how the Saturn plays it.
+                // (Launching a later stage stays direct: that's author
+                // iteration, not a run.)
                 let nextScene = result.showTitle ? "PhaserTitleScene" : "PhaserGameScene";
                 if (nextScene === "PhaserGameScene") {
+                    const recipe = gameState._phaserRecipe;
                     if (hasSceneScript("title")) nextScene = "PhaserTitleScene";
                     else if (hasSceneScript("adv")) nextScene = "PhaserAdvScene";
+                    else if (recipe && recipe.dezaemonTitle && gameState.stageId === 0) {
+                        nextScene = "PhaserTitleScene";
+                    }
                 }
                 console.log("[2028.Ai] level loaded via plugin — source=" + result.source +
                     " stage=" + result.stageId + " → " + nextScene);
@@ -208,6 +217,10 @@ class ScriptedAdvScene extends PhaserAdvScene {
     create() {
         this.__ssAdvanced = false;
         if (runSceneScriptCreate("adv", this, this._ssOpts())) return;
+        // A hook-mode adv script outranks a recipe's noStory skip — the
+        // author attached story content, so PhaserAdvScene must actually run
+        // (its create checks this flag before passing through).
+        this.__advSceneScripted = hasSceneScript("adv");
         super.create();
         runSceneScriptStart("adv", this, this._ssOpts());
     }
