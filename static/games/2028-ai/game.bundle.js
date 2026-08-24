@@ -2813,25 +2813,37 @@
     }
     return st.value;
   }
-  var MIN_ZAKO_RELOAD_FRAMES = 119;
+  var TYPE012_INTERVAL = [14, 12, 10, 8, 6, 4, 2, 1];
+  var FIRE_WINDOW = [29, 22, 16, 11, 7, 4, 2, 1];
+  var ZAKO_AI_STRIDE = 8;
   function zakoReload(fire) {
-    return Math.max(fire.interval, MIN_ZAKO_RELOAD_FRAMES) + Math.floor(Math.random() * (fire.window || 1));
+    var rate = FIRE_WINDOW.indexOf(fire.window);
+    if (rate < 0) rate = 0;
+    var interval = fire.mode === 3 ? fire.interval : TYPE012_INTERVAL[rate];
+    return (interval + Math.floor(Math.random() * (fire.window || 1))) * ZAKO_AI_STRIDE;
   }
   function ridesTheMap(movePattern) {
     return movePattern === 4 || (movePattern & 3) === 2;
   }
   function initEnemyBehavior(enemy, behavior) {
+    var d = behavior.fire.pattern != null ? 0 : behavior.fire.direction;
+    var fires = behavior.fire.enabled && d !== 0 && behavior.fire.pattern == null;
+    var facesPlayer = behavior.rotation.enabled && behavior.rotation.mode >= 3;
     enemy.setData("deza", {
       behavior,
       age: 0,
       tick: 0,
       pinned: ridesTheMap(behavior.movePattern),
+      facesPlayer,
+      // Slow free-movers (speed index 0-1, plain mode 0) patrol laterally
+      // on hardware — the capture's bat flock enters mid-screen and sweeps
+      // out to the walls — instead of hanging motionless in the scroll.
+      patrols: !ridesTheMap(behavior.movePattern) && behavior.move.mode === 0 && !behavior.move.flag && behavior.speed < 0.3,
+      patrolPhase: Math.random() * Math.PI * 2,
       speedCh: makeChannel(behavior.speedChange, null),
-      rotationCh: makeChannel(behavior.rotation, {
+      rotationCh: facesPlayer ? null : makeChannel(behavior.rotation, {
         wrap: true,
-        reverse: behavior.rotation.mode === 2,
-        // modes 3/4 are engine-special (aim-style); play them as spin
-        spin: behavior.rotation.mode >= 3
+        reverse: behavior.rotation.mode === 2
       }),
       scaleCh: makeChannel(behavior.scale, null),
       // No wrap: a flat direction channel (from == to) HOLDS its heading.
@@ -2839,13 +2851,8 @@
       // screen bottom; held at 0 (up-map, fighting the scroll) the roc
       // hangs near the top of the screen like the capture shows.
       directionCh: makeChannel(behavior.direction, null),
-      // Special fire patterns (b5 = 10/11/12) are the three untraced
-      // engine handlers. Ramsie's statues carry pattern 11 and emit
-      // NOTHING in 55s of capture — played as aimed volleys they were the
-      // bullet spam the import was known for. Silent until traced.
-      // Otherwise: stagger the first volley inside the engine's
-      // randomization window.
-      reload: behavior.fire.enabled && behavior.fire.pattern == null ? zakoReload(behavior.fire) : -1
+      // stagger the first volley inside the randomization window
+      reload: fires ? zakoReload(behavior.fire) : -1
     });
     if (behavior.ground) {
       var shadow = enemy.getData("shadow");
@@ -2869,7 +2876,15 @@
       enemy.x += Math.sin(rad) * speed;
       enemy.y += -Math.cos(rad) * speed;
     }
-    if (st.rotationCh) {
+    if (st.patrols) {
+      enemy.x += Math.cos(st.patrolPhase + st.age * (Math.PI * 2 / 150)) * (26 * Math.PI * 2 / 150);
+    }
+    if (st.facesPlayer && scene.playerSprite) {
+      enemy.rotation = Math.atan2(
+        scene.playerSprite.x - enemy.x,
+        -(scene.playerSprite.y - enemy.y)
+      ) + Math.PI;
+    } else if (st.rotationCh) {
       enemy.rotation = stepChannel(st.rotationCh) * Math.PI / 180;
     }
     if (st.scaleCh) {
@@ -2918,9 +2933,11 @@
     st.reload = zakoReload(fire);
     var GH14 = scene.scale ? scene.scale.height : 480;
     if (!scene.playerSprite) return true;
-    if (enemy.y < 16 || enemy.y > GH14 * 0.4) return true;
+    if (enemy.y < 8 || enemy.y > GH14 - 8) return true;
+    var d = fire.direction;
+    var aimed = (d & 16) !== 0 || st.facesPlayer || st.patrols;
     var base;
-    if (fire.type === 2) {
+    if (aimed) {
       var dx = scene.playerSprite.x - enemy.x;
       var dy = scene.playerSprite.y - enemy.y;
       base = Math.atan2(dx, -dy);
@@ -2928,20 +2945,28 @@
       base = Math.PI;
     }
     ensureZakoBulletTexture(scene);
-    var fireOne = function(a2) {
-      var bullet = shootFn(scene, enemy, Math.sin(a2), -Math.cos(a2));
+    var fireOne = function(a, offsetX) {
+      var bullet = shootFn(scene, enemy, Math.sin(a), -Math.cos(a));
       if (!bullet) return;
+      if (offsetX) bullet.x += offsetX;
       bullet.setTexture(ZAKO_BULLET_KEY);
       bullet.setData("frames", null);
       bullet.setData("speed", ZAKO_BULLET_SPEED / SATURN_TICKS_PER_FRAME);
     };
-    if (fire.type === 1) {
-      var n = Math.max(1, fire.count);
-      var spread = (fire.wide ? 90 : 40) * Math.PI / 180;
-      for (var i = 0; i < n; i++) {
-        var a = n === 1 ? base : base - spread / 2 + spread * i / (n - 1);
-        fireOne(a);
-      }
+    var FAN = 11 * Math.PI / 180;
+    var geometry = d & 15;
+    if (geometry === 2) {
+      fireOne(base, -8);
+      fireOne(base, 8);
+    } else if (geometry >= 5 && geometry <= 7) {
+      fireOne(base - FAN);
+      fireOne(base);
+      fireOne(base + FAN);
+    } else if (geometry === 8 || geometry === 9) {
+      for (var i = -2; i <= 2; i++) fireOne(base + i * FAN);
+    } else if (geometry === 13) {
+      fireOne(base - Math.PI / 2);
+      fireOne(base + Math.PI / 2);
     } else {
       fireOne(base);
     }
@@ -5166,7 +5191,7 @@
       var ex, ey;
       if (deza) {
         ex = gridLeft + i * 16 + 16;
-        ey = GH2 + scene.dezaBg._scroll - (dezaRow * 16 + 24);
+        ey = GH2 + scene.dezaBg._scroll - (dezaRow * 16 + 8);
         if (ey > -16) ey = -16;
       } else {
         ex = cellW * i + cellW / 2;
