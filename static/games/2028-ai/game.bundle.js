@@ -1172,7 +1172,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/constants.js
+  // ../2019-es7/src/constants.js
   var LANG = (() => {
     if (typeof document !== "undefined" && document.documentElement) {
       switch (document.documentElement.lang) {
@@ -1308,7 +1308,7 @@
     CENTER_Y: typeof window !== "undefined" ? window.innerHeight / 2 : GAME_DIMENSIONS.CENTER_Y
   };
 
-  // ../2019-es7-0822/src/gameState.js
+  // ../2019-es7/src/gameState.js
   function ensureGameState() {
     if (!globalThis.__GAME_STATE__ || typeof globalThis.__GAME_STATE__ !== "object") {
       globalThis.__GAME_STATE__ = {};
@@ -1431,7 +1431,7 @@
     return highScore;
   }
 
-  // ../2019-es7-0822/src/globals.js
+  // ../2019-es7/src/globals.js
   function ensureResources() {
     if (!globalThis.__GAME_RESOURCES__ || typeof globalThis.__GAME_RESOURCES__ !== "object") {
       globalThis.__GAME_RESOURCES__ = {};
@@ -1485,7 +1485,7 @@
     }
   });
 
-  // ../2019-es7-0822/src/phaser/stages.js
+  // ../2019-es7/src/phaser/stages.js
   var MAX_STAGE_ID = 9;
   var ASSET_STAGES = 5;
   function clampStageId(value) {
@@ -1515,7 +1515,7 @@
     return ids[ids.length - 1];
   }
 
-  // ../2019-es7-0822/src/phaser/BootScene.js
+  // ../2019-es7/src/phaser/BootScene.js
   var EDITOR_PLAY_RECIPE_KEY = "__editorPhaserRecipe__";
   var EDITOR_PLAY_STAGE_KEY = "__editorPhaserStageId__";
   var FIREBASE_LEVELS_PATH = "levels";
@@ -1790,9 +1790,6 @@
       gameState.playerHp = recipe.playerData.maxHp;
       gameState.shootMode = recipe.playerData.defaultShootName;
       gameState.shootSpeed = recipe.playerData.defaultShootSpeed;
-    }
-    if (recipe && typeof recipe.godMode === "boolean") {
-      gameState.godFlg = recipe.godMode;
     }
     gameState.combo = 0;
     gameState.maxCombo = 0;
@@ -2339,7 +2336,7 @@
     }
   };
 
-  // ../2019-es7-0822/src/highScoreUi.js
+  // ../2019-es7/src/highScoreUi.js
   var SYNC_COPY = {
     idle: "WORLD BEST STANDBY",
     loading: "SYNCING WORLD BEST",
@@ -2371,7 +2368,7 @@
     return SYNC_TINT[status] || SYNC_TINT.idle;
   }
 
-  // ../2019-es7-0822/src/phaser/StaffRollPanel.js
+  // ../2019-es7/src/phaser/StaffRollPanel.js
   function openExternalUrl(url) {
     if (!url) {
       return;
@@ -2561,7 +2558,7 @@
     }
   };
 
-  // ../2019-es7-0822/src/phaser/GamepadInput.js
+  // ../2019-es7/src/phaser/GamepadInput.js
   var FACE_BOTTOM = 0;
   var FACE_RIGHT = 1;
   var FACE_LEFT = 2;
@@ -2671,8 +2668,9 @@
     return result;
   }
 
-  // ../2019-es7-0822/src/phaser/dezaemon-runtime.js
+  // ../2019-es7/src/phaser/dezaemon-runtime.js
   var TILE = 16;
+  var SATURN_TICKS_PER_FRAME = 2;
   var SCROLL_PX_PER_FRAME = 2;
   var BOSS_PARK_SHIFT = 48;
   var STRIP_ROWS = 128;
@@ -2815,10 +2813,19 @@
     }
     return st.value;
   }
+  var MIN_ZAKO_RELOAD_FRAMES = 119;
+  function zakoReload(fire) {
+    return Math.max(fire.interval, MIN_ZAKO_RELOAD_FRAMES) + Math.floor(Math.random() * (fire.window || 1));
+  }
+  function ridesTheMap(movePattern) {
+    return movePattern === 4 || (movePattern & 3) === 2;
+  }
   function initEnemyBehavior(enemy, behavior) {
     enemy.setData("deza", {
       behavior,
       age: 0,
+      tick: 0,
+      pinned: ridesTheMap(behavior.movePattern),
       speedCh: makeChannel(behavior.speedChange, null),
       rotationCh: makeChannel(behavior.rotation, {
         wrap: true,
@@ -2827,9 +2834,18 @@
         spin: behavior.rotation.mode >= 3
       }),
       scaleCh: makeChannel(behavior.scale, null),
-      directionCh: makeChannel(behavior.direction, { wrap: true }),
-      // stagger the first volley inside the engine's randomization window
-      reload: behavior.fire.enabled ? behavior.fire.interval + Math.floor(Math.random() * (behavior.fire.window || 1)) : -1
+      // No wrap: a flat direction channel (from == to) HOLDS its heading.
+      // Spun as a circle it sent Ramsie's roc riding the scroll to the
+      // screen bottom; held at 0 (up-map, fighting the scroll) the roc
+      // hangs near the top of the screen like the capture shows.
+      directionCh: makeChannel(behavior.direction, null),
+      // Special fire patterns (b5 = 10/11/12) are the three untraced
+      // engine handlers. Ramsie's statues carry pattern 11 and emit
+      // NOTHING in 55s of capture — played as aimed volleys they were the
+      // bullet spam the import was known for. Silent until traced.
+      // Otherwise: stagger the first volley inside the engine's
+      // randomization window.
+      reload: behavior.fire.enabled && behavior.fire.pattern == null ? zakoReload(behavior.fire) : -1
     });
     if (behavior.ground) {
       var shadow = enemy.getData("shadow");
@@ -2840,14 +2856,19 @@
     var st = enemy.getData("deza");
     if (!st) return false;
     var b = st.behavior;
+    var scroll = scene.dezaBg ? scene.dezaBg.lastDelta : scene.bossActive || scene.bossReached ? 0 : SCROLL_PX_PER_FRAME / SATURN_TICKS_PER_FRAME;
+    enemy.y += scroll;
+    st.tick++;
+    if (st.tick % SATURN_TICKS_PER_FRAME) return true;
     st.age++;
-    var scroll = scene.dezaBg ? scene.dezaBg.lastDelta : scene.bossActive || scene.bossReached ? 0 : SCROLL_PX_PER_FRAME;
     var mult = st.speedCh ? stepChannel(st.speedCh) : 1;
-    var dirDeg = st.directionCh ? stepChannel(st.directionCh) : 180;
+    var dirDeg = st.directionCh ? stepChannel(st.directionCh) : 0;
     var speed = b.speed * mult;
-    var rad = dirDeg * Math.PI / 180;
-    enemy.x += Math.sin(rad) * speed;
-    enemy.y += -Math.cos(rad) * speed + scroll;
+    if (!st.pinned) {
+      var rad = dirDeg * Math.PI / 180;
+      enemy.x += Math.sin(rad) * speed;
+      enemy.y += -Math.cos(rad) * speed;
+    }
     if (st.rotationCh) {
       enemy.rotation = stepChannel(st.rotationCh) * Math.PI / 180;
     }
@@ -2864,44 +2885,65 @@
         else if (f < 0.45) a = Math.max(0.3, f / 0.45);
         enemy.setAlpha(a);
         enemy.setData("dezaNoContact", f > 1.5 || f < 0.45);
+        if (st.scaleCh.done && (f > 1.5 || f < 0.45)) {
+          enemy.setData("dezaGone", true);
+        }
       }
     }
     return true;
+  }
+  var ZAKO_BULLET_KEY = "dezaZakoBullet";
+  var ZAKO_BULLET_SPEED = 1.35;
+  function ensureZakoBulletTexture(scene) {
+    if (scene.textures.exists(ZAKO_BULLET_KEY)) return;
+    var tex = scene.textures.createCanvas(ZAKO_BULLET_KEY, 12, 12);
+    var ctx = tex.getContext();
+    ctx.strokeStyle = "#8ff6ff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(6, 6, 4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(220,255,255,0.9)";
+    ctx.fillRect(5, 3, 2, 2);
+    tex.refresh();
   }
   function updateEnemyFire(scene, enemy, shootFn) {
     var st = enemy.getData("deza");
     if (!st) return false;
     var fire = st.behavior.fire;
     if (!fire.enabled || st.reload < 0) return true;
+    if (st.tick % SATURN_TICKS_PER_FRAME) return true;
     st.reload -= 1;
     if (st.reload > 0) return true;
-    st.reload = fire.interval + Math.floor(Math.random() * (fire.window || 1));
+    st.reload = zakoReload(fire);
     var GH14 = scene.scale ? scene.scale.height : 480;
     if (!scene.playerSprite) return true;
     if (enemy.y < 16 || enemy.y > GH14 * 0.4) return true;
     var base;
-    if (fire.pattern !== null && fire.pattern !== void 0) {
-      var pdx = scene.playerSprite.x - enemy.x;
-      var pdy = scene.playerSprite.y - enemy.y;
-      base = Math.atan2(pdx, -pdy);
-    } else if (fire.direction) {
-      base = fire.direction * (360 / 32) * Math.PI / 180;
-    } else if (fire.type === 0 || fire.type === 3) {
-      base = Math.PI;
-    } else {
+    if (fire.type === 2) {
       var dx = scene.playerSprite.x - enemy.x;
       var dy = scene.playerSprite.y - enemy.y;
       base = Math.atan2(dx, -dy);
+    } else {
+      base = Math.PI;
     }
+    ensureZakoBulletTexture(scene);
+    var fireOne = function(a2) {
+      var bullet = shootFn(scene, enemy, Math.sin(a2), -Math.cos(a2));
+      if (!bullet) return;
+      bullet.setTexture(ZAKO_BULLET_KEY);
+      bullet.setData("frames", null);
+      bullet.setData("speed", ZAKO_BULLET_SPEED / SATURN_TICKS_PER_FRAME);
+    };
     if (fire.type === 1) {
       var n = Math.max(1, fire.count);
       var spread = (fire.wide ? 90 : 40) * Math.PI / 180;
       for (var i = 0; i < n; i++) {
         var a = n === 1 ? base : base - spread / 2 + spread * i / (n - 1);
-        shootFn(scene, enemy, Math.sin(a), -Math.cos(a));
+        fireOne(a);
       }
     } else {
-      shootFn(scene, enemy, Math.sin(base), -Math.cos(base));
+      fireOne(base);
     }
     return true;
   }
@@ -3100,7 +3142,10 @@
     var bullet = scene.add.sprite(x, y, "game_asset", frames[0] || "normalProjectile0.gif");
     bullet.setOrigin(0.5);
     bullet.setDepth(47);
-    bullet.setData("speed", projData.speed || DEZA_BOSS_BULLET.speed);
+    bullet.setData(
+      "speed",
+      (projData.speed || DEZA_BOSS_BULLET.speed) / SATURN_TICKS_PER_FRAME
+    );
     bullet.setData("damage", projData.damage || 1);
     bullet.setData("hp", projData.hp || 1);
     bullet.setData("score", projData.score || 0);
@@ -3157,7 +3202,7 @@
         DEZA_BOSS_BULLET,
         16750916
       );
-      b.setData("speed", speed);
+      b.setData("speed", speed / SATURN_TICKS_PER_FRAME);
       b.setScale(1 + Math.random() * 0.5);
     }
   }
@@ -3214,6 +3259,8 @@
       return;
     }
     var b = st.boss;
+    st.tick = (st.tick || 0) + 1;
+    if (st.tick % SATURN_TICKS_PER_FRAME) return;
     st.age++;
     var stages = Math.max(1, Math.min(4, b.hpStages || 1));
     var frac = scene.bossMaxHp > 0 ? scene.bossHp / scene.bossMaxHp : 1;
@@ -3282,7 +3329,7 @@
     }
     var dx = pd.dx;
     if (pd.mobile) {
-      dx += Math.sin((scene.worldTime + pd.phase) * 0.05) * 6;
+      dx += Math.sin((scene.worldTime / SATURN_TICKS_PER_FRAME + pd.phase) * 0.05) * 6;
     }
     part.x = boss.x + dx;
     part.y = boss.y + pd.dy;
@@ -3626,7 +3673,7 @@
     src.stop(t + dur + 0.2);
   }
 
-  // ../2019-es7-0822/src/phaser/TitleScene.js
+  // ../2019-es7/src/phaser/TitleScene.js
   var PhaserTitleScene = class extends Phaser.Scene {
     constructor() {
       super({ key: "PhaserTitleScene" });
@@ -4070,7 +4117,7 @@
     }
   };
 
-  // ../2019-es7-0822/src/phaser/AdvScene.js
+  // ../2019-es7/src/phaser/AdvScene.js
   var ADV_SCENARIO_JA = {
     stage0: {
       part: [
@@ -4404,7 +4451,7 @@
     }
   };
 
-  // ../2019-es7-0822/src/enums/player-boss-states.js
+  // ../2019-es7/src/enums/player-boss-states.js
   var PLAYER_STATES = {
     SHOOT_NAME_NORMAL: "normal",
     SHOOT_NAME_BIG: "big",
@@ -4414,7 +4461,7 @@
     BARRIER: "barrier"
   };
 
-  // ../2019-es7-0822/src/haptics.js
+  // ../2019-es7/src/haptics.js
   var HAPTIC_PRESETS = {
     ui: {
       cooldown: 60,
@@ -4765,7 +4812,7 @@
     return triggered;
   }
 
-  // ../2019-es7-0822/src/phaser/game-objects/Shadow.js
+  // ../2019-es7/src/phaser/game-objects/Shadow.js
   function createShadow(scene, sprite, frameKey, shadowReverse, shadowOffsetY, textureKey) {
     var shadow = scene.add.sprite(sprite.x, sprite.y, textureKey || "game_asset", frameKey);
     shadow.setOrigin(0.5);
@@ -4785,7 +4832,7 @@
     shadow.y = sprite.y + sprite.height - offsetY;
   }
 
-  // ../2019-es7-0822/src/phaser/game-objects/Player.js
+  // ../2019-es7/src/phaser/game-objects/Player.js
   var GW = GAME_DIMENSIONS.WIDTH;
   var GH = GAME_DIMENSIONS.HEIGHT;
   var GCX = GAME_DIMENSIONS.CENTER_X;
@@ -5020,9 +5067,10 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/game-objects/Enemy.js
+  // ../2019-es7/src/phaser/game-objects/Enemy.js
   var GW2 = GAME_DIMENSIONS.WIDTH;
   var GH2 = GAME_DIMENSIONS.HEIGHT;
+  var DEZA_MAX_LIVE_ZAKO = 32;
   function resolveFrame(scene, atlasKey, frameName) {
     var atlas = scene.textures.get(atlasKey);
     if (!atlas) return frameName;
@@ -5085,6 +5133,9 @@
     var row = scene.stageEnemyPositionList[scene.waveCount] || [];
     var cols = row.length || 8;
     var cellW = GW2 / cols;
+    var deza = scene.dezaBg && scene.stageWaveRows;
+    var dezaRow = deza ? scene.stageWaveRows[scene.waveCount] : 0;
+    var gridLeft = (GW2 - cols * 16) / 2;
     for (var i = 0; i < row.length; i++) {
       var code = String(row[i]);
       if (code === "00") continue;
@@ -5109,7 +5160,19 @@
           itemName = PLAYER_STATES.BARRIER;
           break;
       }
-      createEnemy(scene, enemyData, cellW * i + cellW / 2, -16, itemName);
+      if (enemyData.dezaemon && enemyData.dezaemon.behavior && scene.enemies.length >= DEZA_MAX_LIVE_ZAKO) {
+        continue;
+      }
+      var ex, ey;
+      if (deza) {
+        ex = gridLeft + i * 16 + 16;
+        ey = GH2 + scene.dezaBg._scroll - (dezaRow * 16 + 24);
+        if (ey > -16) ey = -16;
+      } else {
+        ex = cellW * i + cellW / 2;
+        ey = -16;
+      }
+      createEnemy(scene, enemyData, ex, ey, itemName);
     }
     scene.waveCount++;
   }
@@ -5280,7 +5343,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/game-objects/Bullet.js
+  // ../2019-es7/src/phaser/game-objects/Bullet.js
   var GW3 = GAME_DIMENSIONS.WIDTH;
   function attachAnim(bullet, frames, frameRate) {
     bullet.setData("frames", frames);
@@ -5404,7 +5467,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/effects/Explosions.js
+  // ../2019-es7/src/phaser/effects/Explosions.js
   var GW4 = GAME_DIMENSIONS.WIDTH;
   var GH3 = GAME_DIMENSIONS.HEIGHT;
   function showExplosion(scene, x, y) {
@@ -5558,11 +5621,11 @@
     });
   }
 
-  // ../2019-es7-0822/src/phaser/bosses/BossBison.js
+  // ../2019-es7/src/phaser/bosses/BossBison.js
   var GW5 = GAME_DIMENSIONS.WIDTH;
   var GH4 = GAME_DIMENSIONS.HEIGHT;
 
-  // ../2019-es7-0822/src/phaser/bosses/BossBarlog.js
+  // ../2019-es7/src/phaser/bosses/BossBarlog.js
   var GW6 = GAME_DIMENSIONS.WIDTH;
   var GH5 = GAME_DIMENSIONS.HEIGHT;
   function clamp2(v, lo, hi) {
@@ -5645,7 +5708,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/bosses/BossSagat.js
+  // ../2019-es7/src/phaser/bosses/BossSagat.js
   var GW7 = GAME_DIMENSIONS.WIDTH;
   var GH6 = GAME_DIMENSIONS.HEIGHT;
   function clamp3(v, lo, hi) {
@@ -5761,7 +5824,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/bosses/BossVega.js
+  // ../2019-es7/src/phaser/bosses/BossVega.js
   var GW8 = GAME_DIMENSIONS.WIDTH;
   var GH7 = GAME_DIMENSIONS.HEIGHT;
   var GCX2 = GAME_DIMENSIONS.CENTER_X;
@@ -5937,7 +6000,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/bosses/BossFang.js
+  // ../2019-es7/src/phaser/bosses/BossFang.js
   var GW9 = GAME_DIMENSIONS.WIDTH;
   function clamp5(v, lo, hi) {
     return v < lo ? lo : v > hi ? hi : v;
@@ -6010,7 +6073,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/bosses/BossGoki.js
+  // ../2019-es7/src/phaser/bosses/BossGoki.js
   var GW10 = GAME_DIMENSIONS.WIDTH;
   var GH8 = GAME_DIMENSIONS.HEIGHT;
   function clamp6(v, lo, hi) {
@@ -6135,7 +6198,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/bosses/BossPyramid.js
+  // ../2019-es7/src/phaser/bosses/BossPyramid.js
   var GW11 = GAME_DIMENSIONS.WIDTH;
   var GH9 = GAME_DIMENSIONS.HEIGHT;
   var GCX3 = GAME_DIMENSIONS.CENTER_X;
@@ -6270,7 +6333,7 @@
     }
   }
 
-  // ../2019-es7-0822/src/phaser/game-objects/Boss.js
+  // ../2019-es7/src/phaser/game-objects/Boss.js
   var GW12 = GAME_DIMENSIONS.WIDTH;
   var GH10 = GAME_DIMENSIONS.HEIGHT;
   var GCX4 = GAME_DIMENSIONS.CENTER_X;
@@ -7054,7 +7117,7 @@
     });
   }
 
-  // ../2019-es7-0822/src/phaser/effects/AkebonoFinish.js
+  // ../2019-es7/src/phaser/effects/AkebonoFinish.js
   var GCX5 = GAME_DIMENSIONS.CENTER_X;
   var GCY2 = GAME_DIMENSIONS.CENTER_Y;
   function showAkebonoFinish(scene) {
@@ -7102,7 +7165,7 @@
     scene.playSound("voice_ko", 0.7);
   }
 
-  // ../2019-es7-0822/src/phaser/ui/ScorePopup.js
+  // ../2019-es7/src/phaser/ui/ScorePopup.js
   function showScorePopup(scene, x, y, score, ratio) {
     var container = scene.add.container(0, 0);
     container.setDepth(110);
@@ -7138,7 +7201,7 @@
     });
   }
 
-  // ../2019-es7-0822/src/phaser/GameScene.js
+  // ../2019-es7/src/phaser/GameScene.js
   var DEZA_SFX_MAP = {
     se_explosion: "explosion",
     se_bomb: "explosion",
@@ -7293,10 +7356,10 @@
         var perRow = this.waveInterval || 8;
         var self0 = this;
         this.waveDueTicks = rowsAsc.map(function(row) {
-          return self0.dezaBg ? Math.max(0, row * perRow - 232) : (row - firstRow) * perRow;
+          return self0.dezaBg ? Math.max(0, (row * perRow - 256) * SATURN_TICKS_PER_FRAME) : (row - firstRow) * perRow;
         });
       }
-      this.bossDueTick = this.dezaBg && dezaBossRow !== null ? Math.ceil(this.dezaBg.stopScroll / SCROLL_PX_PER_FRAME) : null;
+      this.bossDueTick = this.dezaBg && dezaBossRow !== null ? Math.ceil(this.dezaBg.stopScroll * SATURN_TICKS_PER_FRAME / SCROLL_PX_PER_FRAME) : null;
       if (gameState.shortFlg && this.bossDueTick !== null) {
         this.worldTime = this.bossDueTick;
       }
@@ -7948,7 +8011,7 @@
         this.worldTime += 1;
       }
       if (this.dezaBg) {
-        this.dezaBg.setScroll(this.worldTime * SCROLL_PX_PER_FRAME);
+        this.dezaBg.setScroll(this.worldTime * SCROLL_PX_PER_FRAME / SATURN_TICKS_PER_FRAME);
       } else if (this.stageBg && !this.playerDead && !this.stageCleared) {
         if (!this.bossActive && !this.bossReached) {
           var bgMove = this.gameStarted ? this.stageBgAmountMove || 0.7 : 0.7;
@@ -8011,7 +8074,7 @@
         animateEnemy(enemy, step);
         var eRect = { x: enemy.x - enemy.width / 2, y: enemy.y - enemy.height / 2, w: enemy.width, h: enemy.height };
         if (enemy.getData("dezaNoContact")) {
-          if (enemy.y > GH11 + 20 || enemy.x < -40 || enemy.x > GW13 + 40) {
+          if (enemy.getData("dezaGone") || enemy.y > GH11 + 20 || enemy.x < -40 || enemy.x > GW13 + 40) {
             this.enemies.splice(e, 1);
             var ncShadow = enemy.getData("shadow");
             if (ncShadow && ncShadow.active) ncShadow.destroy();
@@ -8364,7 +8427,7 @@
     }
   };
 
-  // ../2019-es7-0822/src/firebaseScores.js
+  // ../2019-es7/src/firebaseScores.js
   var DEFAULT_DATABASE_PATH = "leaderboards/globalHighScore";
   var databaseRef = null;
   function getFirebaseConfig() {
@@ -8461,7 +8524,7 @@
     });
   }
 
-  // ../2019-es7-0822/src/phaser/ui/BigNumberDisplay.js
+  // ../2019-es7/src/phaser/ui/BigNumberDisplay.js
   var BigNumberDisplay = class {
     constructor(scene, maxDigit) {
       this.scene = scene;
@@ -8490,7 +8553,7 @@
     }
   };
 
-  // ../2019-es7-0822/src/phaser/ContinueScene.js
+  // ../2019-es7/src/phaser/ContinueScene.js
   var GW14 = GAME_DIMENSIONS.WIDTH;
   var GH12 = GAME_DIMENSIONS.HEIGHT;
   var GCX7 = GAME_DIMENSIONS.CENTER_X;
@@ -8955,7 +9018,7 @@
     }
   };
 
-  // ../2019-es7-0822/src/phaser/EndingScene.js
+  // ../2019-es7/src/phaser/EndingScene.js
   var GW15 = GAME_DIMENSIONS.WIDTH;
   var GH13 = GAME_DIMENSIONS.HEIGHT;
   var GCX8 = GAME_DIMENSIONS.CENTER_X;
@@ -9320,7 +9383,7 @@
     }
   };
 
-  // ../2019-es7-0822/src/forge/slug.js
+  // ../2019-es7/src/forge/slug.js
   function slugify(name) {
     return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 30) || "level";
   }
@@ -9328,7 +9391,7 @@
     return "com.easierbycode." + slugify(name);
   }
 
-  // ../2019-es7-0822/src/forge/fetch-level.js
+  // ../2019-es7/src/forge/fetch-level.js
   var FIREBASE_DB_URL = "https://evil-invaders-default-rtdb.firebaseio.com";
   var LEVELS_PATH = "levels";
   async function fetchLevel(levelName) {
@@ -9348,7 +9411,7 @@
     return data;
   }
 
-  // ../2019-es7-0822/src/forge/merge-atlas.js
+  // ../2019-es7/src/forge/merge-atlas.js
   function fbKeyDecode(name) {
     return String(name).replace(/․/g, ".");
   }
@@ -9452,7 +9515,7 @@
     return { pngBlob, json: mergedJson, merged: true, localH, fbH };
   }
 
-  // ../2019-es7-0822/src/forge/download-bgm.js
+  // ../2019-es7/src/forge/download-bgm.js
   async function sha1Hex(str) {
     const enc = new TextEncoder().encode(str);
     const buf = await crypto.subtle.digest("SHA-1", enc);
@@ -9497,7 +9560,7 @@
     return { manifest, blobs };
   }
 
-  // ../2019-es7-0822/src/forge/stage-www.js
+  // ../2019-es7/src/forge/stage-www.js
   var KEEP_DIRS = [
     "assets/img/stage",
     "assets/img/loading",
@@ -9570,7 +9633,7 @@
     return rec;
   }
 
-  // ../2019-es7-0822/src/forge/rebrand-html.js
+  // ../2019-es7/src/forge/rebrand-html.js
   function xmlEscape(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
   }
@@ -9602,7 +9665,7 @@
     return html;
   }
 
-  // ../2019-es7-0822/src/forge/forge-driver.js
+  // ../2019-es7/src/forge/forge-driver.js
   function blobToBase64(blob) {
     return new Promise(function(resolve, reject) {
       const r = new FileReader();
@@ -9708,7 +9771,7 @@
     return !!(typeof window !== "undefined" && window.ApkForge && window.ApkForge.isAvailable && window.ApkForge.isAvailable());
   }
 
-  // ../2019-es7-0822/src/phaser/ForgeScene.js
+  // ../2019-es7/src/phaser/ForgeScene.js
   var PhaserForgeScene = class extends Phaser.Scene {
     constructor() {
       super({ key: "PhaserForgeScene" });
