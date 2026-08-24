@@ -155,3 +155,27 @@ Deno.test("a carried stage with stale waveRows arrives without them, not mismatc
   assert.equal(recipe.stage5.waveRows, undefined);
   assert.equal(recipe.stage5.waveInterval, undefined);
 });
+
+Deno.test("mergeRecipe transfers godMode from levelData to recipe when present", () => {
+  const loader = makeLoader();
+
+  const recipeGodOn = loader.mergeRecipe(baseRecipe(), {
+    stageKey: "stage0",
+    enemylist: grid(8, 8, "A0"),
+    godMode: true,
+  }, "game_asset");
+  assert.equal(recipeGodOn.godMode, true);
+
+  const recipeGodOff = loader.mergeRecipe(baseRecipe(), {
+    stageKey: "stage0",
+    enemylist: grid(8, 8, "A0"),
+    godMode: false,
+  }, "game_asset");
+  assert.equal(recipeGodOff.godMode, false);
+
+  const recipeGodUnset = loader.mergeRecipe(baseRecipe(), {
+    stageKey: "stage0",
+    enemylist: grid(8, 8, "A0"),
+  }, "game_asset");
+  assert.equal(recipeGodUnset.godMode, undefined);
+});
