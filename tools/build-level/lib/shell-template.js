@@ -153,11 +153,20 @@ function htmlEscape(s) {
 // staged. The three runtime scripts sit at the end of <body> (in order) so they
 // run after #phaser-canvas exists — the fit observer attaches to it, and Phaser
 // is defined before game.bundle.js boots.
+//
+// `godMode` bakes the level editor's GOD MODE toggle into the app: the toggle
+// rides the level record as `godMode`, and pre-seeding __GAME_STATE__ before
+// the bundle evaluates makes it the default the runtime's ?god= param sync
+// keeps (an exported app launches with no query string). The exported-app
+// marker itself is unconditional — the runtime hides the TWEET buttons and the
+// in-app BUILD APK forge when it sees it, so an export can't re-export itself.
 function renderShell(opts) {
   const levelName = htmlEscape(opts.levelName || "2028.Ai");
   const gamepadTag = opts.hasGamepad
     ? '\n    <script src="gamepad-compatibility-plugin.js"></script>'
     : "";
+  const flagsTag = "window.__EXPORTED_LEVEL_APP__ = true;" +
+    (opts.godMode ? " window.__GAME_STATE__ = { godFlg: true };" : "");
   return `<!doctype html>
 <html>
 <head>
@@ -171,6 +180,7 @@ function renderShell(opts) {
          it, exported builds would silently drop scene scripts that work on the
          web. Must precede any module script. -->
     <script type="importmap">{"imports":{"phaser":"./phaser-global.js"}}</script>
+    <script>${flagsTag}</script>
     <style>${STYLE}</style>
 </head>
 <body>

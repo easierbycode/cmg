@@ -1393,6 +1393,9 @@
     state.godFlg = readBooleanSearchParam("god", typeof state.godFlg === "boolean" ? state.godFlg : false);
   }
   syncRuntimeFlagsFromLocation(gameState);
+  function isExportedLevelApp() {
+    return typeof window !== "undefined" && !!window.__EXPORTED_LEVEL_APP__;
+  }
   function setHighScore(value, source = "merged") {
     const normalized = normalizeScore(value);
     if (source === "local") {
@@ -2378,6 +2381,21 @@
     } catch (e) {
     }
   }
+  function dezaStaffCredits(recipe) {
+    var credits = recipe && recipe.dezaemonCredits ? recipe.dezaemonCredits : null;
+    if (!credits && recipe && recipe.dezaemonTitle) {
+      var meta = recipe.meta || {};
+      var sourceTitle = meta.sourceTitle || meta.sourceComment || "";
+      credits = sourceTitle ? { title: sourceTitle } : null;
+    }
+    if (!credits) return null;
+    var fields = ["title", "titleJa", "developer", "developerJa", "genre", "genreJa"];
+    for (var i = 0; i < fields.length; i++) {
+      var v = credits[fields[i]];
+      if (typeof v === "string" && v.trim()) return credits;
+    }
+    return null;
+  }
   var StaffRollPanel = class extends Phaser.GameObjects.Container {
     constructor(scene) {
       super(scene, 0, 0);
@@ -2415,15 +2433,13 @@
       this.closeBtn.on("pointerup", this.close, this);
       this.add(this.closeBtn);
       var recipe = gameState._phaserRecipe;
-      var dezaCredits = recipe && recipe.dezaemonCredits;
-      if (!dezaCredits && recipe && recipe.dezaemonTitle) {
-        var meta = recipe.meta || {};
-        dezaCredits = { title: meta.sourceTitle || meta.sourceComment || "" };
-      }
+      var dezaCredits = dezaStaffCredits(recipe);
       this.namePanel = null;
       if (dezaCredits) {
         this.wakingG.setVisible(false);
         this._addDezaCredits(dezaCredits);
+      } else if (recipe && recipe.dezaemonTitle) {
+        this.wakingG.setVisible(false);
       } else {
         this.namePanel = scene.add.sprite(15, 90, "game_ui", "staffrollName.gif");
         this.namePanel.setOrigin(0, 0);
@@ -2475,9 +2491,15 @@
           addLine(credits.developerJa, { ...base, fontSize: "10px", fill: "#cccccc" });
         }
       }
-      if (credits.genre) {
+      if (credits.genre || credits.genreJa) {
         y += 24;
-        addLine(credits.genre.toUpperCase(), { ...base, fontSize: "8px", fill: "#9be37f" });
+        addLine("GENRE", { ...base, fontSize: "8px", fill: "#ffff00" });
+        if (credits.genre) {
+          addLine(credits.genre.toUpperCase(), { ...base, fontSize: "10px", fill: "#9be37f" });
+        }
+        if (credits.genreJa && credits.genreJa !== credits.genre) {
+          addLine(credits.genreJa, { ...base, fontSize: "9px", fill: "#9be37f" });
+        }
       }
     }
     addLinkButton(frameName, x, y, url) {
@@ -3875,7 +3897,15 @@
         this.howtoBtn.setVisible(false);
         this.howtoBtn.disableInteractive();
       }
-      if (typeof window !== "undefined" && window.cordova && window.cordova.platformId === "android") {
+      if (isExportedLevelApp()) {
+        this.twitterBtn.setVisible(false);
+        this.twitterBtn.disableInteractive();
+      }
+      if (this.dezaTitle && !dezaStaffCredits(recipe)) {
+        this.staffrollBtn.setVisible(false);
+        this.staffrollBtn.disableInteractive();
+      }
+      if (typeof window !== "undefined" && window.cordova && window.cordova.platformId === "android" && !isExportedLevelApp()) {
         this.forgeBtn = this.add.text(
           GAME_DIMENSIONS.WIDTH - 6,
           GAME_DIMENSIONS.HEIGHT - 22,
@@ -3996,6 +4026,9 @@
     }
     showStaffroll() {
       if (this.staffRollPanel && this.staffRollPanel.active) {
+        return;
+      }
+      if (this.dezaTitle && !dezaStaffCredits(gameState._phaserRecipe)) {
         return;
       }
       this.staffRollPanel = new StaffRollPanel(this);
@@ -8883,6 +8916,10 @@
         self.tweetBtn.setFrame("twitterBtn1.gif");
         openUrl(buildTweetUrl());
       });
+      if (isExportedLevelApp()) {
+        this.tweetBtn.setVisible(false);
+        this.tweetBtn.disableInteractive();
+      }
       this.gotoTitleBtn = this.add.sprite(0, 0, "game_ui", "gotoTitleBtn0.gif");
       this.gotoTitleBtn.setOrigin(0.5);
       this.gotoTitleBtn.x = GCX7;
@@ -9181,6 +9218,10 @@
       this.tweetBtn.on("pointerup", function() {
         openUrl2(buildTweetUrl2());
       });
+      if (isExportedLevelApp()) {
+        this.tweetBtn.setVisible(false);
+        this.tweetBtn.disableInteractive();
+      }
       this.gotoTitleBtn = this.add.sprite(0, 0, "game_ui", "gotoTitleBtn0.gif");
       this.gotoTitleBtn.setOrigin(0, 0);
       this.gotoTitleBtn.x = GCX8 - this.gotoTitleBtn.width / 2;

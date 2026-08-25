@@ -4015,21 +4015,36 @@
             return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
         }
 
-        async function openDezaemonLibrary() {
-            if (!window.Dezaemon) { alert(dezaemonUnavailableMessage()); return; }
-            closeMenu();
-            const modal = document.getElementById('dezaemon-library-modal');
-            const list = document.getElementById('deza-library-list');
-            modal.classList.remove('hidden');
-            if (!dezaLibraryState) {
-                list.innerHTML = '<div class="menu-note">LOADING…</div>';
-                try {
-                    const [savesResp, dbResp] = await Promise.all([
-                        fetch('/api/dezaemon-saves'),
-                        fetch('dezaemon/games-db.json'),
-                    ]);
-                    const savesJson = await savesResp.json();
-                    const db = dbResp.ok ? await dbResp.json() : { games: [] };
+        // The community table's genres are English-only; the runtime's STAFF
+        // ROLL shows the genre in both languages, so games-db.json's fixed
+        // genre vocabulary gets its Japanese rendering here.
+        const DEZA_GENRE_JA = {
+            'Vertical Shoot-em-up': '縦スクロールシューティング',
+            'Horizontal Shoot-em-up': '横スクロールシューティング',
+            'Vertical Shoot-em-up / Danmaku': '縦スクロールシューティング／弾幕',
+            'Horizontal Shoot-em-up / Danmaku': '横スクロールシューティング／弾幕',
+            'Vertical Shoot-em-up / Story': '縦スクロールシューティング／ストーリー',
+            'Horizontal Shoot-em-up / Story': '横スクロールシューティング／ストーリー',
+            'Score Attack Vertical Shoot-em-up': 'スコアアタック縦スクロールシューティング',
+            'Score Attack Horizontal Shoot-em-up': 'スコアアタック横スクロールシューティング',
+            'Action - Shoot-em-up': 'アクションシューティング',
+            'Action - Racing': 'アクションレーシング',
+            'Action - Puzzle': 'アクションパズル',
+            'Action': 'アクション',
+            'Tool': 'ツール',
+            'Movie': 'ムービー',
+            'Avant-Garde Art': '前衛アート',
+        };
+
+        // games-db.json rows keyed by normalized title (aliases folded in) —
+        // fetched once, shared by the SAVED GAMES shelf and the importer's
+        // credits lookup below.
+        let dezaGamesDbPromise = null;
+        function loadDezaGamesDbByTitle() {
+            if (!dezaGamesDbPromise) {
+                dezaGamesDbPromise = (async () => {
+                    const resp = await fetch('dezaemon/games-db.json');
+                    const db = resp.ok ? await resp.json() : { games: [] };
                     const byTitle = new Map();
                     for (const g of (db.games || [])) {
                         byTitle.set(dezaNormTitle(g[0]),
@@ -4042,6 +4057,52 @@
                         const target = byTitle.get(to);
                         if (target && !byTitle.has(from)) byTitle.set(from, target);
                     }
+                    return byTitle;
+                })();
+                // A failed fetch shouldn't poison every later lookup.
+                dezaGamesDbPromise.catch(() => { dezaGamesDbPromise = null; });
+            }
+            return dezaGamesDbPromise;
+        }
+
+        // The staff-roll credits object for one community-table row.
+        function dezaCreditsFromMeta(meta) {
+            return {
+                title: meta.title, titleJa: meta.titleJa,
+                developer: meta.developer, developerJa: meta.developerJa,
+                genre: meta.genre, genreJa: DEZA_GENRE_JA[meta.genre] || null,
+            };
+        }
+
+        // Credits for an imported save: the community table's row when its
+        // title is known there, else just the title the cart itself carries —
+        // and null when there is not even that. The runtime's STAFF ROLL
+        // shows these, and hides its button entirely on null.
+        async function dezaLookupCredits(title) {
+            if (title) {
+                try {
+                    const byTitle = await loadDezaGamesDbByTitle();
+                    const meta = byTitle.get(dezaNormTitle(title));
+                    if (meta) return dezaCreditsFromMeta(meta);
+                } catch (e) { /* table unavailable — fall through to title-only */ }
+            }
+            return title ? { title } : null;
+        }
+
+        async function openDezaemonLibrary() {
+            if (!window.Dezaemon) { alert(dezaemonUnavailableMessage()); return; }
+            closeMenu();
+            const modal = document.getElementById('dezaemon-library-modal');
+            const list = document.getElementById('deza-library-list');
+            modal.classList.remove('hidden');
+            if (!dezaLibraryState) {
+                list.innerHTML = '<div class="menu-note">LOADING…</div>';
+                try {
+                    const [savesResp, byTitle] = await Promise.all([
+                        fetch('/api/dezaemon-saves'),
+                        loadDezaGamesDbByTitle(),
+                    ]);
+                    const savesJson = await savesResp.json();
                     dezaLibraryState = { available: !!savesJson.available, saves: savesJson.saves || [], byTitle };
                 } catch (err) {
                     list.innerHTML = '';
@@ -4130,12 +4191,14 @@
             if (usable.length === 1) {
                 selectDezaemonSlot(usable[0]);
                 await applyDezaemonImport();
-                // The community table's credits ride the game: the runtime's
-                // STAFF ROLL shows the title and developer in both languages.
+                // The shelf knows this save's table row by filename match —
+                // refine the credits the import just attached (it looked up
+                // the cart's own title, which can differ from the filename).
                 if (gameData) {
-                    gameData.dezaemonCredits = meta
-                        ? { title: meta.title, titleJa: meta.titleJa, developer: meta.developer, developerJa: meta.developerJa, genre: meta.genre }
-                        : { title: fallbackTitle || file.replace(/\.sav$/i, '') };
+                    if (meta) gameData.dezaemonCredits = dezaCreditsFromMeta(meta);
+                    else if (!gameData.dezaemonCredits) {
+                        gameData.dezaemonCredits = { title: fallbackTitle || file.replace(/\.sav$/i, '') };
+                    }
                 }
             }
         }
@@ -4307,6 +4370,13 @@
             enemyData = gameData.enemyData;
             bossData = gameData.bossData;
             playerData = gameData.playerData;
+            // Credits for the runtime's STAFF ROLL ride the game from here on:
+            // the community table's title/developer/genre (both languages)
+            // when this save is known there, else the cart's own title — every
+            // import path, not just the SAVED GAMES shelf (which refines this
+            // with its filename-matched row after the import returns).
+            gameData.dezaemonCredits =
+                await dezaLookupCredits(st.decoded.title || save.comment || '');
             currentStageKey = 'stage0';
             storeBossDataForViewers();
             // Fold the save's sprites into the atlas before the first paint —

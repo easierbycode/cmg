@@ -218,6 +218,10 @@ Deno.test({
             b && b.dezaemon
           ).length,
           bossTotal: Object.keys(gameData.bossData).length,
+          // Staff-roll credits attach on every import path (community-table
+          // row when the title is known there, the cart's own title if not) —
+          // the runtime hides the STAFF ROLL button when they are absent.
+          credits: gameData.dezaemonCredits,
           pacing: stageKeys.every((k: string) =>
             Array.isArray(gameData[k].waveRows) &&
             gameData[k].waveRows.length === gameData[k].enemylist.length &&
@@ -278,6 +282,13 @@ Deno.test({
         "every enemy carries its own 18-byte definition",
       );
       assert(applied.pacing, "every stage keeps the scroll row of each wave");
+      assert(
+        applied.credits && typeof applied.credits.title === "string" &&
+          applied.credits.title.length > 0,
+        `import attaches staff-roll credits: ${
+          JSON.stringify(applied.credits)
+        }`,
+      );
       assertEquals(applied.bossTotal, STAGES, "every stage can still end");
       assertEquals(
         applied.bossesFromSave,

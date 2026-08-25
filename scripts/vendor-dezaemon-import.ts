@@ -21,12 +21,21 @@ import { dirname, fromFileUrl, join, relative } from "jsr:@std/path@^1.1.2";
 // which Windows file APIs reject (os error 123).
 const ROOT = fromFileUrl(new URL("../", import.meta.url));
 const DEST = join(ROOT, "static", "editor", "dezaemon", "lib");
-const SRC = join(
+const ES7_IMPORTER = join(
   Deno.env.get("CMG_ES7_ROOT") ?? join(ROOT, "..", "2019-es7"),
   "tools",
   "dezaemon-import",
-  "lib",
 );
+const SRC = join(ES7_IMPORTER, "lib");
+
+// Loose files beside lib/ that both editors read, as [source, destination]
+// relative to the importer dir and this repo. games-db.json is the community
+// title/developer/genre table both level-editor forks look imports up in (it
+// feeds the runtime's STAFF ROLL) — vendoring it here is what keeps the two
+// copies from drifting silently, the way the forked editors themselves do.
+const EXTRA_FILES: Array<[string, string]> = [
+  ["games-db.json", join("static", "editor", "dezaemon", "games-db.json")],
+];
 
 const check = Deno.args.includes("--check");
 
@@ -73,6 +82,26 @@ for (const rel of files) {
   console.log(`vendored ${rel.replace(/\\/g, "/")}`);
 }
 
+for (const [rel, destRel] of EXTRA_FILES) {
+  const from = join(ES7_IMPORTER, rel);
+  if (!await exists(from)) continue;
+  const to = join(ROOT, destRel);
+  const source = await Deno.readTextFile(from);
+  const current = await exists(to) ? await Deno.readTextFile(to) : null;
+  if (
+    current !== null &&
+    current.replace(/\r\n/g, "\n") === source.replace(/\r\n/g, "\n")
+  ) continue;
+  changed++;
+  if (check) {
+    console.error(`stale: ${destRel.replace(/\\/g, "/")}`);
+    continue;
+  }
+  await Deno.mkdir(dirname(to), { recursive: true });
+  await Deno.writeTextFile(to, source);
+  console.log(`vendored ${rel}`);
+}
+
 // Anything left over from a module that was renamed or deleted upstream.
 const stale = (await exists(DEST) ? await walk(DEST) : []).filter((f) =>
   !files.includes(f)
@@ -91,7 +120,8 @@ for (const rel of stale) {
 
 if (check && changed) {
   console.error(
-    `\n${changed} file(s) differ from ${SRC}.\nRun: deno task dezaemon:vendor`,
+    `\n${changed} file(s) differ from ${ES7_IMPORTER}.\n` +
+      `Run: deno task dezaemon:vendor`,
   );
   Deno.exit(1);
 }

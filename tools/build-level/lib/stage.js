@@ -113,10 +113,16 @@ function stageWww(opts) {
     JSON.stringify(levelData),
   );
 
-  // Offline entry document.
+  // Offline entry document. The editor's GOD MODE toggle rides the level
+  // record (saved right before the export kicks off), so honoring it here is
+  // what makes "god mode on at export time" hold inside the app.
   fs.writeFileSync(
     path.join(wwwRoot, "phaser-game.html"),
-    renderShell({ levelName, hasGamepad }),
+    renderShell({
+      levelName,
+      hasGamepad,
+      godMode: !!(levelData && levelData.godMode === true),
+    }),
   );
 }
 
