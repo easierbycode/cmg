@@ -137,6 +137,12 @@ async function main() {
     "static",
     "--include",
     dataRoot,
+    // /api/build-apk spawns `node tools/build-level` to export a level as an
+    // APK. It is data, not part of the module graph, so `deno compile` only
+    // embeds it if it is named here — without this the packaged launcher's
+    // "Export to APK" fails with a path-not-found on tools/build-level.
+    "--include",
+    join("tools", "build-level"),
   ];
 
   for (const file of wasmFiles) {

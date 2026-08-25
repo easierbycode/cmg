@@ -53,6 +53,29 @@ function isCompiledBinary(): boolean {
   );
 }
 
+// The root that holds tools/ + static/ — the layout tools/build-level assumes
+// when it derives CMG_ROOT as __dirname/../.. .
+//
+// Depth is NOT fixed. In a source checkout under `deno task dev` this module is
+// routes/api/build-apk.ts, two levels down. Once Vite bundles the server the
+// same route lands in _fresh/server/assets/<chunk>.mjs — three levels down, and
+// inside the packaged binary that's the read-only deno-compile VFS. The old
+// hard-coded "../.." therefore resolved to <root>/_fresh in every bundled
+// build, which is what produced the "path not found: .../_fresh/tools/
+// build-level" export failure. Walk up until the tool actually shows up.
+async function findRuntimeRoot(): Promise<string | null> {
+  let dir = dirname(fromFileUrl(import.meta.url));
+  for (let i = 0; i < 6; i++) {
+    if (await pathExists(join(dir, "tools", "build-level", "index.js"))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 // Recursively copy a directory tree from `src` to `dst`. Used to materialise the
 // embedded tool + game out of the VFS onto the real filesystem, since `node` (a
 // separate process) can't read Deno's virtual paths.
@@ -82,13 +105,21 @@ async function stageEmbeddedRuntime(vfsRoot: string): Promise<string> {
     join(vfsRoot, "static", "games", "2028-ai"),
     join(work, "static", "games", "2028-ai"),
   );
-  const gp = join(vfsRoot, "static", "gamepad-compatibility-plugin.js");
-  if (await pathExists(gp)) {
-    await Deno.mkdir(join(work, "static"), { recursive: true });
-    await Deno.writeFile(
-      join(work, "static", "gamepad-compatibility-plugin.js"),
-      await Deno.readFile(gp),
-    );
+  // Loose files the tool reads straight off CMG_ROOT. Both are existsSync-
+  // guarded on its side, so leaving one behind degrades the export silently
+  // (no controller shim / a scene script's `import Phaser from "phaser"`
+  // failing to resolve offline) rather than failing the build.
+  for (
+    const rel of [
+      ["static", "gamepad-compatibility-plugin.js"],
+      ["static", "phaser-plugins", "phaser-global.js"],
+    ]
+  ) {
+    const src = join(vfsRoot, ...rel);
+    if (!(await pathExists(src))) continue;
+    const dst = join(work, ...rel);
+    await Deno.mkdir(dirname(dst), { recursive: true });
+    await Deno.writeFile(dst, await Deno.readFile(src));
   }
   return work;
 }
@@ -162,10 +193,16 @@ export const handler = define.handlers({
       );
     }
 
-    // routes/api/build-apk.ts → repo root is two dirs up from routes/api. In a
-    // source checkout this is a real dir; in the packaged desktop binary it's
-    // the read-only deno-compile VFS.
-    const moduleRoot = join(dirname(fromFileUrl(import.meta.url)), "..", "..");
+    // In a source checkout this is a real dir; in the packaged desktop binary
+    // it's the read-only deno-compile VFS (see findRuntimeRoot).
+    const moduleRoot = await findRuntimeRoot();
+    if (!moduleRoot) {
+      return Response.json({
+        ok: false,
+        error: "Build tool not found — tools/build-level is not embedded in " +
+          "this build. Run the export from a source checkout (`deno task dev`).",
+      }, { status: 500 });
+    }
 
     // Where `node tools/build-level` actually runs. A source checkout runs in
     // place; the packaged binary first stages the embedded tool + game onto real
