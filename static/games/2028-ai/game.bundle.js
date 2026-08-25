@@ -1331,12 +1331,27 @@
     state.localHighScore = normalizeScore(state.localHighScore);
     state.remoteHighScore = normalizeScore(state.remoteHighScore);
     state.highScore = Math.max(state.highScore, state.localHighScore, state.remoteHighScore);
+    state.dailyHighScore = normalizeScore(state.dailyHighScore);
     if (typeof state.scoreSyncStatus !== "string" || !state.scoreSyncStatus) {
       state.scoreSyncStatus = "idle";
     }
     if (typeof state.scoreSyncMessage !== "string") {
       state.scoreSyncMessage = "";
     }
+  }
+  function readCookie(name) {
+    if (typeof document === "undefined" || typeof document.cookie !== "string") {
+      return null;
+    }
+    const encodedName = encodeURIComponent(name) + "=";
+    const parts = document.cookie.split(";");
+    for (let i = 0; i < parts.length; i += 1) {
+      const cookie = parts[i].trim();
+      if (cookie.indexOf(encodedName) === 0) {
+        return decodeURIComponent(cookie.substring(encodedName.length));
+      }
+    }
+    return null;
   }
   function readSearchParam(name) {
     if (typeof window === "undefined" || !window.location || typeof window.location.search !== "string") {
@@ -1396,6 +1411,9 @@
   function isExportedLevelApp() {
     return typeof window !== "undefined" && !!window.__EXPORTED_LEVEL_APP__;
   }
+  function scoreCountsAsRecord(state = gameState) {
+    return !state.godFlg || isExportedLevelApp();
+  }
   function setHighScore(value, source = "merged") {
     const normalized = normalizeScore(value);
     if (source === "local") {
@@ -1413,9 +1431,23 @@
     );
     return gameState.highScore;
   }
+  function setDailyHighScore(value) {
+    gameState.dailyHighScore = normalizeScore(value);
+    return gameState.dailyHighScore;
+  }
   function setScoreSyncStatus(status, message = "") {
     gameState.scoreSyncStatus = typeof status === "string" && status ? status : "idle";
     gameState.scoreSyncMessage = typeof message === "string" ? message : "";
+  }
+  function loadHighScore(cookieKey = "afc2019_highScore") {
+    const value = readCookie(cookieKey);
+    if (value === null) {
+      setHighScore(0, "local");
+      return 0;
+    }
+    const highScore = normalizeScore(value);
+    setHighScore(highScore, "local");
+    return highScore;
   }
   function saveHighScore(cookieKey = "afc2019_highScore") {
     if (typeof document === "undefined") {
@@ -1432,6 +1464,277 @@
     const oneYearSeconds = 60 * 60 * 24 * 365;
     document.cookie = encodeURIComponent(cookieKey) + "=" + encodeURIComponent(String(highScore)) + ";path=/;max-age=" + String(oneYearSeconds);
     return highScore;
+  }
+
+  // ../2019-es7/src/gameIdentity.js
+  var ID_MAX = 48;
+  function slugifyGameId(value) {
+    const slug = String(value == null ? "" : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, ID_MAX);
+    return slug;
+  }
+  function nameDigest(name) {
+    let h = 2166136261;
+    const s = String(name == null ? "" : name);
+    for (let i = 0; i < s.length; i += 1) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h.toString(16).padStart(8, "0");
+  }
+  function gameIdForLevel(level) {
+    if (!level || typeof level !== "object") return null;
+    if (typeof level.gameId === "string" && level.gameId.trim()) {
+      return slugifyGameId(level.gameId) || null;
+    }
+    const name = typeof level.name === "string" ? level.name : "";
+    if (!name.trim()) return null;
+    const slug = slugifyGameId(name) || "level";
+    return slug + "-" + nameDigest(name);
+  }
+  function resolveGameId() {
+    if (typeof globalThis === "undefined") return null;
+    const baked = globalThis.__GAME_ID__;
+    if (typeof baked === "string" && baked.trim()) {
+      return slugifyGameId(baked) || null;
+    }
+    return gameIdForLevel(globalThis.__OFFLINE_LEVEL__);
+  }
+
+  // ../2019-es7/src/firebaseScores.js
+  var LEGACY_DATABASE_PATH = "leaderboards/globalHighScore";
+  var LEADERBOARD_ROOT = "leaderboards";
+  var SDK_WAIT_MS = 8e3;
+  var initializePromise = null;
+  var databaseRef = null;
+  function getFirebaseConfig() {
+    const config = globalThis.__FIREBASE_CONFIG__;
+    if (!config || typeof config !== "object") {
+      return null;
+    }
+    if (!config.apiKey || !config.databaseURL) {
+      return null;
+    }
+    return config;
+  }
+  function trimPath(path) {
+    return String(path).replace(/^\/+/, "").replace(/\/+$/, "");
+  }
+  function dailyBoardKey(now) {
+    const date = now instanceof Date ? now : /* @__PURE__ */ new Date();
+    return date.toISOString().slice(0, 10);
+  }
+  function getBoardPaths() {
+    const override = typeof globalThis.__FIREBASE_DATABASE_PATH__ === "string" ? trimPath(globalThis.__FIREBASE_DATABASE_PATH__) : "";
+    if (override) {
+      return { allTime: override, daily: null, meta: null };
+    }
+    const gameId = resolveGameId();
+    if (!gameId) {
+      return { allTime: LEGACY_DATABASE_PATH, daily: null, meta: null };
+    }
+    const root = LEADERBOARD_ROOT + "/" + gameId;
+    return {
+      allTime: root + "/allTime",
+      daily: root + "/daily/" + dailyBoardKey(),
+      meta: root + "/meta"
+    };
+  }
+  function getFirebaseNamespace() {
+    return globalThis.firebase || null;
+  }
+  function whenFirebaseNamespace() {
+    const existing = getFirebaseNamespace();
+    if (existing || !getFirebaseConfig()) {
+      return Promise.resolve(existing);
+    }
+    return new Promise((resolve) => {
+      let waited = 0;
+      const timer = setInterval(() => {
+        waited += 100;
+        const namespace = getFirebaseNamespace();
+        if (namespace || waited >= SDK_WAIT_MS) {
+          clearInterval(timer);
+          resolve(namespace);
+        }
+      }, 100);
+    });
+  }
+  function extractScore(value) {
+    if (value && typeof value === "object" && value.value !== void 0) {
+      return normalizeScore(value.value);
+    }
+    return normalizeScore(value);
+  }
+  function createScorePayload(firebaseNamespace, score) {
+    return {
+      value: normalizeScore(score),
+      updatedAt: firebaseNamespace.database.ServerValue.TIMESTAMP
+    };
+  }
+  function ensureDatabase() {
+    const firebaseNamespace = getFirebaseNamespace();
+    const config = getFirebaseConfig();
+    if (!firebaseNamespace || !config) {
+      return null;
+    }
+    if (typeof firebaseNamespace.initializeApp !== "function" || typeof firebaseNamespace.database !== "function") {
+      return null;
+    }
+    if (!firebaseNamespace.apps || firebaseNamespace.apps.length === 0) {
+      firebaseNamespace.initializeApp(config);
+    }
+    return firebaseNamespace.database();
+  }
+  function ensureDatabaseRef() {
+    if (databaseRef) {
+      return databaseRef;
+    }
+    const db = ensureDatabase();
+    if (!db) {
+      return null;
+    }
+    databaseRef = db.ref(getBoardPaths().allTime);
+    return databaseRef;
+  }
+  function refFor(path) {
+    if (!path) {
+      return null;
+    }
+    const db = ensureDatabase();
+    return db ? db.ref(path) : null;
+  }
+  function syncRemoteScoreToState(remoteScore) {
+    const mergedHighScore = Math.max(
+      normalizeScore(gameState.localHighScore),
+      normalizeScore(gameState.highScore),
+      normalizeScore(remoteScore)
+    );
+    setHighScore(remoteScore, "remote");
+    setHighScore(mergedHighScore, "merged");
+    saveHighScore();
+    setScoreSyncStatus("ready");
+    return mergedHighScore;
+  }
+  function syncFallbackState(status, message = "") {
+    loadHighScore();
+    setScoreSyncStatus(status, message);
+    return normalizeScore(gameState.highScore);
+  }
+  function readDailyHighScore() {
+    const ref = refFor(getBoardPaths().daily);
+    if (!ref) {
+      return Promise.resolve(normalizeScore(gameState.dailyHighScore));
+    }
+    return ref.once("value").then((snapshot) => {
+      const daily = extractScore(snapshot && typeof snapshot.val === "function" ? snapshot.val() : 0);
+      return setDailyHighScore(daily);
+    }).catch(() => normalizeScore(gameState.dailyHighScore));
+  }
+  function readRemoteHighScore() {
+    const ref = ensureDatabaseRef();
+    if (!ref) {
+      if (getFirebaseConfig()) {
+        return Promise.resolve(syncFallbackState("error", "Firebase SDK unavailable."));
+      }
+      return Promise.resolve(syncFallbackState("disabled", "Firebase config missing."));
+    }
+    setScoreSyncStatus("loading");
+    return ref.once("value").then((snapshot) => {
+      const remoteScore = extractScore(snapshot && typeof snapshot.val === "function" ? snapshot.val() : 0);
+      const mergedHighScore = syncRemoteScoreToState(remoteScore);
+      return readDailyHighScore().then(() => {
+        if (mergedHighScore > remoteScore) {
+          return submitHighScore(mergedHighScore).then(() => mergedHighScore);
+        }
+        return mergedHighScore;
+      });
+    }).catch((error) => {
+      return syncFallbackState("error", error && error.message ? error.message : "Firebase read failed.");
+    });
+  }
+  function initializeFirebaseScores() {
+    if (!initializePromise) {
+      loadHighScore();
+      if (getFirebaseConfig() && !getFirebaseNamespace()) {
+        setScoreSyncStatus("loading");
+      }
+      initializePromise = whenFirebaseNamespace().then(() => readRemoteHighScore());
+    }
+    return initializePromise;
+  }
+  function raiseBoard(path, candidate, firebaseNamespace) {
+    const ref = refFor(path);
+    if (!ref) {
+      return Promise.resolve(candidate);
+    }
+    return ref.transaction((currentValue) => {
+      const currentScore = extractScore(currentValue);
+      if (candidate <= currentScore) {
+        return currentValue;
+      }
+      return createScorePayload(firebaseNamespace, candidate);
+    }).then((result) => {
+      return extractScore(result && result.snapshot ? result.snapshot.val() : candidate);
+    });
+  }
+  function stampBoardMeta(path, firebaseNamespace) {
+    const ref = refFor(path);
+    const level = globalThis.__OFFLINE_LEVEL__;
+    const name = level && typeof level.name === "string" ? level.name : null;
+    if (!ref || !name) {
+      return Promise.resolve();
+    }
+    return ref.update({
+      name,
+      updatedAt: firebaseNamespace.database.ServerValue.TIMESTAMP
+    }).catch(() => {
+    });
+  }
+  function submitHighScore(score) {
+    const godRun = !!gameState.godFlg;
+    if (godRun && !isExportedLevelApp()) {
+      return Promise.resolve(normalizeScore(gameState.highScore));
+    }
+    const candidate = normalizeScore(score);
+    if (candidate > 0) {
+      setHighScore(candidate, "local");
+      saveHighScore();
+    }
+    if (godRun) {
+      setScoreSyncStatus("disabled", "God mode run — not submitted.");
+      return Promise.resolve(normalizeScore(gameState.highScore));
+    }
+    if (getFirebaseConfig()) {
+      setScoreSyncStatus("saving");
+    }
+    return whenFirebaseNamespace().then((firebaseNamespace) => {
+      const ref = ensureDatabaseRef();
+      if (!ref || !firebaseNamespace) {
+        if (!getFirebaseConfig()) {
+          setScoreSyncStatus("disabled", "Firebase config missing.");
+        } else {
+          setScoreSyncStatus("error", "Firebase SDK unavailable.");
+        }
+        return normalizeScore(gameState.highScore);
+      }
+      const paths = getBoardPaths();
+      return Promise.allSettled([
+        raiseBoard(paths.allTime, candidate, firebaseNamespace),
+        raiseBoard(paths.daily, candidate, firebaseNamespace),
+        stampBoardMeta(paths.meta, firebaseNamespace)
+      ]).then((results) => {
+        const [allTime, daily] = results;
+        if (daily.status === "fulfilled") {
+          setDailyHighScore(Math.max(candidate, normalizeScore(daily.value)));
+        }
+        if (allTime.status !== "fulfilled") {
+          const error = allTime.reason;
+          setScoreSyncStatus("error", error && error.message ? error.message : "Firebase write failed.");
+          return normalizeScore(gameState.highScore);
+        }
+        return syncRemoteScoreToState(Math.max(candidate, normalizeScore(allTime.value)));
+      });
+    });
   }
 
   // ../2019-es7/src/globals.js
@@ -2361,6 +2664,12 @@
   }
   function getWorldBestLabel() {
     return "WORLD BEST";
+  }
+  function getDailyHighScore() {
+    return normalizeScore(gameState.dailyHighScore);
+  }
+  function getDailyBestLabel() {
+    return "TODAY'S BEST";
   }
   function getHighScoreSyncText() {
     const status = typeof gameState.scoreSyncStatus === "string" ? gameState.scoreSyncStatus : "idle";
@@ -3721,10 +4030,30 @@
   }
 
   // ../2019-es7/src/phaser/TitleScene.js
+  var BOARD_CYCLE_MS = 3e3;
   var PhaserTitleScene = class extends Phaser.Scene {
     constructor() {
       super({ key: "PhaserTitleScene" });
       this.transitioning = false;
+    }
+    // The title has room for exactly one score, so the all-time and daily
+    // boards share it. Today's board only takes a turn once it has something on
+    // it — an empty board (nobody has played today, or there is no network)
+    // would otherwise flash a meaningless 0 half the time.
+    _boardOnShow() {
+      return this._showingDaily && getDailyHighScore() > 0 ? "daily" : "allTime";
+    }
+    _stepBoardCycle(delta) {
+      if (getDailyHighScore() <= 0) {
+        this._showingDaily = false;
+        this._boardTimer = 0;
+        return;
+      }
+      this._boardTimer = (this._boardTimer || 0) + delta;
+      if (this._boardTimer >= BOARD_CYCLE_MS) {
+        this._boardTimer -= BOARD_CYCLE_MS;
+        this._showingDaily = !this._showingDaily;
+      }
     }
     create() {
       this.transitioning = false;
@@ -3811,6 +4140,8 @@
       this.scoreTitleImg = this.add.sprite(32, 0, "game_ui", "hiScoreTxt.gif");
       this.scoreTitleImg.setOrigin(0, 0);
       this.scoreTitleImg.y = this.copyright.y - 58;
+      this._showingDaily = false;
+      this._boardTimer = 0;
       this.worldBestLabel = this.add.text(
         32,
         this.scoreTitleImg.y - 16,
@@ -4156,8 +4487,13 @@
           this.bg.tilePositionX -= 0.5;
         }
       }
+      this._stepBoardCycle(delta);
+      var daily = this._boardOnShow() === "daily";
+      if (this.worldBestLabel) {
+        this.worldBestLabel.setText(daily ? getDailyBestLabel() : getWorldBestLabel());
+      }
       if (this.highScoreText) {
-        this.highScoreText.setText(String(getDisplayedHighScore()));
+        this.highScoreText.setText(String(daily ? getDailyHighScore() : getDisplayedHighScore()));
       }
       if (this.scoreSyncLabel) {
         this.scoreSyncLabel.setText(getHighScoreSyncText());
@@ -8485,103 +8821,6 @@
     }
   };
 
-  // ../2019-es7/src/firebaseScores.js
-  var DEFAULT_DATABASE_PATH = "leaderboards/globalHighScore";
-  var databaseRef = null;
-  function getFirebaseConfig() {
-    const config = globalThis.__FIREBASE_CONFIG__;
-    if (!config || typeof config !== "object") {
-      return null;
-    }
-    if (!config.apiKey || !config.databaseURL) {
-      return null;
-    }
-    return config;
-  }
-  function getDatabasePath() {
-    const path = typeof globalThis.__FIREBASE_DATABASE_PATH__ === "string" ? globalThis.__FIREBASE_DATABASE_PATH__ : DEFAULT_DATABASE_PATH;
-    return path.replace(/^\/+/, "").replace(/\/+$/, "") || DEFAULT_DATABASE_PATH;
-  }
-  function getFirebaseNamespace() {
-    return globalThis.firebase || null;
-  }
-  function extractScore(value) {
-    if (value && typeof value === "object" && value.value !== void 0) {
-      return normalizeScore(value.value);
-    }
-    return normalizeScore(value);
-  }
-  function createScorePayload(firebaseNamespace, score) {
-    return {
-      value: normalizeScore(score),
-      updatedAt: firebaseNamespace.database.ServerValue.TIMESTAMP
-    };
-  }
-  function ensureDatabaseRef() {
-    if (databaseRef) {
-      return databaseRef;
-    }
-    const firebaseNamespace = getFirebaseNamespace();
-    const config = getFirebaseConfig();
-    if (!firebaseNamespace || !config) {
-      return null;
-    }
-    if (typeof firebaseNamespace.initializeApp !== "function" || typeof firebaseNamespace.database !== "function") {
-      return null;
-    }
-    if (!firebaseNamespace.apps || firebaseNamespace.apps.length === 0) {
-      firebaseNamespace.initializeApp(config);
-    }
-    databaseRef = firebaseNamespace.database().ref(getDatabasePath());
-    return databaseRef;
-  }
-  function syncRemoteScoreToState(remoteScore) {
-    const mergedHighScore = Math.max(
-      normalizeScore(gameState.localHighScore),
-      normalizeScore(gameState.highScore),
-      normalizeScore(remoteScore)
-    );
-    setHighScore(remoteScore, "remote");
-    setHighScore(mergedHighScore, "merged");
-    saveHighScore();
-    setScoreSyncStatus("ready");
-    return mergedHighScore;
-  }
-  function submitHighScore(score) {
-    if (gameState.godFlg) {
-      return Promise.resolve(normalizeScore(gameState.highScore));
-    }
-    const candidate = normalizeScore(score);
-    const ref = ensureDatabaseRef();
-    const firebaseNamespace = getFirebaseNamespace();
-    if (candidate > 0) {
-      setHighScore(candidate, "local");
-      saveHighScore();
-    }
-    if (!ref || !firebaseNamespace) {
-      if (!getFirebaseConfig()) {
-        setScoreSyncStatus("disabled", "Firebase config missing.");
-      } else {
-        setScoreSyncStatus("error", "Firebase SDK unavailable.");
-      }
-      return Promise.resolve(normalizeScore(gameState.highScore));
-    }
-    setScoreSyncStatus("saving");
-    return ref.transaction((currentValue) => {
-      const currentScore = extractScore(currentValue);
-      if (candidate <= currentScore) {
-        return currentValue;
-      }
-      return createScorePayload(firebaseNamespace, candidate);
-    }).then((result) => {
-      const nextScore = extractScore(result && result.snapshot ? result.snapshot.val() : candidate);
-      return syncRemoteScoreToState(Math.max(candidate, nextScore));
-    }).catch((error) => {
-      setScoreSyncStatus("error", error && error.message ? error.message : "Firebase write failed.");
-      return normalizeScore(gameState.highScore);
-    });
-  }
-
   // ../2019-es7/src/phaser/ui/BigNumberDisplay.js
   var BigNumberDisplay = class {
     constructor(scene, maxDigit) {
@@ -8850,7 +9089,7 @@
       }
     }
     showGameOverPanel() {
-      if (!gameState.godFlg && Number(gameState.score || 0) > Number(gameState.highScore || 0)) {
+      if (scoreCountsAsRecord() && Number(gameState.score || 0) > Number(gameState.highScore || 0)) {
         gameState.highScore = Number(gameState.score || 0);
         saveHighScore();
         this.add.sprite(
@@ -9116,7 +9355,7 @@
       var game = this.game;
       this.add.rectangle(GCX8, GCY5, GW15, GH13, 0);
       this.continueFlg = false;
-      if (!gameState.godFlg && Number(gameState.score || 0) > Number(gameState.highScore || 0)) {
+      if (scoreCountsAsRecord() && Number(gameState.score || 0) > Number(gameState.highScore || 0)) {
         gameState.highScore = Number(gameState.score || 0);
         saveHighScore();
         this.continueFlg = true;
@@ -10143,6 +10382,8 @@
   };
   function create2028Game() {
     syncRuntimeFlagsFromLocation();
+    initializeFirebaseScores().catch(() => {
+    });
     const phaserContainer = document.getElementById("phaser-canvas");
     if (phaserContainer) phaserContainer.style.display = "flex";
     const config = {

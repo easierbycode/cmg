@@ -160,13 +160,35 @@ function htmlEscape(s) {
 // keeps (an exported app launches with no query string). The exported-app
 // marker itself is unconditional — the runtime hides the TWEET buttons and the
 // in-app BUILD APK forge when it sees it, so an export can't re-export itself.
+//
+// `gameId` is this level's leaderboard identity (see 2019-es7 gameIdentity.js).
+// It is baked in rather than read back off foo.json so the app keeps its board
+// through any later change to the level record's shape. The Firebase compat SDK
+// it needs is loaded DEFERRED: an offline app has to boot at full speed and
+// fall back to its local high-score cache, so those scripts must never block
+// the bundle. firebaseScores.js waits a bounded time for the namespace.
+const FIREBASE_SDK_BASE = "https://www.gstatic.com/firebasejs/10.12.5/";
+
+// Safe to inline in a <script>: the only sequence that could close the element
+// early is "</", and JSON has no other markup-significant output.
+function jsonLiteral(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 function renderShell(opts) {
   const levelName = htmlEscape(opts.levelName || "2028.Ai");
   const gamepadTag = opts.hasGamepad
     ? '\n    <script src="gamepad-compatibility-plugin.js"></script>'
     : "";
   const flagsTag = "window.__EXPORTED_LEVEL_APP__ = true;" +
-    (opts.godMode ? " window.__GAME_STATE__ = { godFlg: true };" : "");
+    (opts.godMode ? " window.__GAME_STATE__ = { godFlg: true };" : "") +
+    (opts.gameId ? " window.__GAME_ID__ = " + jsonLiteral(String(opts.gameId)) + ";" : "");
+  // No gameId means no board to reach, so the SDK would only be dead weight.
+  const leaderboardTags = opts.gameId
+    ? '\n    <script src="firebase-config.js"></script>' +
+      '\n    <script defer src="' + FIREBASE_SDK_BASE + 'firebase-app-compat.js"></script>' +
+      '\n    <script defer src="' + FIREBASE_SDK_BASE + 'firebase-database-compat.js"></script>'
+    : "";
   return `<!doctype html>
 <html>
 <head>
@@ -180,7 +202,7 @@ function renderShell(opts) {
          it, exported builds would silently drop scene scripts that work on the
          web. Must precede any module script. -->
     <script type="importmap">{"imports":{"phaser":"./phaser-global.js"}}</script>
-    <script>${flagsTag}</script>
+    <script>${flagsTag}</script>${leaderboardTags}
     <style>${STYLE}</style>
 </head>
 <body>

@@ -31,6 +31,7 @@ import {
 
 import { GAME_DIMENSIONS } from "../../../2019-es7/src/constants.js";
 import { gameState, syncRuntimeFlagsFromLocation } from "../../../2019-es7/src/gameState.js";
+import { initializeFirebaseScores } from "../../../2019-es7/src/firebaseScores.js";
 
 import { BootScene } from "../../../2019-es7/src/phaser/BootScene.js";
 import { PhaserTitleScene } from "../../../2019-es7/src/phaser/TitleScene.js";
@@ -239,6 +240,15 @@ class ScriptedAdvScene extends PhaserAdvScene {
 
 function create2028Game() {
     syncRuntimeFlagsFromLocation();
+
+    // Restore the persisted high score before the title scene reads it.
+    // saveHighScore() writes a cookie at the end of every run, but nothing in
+    // this bundle used to read it back, so HI SCORE was 0 on every launch (and
+    // the sync label sat on "WORLD BEST STANDBY" forever). With no
+    // __FIREBASE_CONFIG__ on the page — the hosted route and every exported
+    // app — this resolves to the local cookie and a "LOCAL CACHE ONLY" label;
+    // it syncs the shared world best only where a config is present.
+    initializeFirebaseScores().catch(() => {});
 
     const phaserContainer = document.getElementById("phaser-canvas");
     if (phaserContainer) phaserContainer.style.display = "flex";

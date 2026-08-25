@@ -277,6 +277,24 @@ export default define.page(function Game2028() {
           dangerouslySetInnerHTML={{ __html: PHASER_IMPORT_MAP }}
         />
         <script src="/gamepad-compatibility-plugin.js"></script>
+        {
+          /* Leaderboard. The config is the same file tools/build-level stages
+             into an exported app, so a level scores to one board wherever it is
+             played. The compat SDK is deferred (never blocking the bundle) and
+             firebaseScores.js waits a bounded time for it, so a slow or absent
+             network costs boot time nothing and just leaves the local cache. */
+        }
+        <script src="/firebase-config.js"></script>
+        <script
+          defer
+          src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"
+        >
+        </script>
+        <script
+          defer
+          src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"
+        >
+        </script>
         <script dangerouslySetInnerHTML={{ __html: CHARACTERS_MODULE }} />
         <script dangerouslySetInnerHTML={{ __html: OSD_BRIDGE }} />
         <script dangerouslySetInnerHTML={{ __html: LEVEL_EDITOR_BROADCAST }} />

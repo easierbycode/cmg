@@ -69,12 +69,24 @@ function patchBundleForOffline(bundleSrc) {
 // phaserGlobalShim = <cmg>/static/phaser-plugins/phaser-global.js (optional);
 //            staged as www/phaser-global.js, the target of the shell's
 //            "phaser" import map
+// firebaseConfig   = <cmg>/static/firebase-config.js (optional); staged beside
+//            the shell so the app can reach its leaderboard
 // wwwRoot  = build/<slug>/www
 // levelData= raw Firebase level record (carries atlasImageDataURL/atlasFrames
 //            which the runtime plugin composites over the base game_asset atlas)
+// gameId   = this level's leaderboard identity; omitted → no board, and the
+//            shell leaves the Firebase SDK out entirely
 function stageWww(opts) {
-  const { gameDir, gamepad, phaserGlobalShim, wwwRoot, levelName, levelData } =
-    opts;
+  const {
+    gameDir,
+    gamepad,
+    phaserGlobalShim,
+    firebaseConfig,
+    wwwRoot,
+    levelName,
+    levelData,
+    gameId,
+  } = opts;
 
   fs.rmSync(wwwRoot, { recursive: true, force: true });
   fs.mkdirSync(wwwRoot, { recursive: true });
@@ -106,6 +118,14 @@ function stageWww(opts) {
     copyFile(gamepad, path.join(wwwRoot, "gamepad-compatibility-plugin.js"));
   }
 
+  // Leaderboard credentials. Staged rather than inlined so the exported app and
+  // the hosted player read the identical file; without it the app still runs,
+  // it just keeps its high score to itself.
+  const hasFirebase = !!(gameId && firebaseConfig && fs.existsSync(firebaseConfig));
+  if (hasFirebase) {
+    copyFile(firebaseConfig, path.join(wwwRoot, "firebase-config.js"));
+  }
+
   // The level the patched bundle fetches as foo.json. Keep the full record
   // (including atlasImageDataURL) so the plugin can merge the custom atlas.
   fs.writeFileSync(
@@ -122,6 +142,7 @@ function stageWww(opts) {
       levelName,
       hasGamepad,
       godMode: !!(levelData && levelData.godMode === true),
+      gameId: hasFirebase ? gameId : null,
     }),
   );
 }

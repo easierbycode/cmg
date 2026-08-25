@@ -7171,6 +7171,42 @@ function GAME3D_RUNTIME(DATA) {
             }
         }
 
+        // This game's leaderboard key (scores live at leaderboards/<gameId>/…).
+        // Mirrors mintGameId/slugifyGameId in 2019-es7/src/gameIdentity.js —
+        // the runtime derives the same shape for records saved before gameId
+        // existed, so the two must keep agreeing.
+        function mintGameId(levelName) {
+            const slug = String(levelName == null ? '' : levelName)
+                .trim().toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .slice(0, 48) || 'level';
+            const rand = new Uint8Array(4);
+            if (self.crypto && typeof self.crypto.getRandomValues === 'function') {
+                self.crypto.getRandomValues(rand);
+            } else {
+                for (let i = 0; i < rand.length; i++) rand[i] = Math.floor(Math.random() * 256);
+            }
+            let hex = '';
+            for (let i = 0; i < rand.length; i++) hex += rand[i].toString(16).padStart(2, '0');
+            return slug + '-' + hex;
+        }
+
+        // Read-then-mint, never overwrite: an existing board must survive every
+        // later save. Falls back to a fresh id if the read fails, which is the
+        // safe direction — a new board beats writing to someone else's.
+        async function ensureGameId(name) {
+            try {
+                const snap = await firebaseDb
+                    .ref(`${LEVEL_LOADER_DEFAULTS.levelsPath}/${name}/gameId`).once('value');
+                const existing = snap.val();
+                if (typeof existing === 'string' && existing.trim()) return existing;
+            } catch (e) {
+                console.warn('Could not read existing gameId; minting a new one:', e);
+            }
+            return mintGameId(name);
+        }
+
         async function saveToFirebase() {
             // Sync any pending editor form changes into bossData/enemyData before saving
             syncEnemyEditorForm();
@@ -7345,7 +7381,13 @@ function GAME3D_RUNTIME(DATA) {
                         }
                     } catch (e) { console.warn('Could not save atlas to Firebase:', e); }
                 }
+                // Leaderboard identity: minted once, then never touched again,
+                // so a game keeps its scores through renames and re-exports.
+                // Only ever written when the record has none — an update() that
+                // re-minted every save would orphan the board each time.
+                payload.gameId = await ensureGameId(name);
                 await firebaseDb.ref(`${LEVEL_LOADER_DEFAULTS.levelsPath}/${name}`).update(payload);
+                if (gameData) gameData.gameId = payload.gameId;
                 document.getElementById('firebase-level-name').value = name;
                 alert(`Game "${name}" saved!\nIncludes: title, story, sprites, levels, enemies & bosses`);
             } catch (e) { alert('Save failed: ' + e.message); }

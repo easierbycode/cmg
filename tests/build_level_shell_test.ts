@@ -30,6 +30,28 @@ Deno.test("renderShell seeds godFlg only when godMode is on", () => {
   assert(!renderShell({ levelName: "g", godMode: false }).includes("godFlg"));
 });
 
+Deno.test("renderShell bakes the leaderboard id and SDK only with a gameId", () => {
+  const board = renderShell({ levelName: "Ramsie", gameId: "ramsie-3f9a2c71" });
+  assertStringIncludes(board, 'window.__GAME_ID__ = "ramsie-3f9a2c71";');
+  assertStringIncludes(board, '<script src="firebase-config.js"></script>');
+  // Deferred, never blocking: an offline app must boot at full speed and fall
+  // back to its local high-score cache.
+  assertStringIncludes(board, '<script defer src="https://www.gstatic.com/firebasejs/');
+
+  // No board to reach means the SDK would be dead weight.
+  const none = renderShell({ levelName: "Ramsie" });
+  assert(!none.includes("firebase"), "no SDK without a gameId");
+  assert(!none.includes("__GAME_ID__"), "no id without a gameId");
+});
+
+// The id is interpolated into an inline <script>, and level names are
+// user-supplied all the way down.
+Deno.test("renderShell cannot be broken out of by a hostile gameId", () => {
+  const html = renderShell({ levelName: "x", gameId: '</script><img src=x onerror=alert(1)>' });
+  assert(!html.includes("</script><img"), "the id must not close the script element");
+  assertStringIncludes(html, "\u003c");
+});
+
 // The marker/seed scripts must run before the bundle evaluates its gameState
 // module, or the pre-seeded state arrives too late to be picked up.
 Deno.test("renderShell puts the flags ahead of game.bundle.js", () => {

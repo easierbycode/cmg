@@ -33,6 +33,7 @@ const { slugify, packageIdFor } = require("./lib/slug");
 const { fetchLevel } = require("./lib/fetch-level");
 const { downloadBgmForLevel } = require("./lib/download-bgm");
 const { stageWww } = require("./lib/stage");
+const { gameIdForLevel } = require("./lib/game-id");
 const {
   rebrandConfigXml,
   rebrandElectronPackageJson,
@@ -57,6 +58,9 @@ const PHASER_GLOBAL_SHIM = path.join(
   "phaser-plugins",
   "phaser-global.js",
 );
+// Leaderboard credentials, shared verbatim with the hosted player so an
+// exported app scores to the same database.
+const FIREBASE_CONFIG_SCRIPT = path.join(CMG_ROOT, "static", "firebase-config.js");
 const SCAFFOLD_ROOT = path.join(__dirname, "scaffold");
 
 function parseArgs(argv) {
@@ -142,13 +146,22 @@ async function main() {
 
   // 2. Stage www
   console.log("\n[2/4] Staging offline www/ from cmg's 2028-ai game…");
+  // The level's leaderboard identity. The editor mints it onto the record the
+  // first time the level is saved (and Export to APK saves first), so this is
+  // normally just a read; a record predating gameId falls back to a stable id
+  // derived from its name, which is what the hosted player derives too.
+  const gameId = gameIdForLevel(levelData);
+  console.log("  leaderboard: " + (gameId ? gameId : "(none — level has no name)"));
+
   stageWww({
     gameDir: GAME_DIR,
     gamepad: GAMEPAD_PLUGIN,
     phaserGlobalShim: PHASER_GLOBAL_SHIM,
+    firebaseConfig: FIREBASE_CONFIG_SCRIPT,
     wwwRoot,
     levelName,
     levelData,
+    gameId,
   });
 
   // 3. Custom BGM
