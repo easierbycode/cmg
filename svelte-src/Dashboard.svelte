@@ -1,6 +1,19 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import Osd from './Osd.svelte';
+  // The watch music remote: a song picked on a paired watch plays in the docked
+  // music app. Protocol, pairing code and trust rules live in the module.
+  import {
+    ensureWatchCode,
+    findTrack,
+    formatWatchCode,
+    libraryFromState,
+    playingFromState,
+    publishMusic,
+    setWatchMusicEnabled,
+    watchMusic,
+    watchMusicEnabled,
+  } from '../static/watch-music.js';
 
   // Primary game-list source is the deployed app's manifest. A launcher binary
   // serves its own embedded copy from localhost, so it must reach out to the
@@ -128,6 +141,24 @@
   // why offscreen would silently kill the feed this whole feature exists to
   // provide. Cleared the moment the sidebar is genuinely opened.
   let musicArmed = $state(false);
+  // ─── Watch music remote ────────────────────────────────────────────────────
+  // Off until switched on — Settings › WATCH REMOTE, or the same toggle in the
+  // Guide's Music section mid-game — and both show the pairing code to type on
+  // the watch. While on, this page listens for song picks from the paired
+  // watch and reports the player's library and state back — see
+  // static/watch-music.js. The code is reactive because those rows display
+  // it; the rest is plumbing only read inside handlers.
+  let watchMusicOn = $state(false);
+  let watchMusicCode = $state('');
+  let stopWatchMusic = null;
+  let lastMusicState = null;     // the player's latest `state`, whoever asked
+  let watchLaunch = null;        // { id, album, track } — the press last acted on
+  let watchFailed = null;        // { id, detail } — the press last refused
+  let watchPendingPlay = null;   // a press waiting for the player to boot
+  let watchPendingTimer = null;
+  let watchWantsLibrary = false; // a sync arrived before the catalog had loaded
+  let watchLibraryJson = '';     // last library/playing published, to skip
+  let watchPlayingJson = '';     // re-sending what the watch already has
   // Opposite-corner easter egg: the "normal secret touch" (bottom-left +
   // top-right) opens the OSD; touching the OPPOSITE corners (top-left +
   // bottom-right) boots the soft-mod cinematic overlay instead.
@@ -245,6 +276,17 @@
     },
     { id: 'oeimport', label: 'IMPORT OPENEMU LIBRARY', sub: 'pick games to copy from OpenEmu' },
     { id: 'ctrlsync', label: 'CONTROLLER SYNC', sub: 'CMG ⇄ emulator profiles · beta' },
+    // The pairing code lives in this row's sub-line: it is what gets typed on
+    // the watch. Only offered when there is a music app for a watch to drive.
+    ...(musicApps.length
+      ? [{
+          id: 'watchmusic',
+          label: 'WATCH REMOTE',
+          sub: watchMusicOn
+            ? 'ON  ·  code ' + formatWatchCode(watchMusicCode) + '  ·  type it into the watch app'
+            : 'OFF  ·  switch songs from a paired watch',
+        }]
+      : []),
     // Only on a local launcher (hidden on the hosted web app). Checks GitHub
     // releases and, under the AppImage runtime, swaps the new build in place.
     ...((appUpdateInfo && appUpdateInfo.local)
@@ -1052,9 +1094,14 @@
     // Music apps (CMG Network kind:'music') render as toggles so a player can
     // pop the music sidebar open/closed on top of the running game straight from
     // the Guide. Section only exists while the catalog advertises a music app.
-    addSection('Music', musicApps.map((m) => (
-      { key: 'music-' + m.id, kind: 'toggle', label: m.title || m.name, value: musicOpen && musicId === m.id, music: m.id }
-    )));
+    // The Watch remote row rides along: it drives the same player, and its
+    // label is where the pairing code to type on the watch is shown.
+    addSection('Music', musicApps.length ? [
+      ...musicApps.map((m) => (
+        { key: 'music-' + m.id, kind: 'toggle', label: m.title || m.name, value: musicOpen && musicId === m.id, music: m.id }
+      )),
+      { key: 'watch-music', kind: 'toggle', label: watchMusicOn ? 'Watch remote · ' + formatWatchCode(watchMusicCode) : 'Watch remote', value: watchMusicOn },
+    ] : []);
 
     addSection('Look', [
       { key: 'hue', kind: 'color', label: 'Glow color', value: tweaks.hue, options: HUE_SWATCHES },
@@ -1128,6 +1175,7 @@
     else if (it.key === 'breathe') setTweak('breatheSpeed', Math.round(v * 10) / 10);
     else if (it.key === 'scanlines') setTweak('scanlines', !!v);
     else if (it.key === 'disco') setTweak('discoMode', !!v);
+    else if (it.key === 'watch-music') setWatchMusic(!!v);
     else if (it.key === 'emucontrols') controlsShown = !!v;
     else if (it.key === 'twinstick') setTwinStick(!!v);
     else if (it.key === 'twinstick-touch') setTwinTouch(!!v);
@@ -1889,6 +1937,8 @@
       screen = 'ctrlsync';
       ctrlSel = 0;
       syncState = 'idle';
+    } else if (it.id === 'watchmusic') {
+      setWatchMusic(!watchMusicOn);
     } else if (it.id === 'install') {
       startInstall();
     } else if (it.id === 'appupdate') {
@@ -2470,7 +2520,7 @@
     const closingId = musicId;
     currentMusicPlayer = null; // player frame is going away — stop brokering its feed
     setTimeout(() => {
-      if (!musicOpen && musicId === closingId) { musicSrc = null; musicId = null; }
+      if (!musicOpen && musicId === closingId) { musicSrc = null; musicId = null; watchMusicGone(); }
     }, 350);
   }
   function launchCmgnet(game) {
@@ -4897,13 +4947,16 @@
   // A game asked to be scored. Mount the music app if the catalog has one and
   // it isn't up yet, then ask what's in its library — the `state` reply is where
   // the track actually gets picked and played.
-  function startMusicForGame() {
-    if (musicAutostartPlaying) return;
+  // Make sure a music app is mounted, without showing it. False when the
+  // catalog has none — there is nothing to hook into. Shared by the two things
+  // that want music nobody opened by hand: a game asking to be scored, and a
+  // paired watch picking a song.
+  function mountMusicArmed() {
     const app = musicApps[0];
-    if (!app) return; // no music app installed — nothing to hook into
+    if (!app) return false; // no music app installed — nothing to hook into
     if (!musicSrc) {
       const url = musicUrl(app);
-      if (!url) return;
+      if (!url) return false;
       // Deliberately NOT openMusic(): no sfx.enter() and musicOpen stays false,
       // so the frame mounts slid-out. It renders (the sidebar is hidden with a
       // transform, not display:none) which is what keeps its rAF — and so the
@@ -4915,10 +4968,138 @@
       musicOpen = false;
       musicArmed = true;
     }
+    return true;
+  }
+  function startMusicForGame() {
+    if (musicAutostartPlaying) return;
+    if (!mountMusicArmed()) return;
     musicAutostartWanted = true;
     // Already handshook (the frame was up before the game asked) — ask straight
     // away; otherwise the `ready` handler picks this up.
     if (currentMusicPlayer) postToMusicPlayer({ type: 'music-player:get-state' });
+  }
+
+  // ─── Watch music remote ────────────────────────────────────────────────────
+  // Tell the paired watch what the player has and what it is doing. Skips a
+  // record identical to the last one sent — a track change arrives as three
+  // player events — unless `force`, which is how a `sync` gets an answer even
+  // when nothing changed (the watch reads the write itself as "desktop here").
+  function publishWatchMusic({ force = false } = {}) {
+    if (!watchMusicOn || !watchMusicCode) return;
+    // No state means the player is not up, not that its library is empty: the
+    // albums the watch already holds are still what a press would get.
+    if (lastMusicState) {
+      const library = libraryFromState(lastMusicState);
+      const json = JSON.stringify(library);
+      if (force || json !== watchLibraryJson) {
+        watchLibraryJson = json;
+        publishMusic(watchMusicCode, 'library', library);
+      }
+    }
+    const playing = playingFromState(lastMusicState, { launch: watchLaunch, failed: watchFailed });
+    const json = JSON.stringify(playing);
+    if (force || json !== watchPlayingJson) {
+      watchPlayingJson = json;
+      publishMusic(watchMusicCode, 'playing', playing);
+    }
+  }
+  function failWatchLaunch(req, detail) {
+    watchFailed = { id: req.id, detail };
+    publishWatchMusic();
+  }
+  // Play what the watch asked for. The ids that reach the player are the ones
+  // it reported itself (findTrack), never the strings that arrived.
+  function playForWatch(req) {
+    const found = findTrack(lastMusicState, req.album, req.track);
+    if (!found) { failWatchLaunch(req, 'not in the library'); return; }
+    watchLaunch = { id: req.id, album: found.album.id, track: found.track.id };
+    postToMusicPlayer({ type: 'music-player:play', album: found.album.id, track: found.track.id });
+    // A browser may refuse to start audio nobody clicked for, and the player
+    // posts no event for a play() that was rejected. Ask what actually
+    // happened so the wrist is told the truth — the track, paused.
+    setTimeout(() => postToMusicPlayer({ type: 'music-player:get-state' }), 1500);
+  }
+  function onWatchLaunch(req) {
+    watchFailed = null;
+    if (!mountMusicArmed()) { failWatchLaunch(req, 'no music app installed'); return; }
+    if (currentMusicPlayer && lastMusicState) { playForWatch(req); return; }
+    // The player is still booting (or was just mounted for this press). Hold
+    // the press for its `ready`, with a deadline so a player that never comes
+    // up is reported rather than left for the watch to time out on.
+    watchPendingPlay = req;
+    clearTimeout(watchPendingTimer);
+    watchPendingTimer = setTimeout(() => {
+      if (watchPendingPlay !== req) return;
+      watchPendingPlay = null;
+      failWatchLaunch(req, 'music player did not start');
+    }, 10000);
+    if (currentMusicPlayer) postToMusicPlayer({ type: 'music-player:get-state' });
+  }
+  function onWatchControl(cmd) {
+    if (cmd.action === 'sync') {
+      // The watch opened its remote. Answer straight away with what we know —
+      // that write is what tells it a desktop is here — and bring the player
+      // up so there is a library to offer; its `ready` publishes the rest.
+      const mounted = mountMusicArmed();
+      // No music app yet usually means the catalog is still loading, not that
+      // there is none; the effect below mounts it when the catalog lands.
+      watchWantsLibrary = !mounted;
+      publishWatchMusic({ force: true });
+      if (mounted && currentMusicPlayer) postToMusicPlayer({ type: 'music-player:get-state' });
+      return;
+    }
+    // pause · resume · stop · next · prev are the player's own command names.
+    postToMusicPlayer({ type: 'music-player:' + cmd.action });
+  }
+  // The player said something. Serve a press that was waiting for it, then
+  // report. True when a press was played — the caller's cue that the listener
+  // has chosen the music and autostart should stand down.
+  function watchMusicHeard() {
+    let played = false;
+    if (watchPendingPlay && currentMusicPlayer && lastMusicState) {
+      const req = watchPendingPlay;
+      watchPendingPlay = null;
+      clearTimeout(watchPendingTimer);
+      playForWatch(req);
+      played = true;
+    }
+    publishWatchMusic();
+    return played;
+  }
+  $effect(() => {
+    if (musicApps.length && watchWantsLibrary) {
+      watchWantsLibrary = false;
+      mountMusicArmed();
+    }
+  });
+  // The music frame was unmounted: nothing is playing and nothing answers.
+  function watchMusicGone() {
+    lastMusicState = null;
+    watchLaunch = null;
+    publishWatchMusic();
+  }
+  function startWatchMusic() {
+    stopWatchMusic?.();
+    stopWatchMusic = null;
+    if (!watchMusicOn) return;
+    watchMusicCode = ensureWatchCode();
+    watchLibraryJson = '';
+    watchPlayingJson = '';
+    stopWatchMusic = watchMusic(watchMusicCode, { onLaunch: onWatchLaunch, onControl: onWatchControl });
+    // Say what we are up to now, so a watch that opens later is not shown
+    // whatever the last session left in the database.
+    publishWatchMusic({ force: true });
+    if (currentMusicPlayer) postToMusicPlayer({ type: 'music-player:get-state' });
+  }
+  function setWatchMusic(on) {
+    if (!on && watchMusicOn && watchMusicCode) {
+      // Going quiet: leave "idle" behind rather than a song the watch could no
+      // longer do anything about.
+      publishMusic(watchMusicCode, 'playing', playingFromState(null));
+    }
+    watchMusicOn = !!on;
+    setWatchMusicEnabled(watchMusicOn);
+    startWatchMusic();
   }
 
   function onMusicPlayerMessage(e) {
@@ -4929,21 +5110,31 @@
     const mframe = document.getElementById('musicframe');
     if (!mframe || e.source !== mframe.contentWindow) return;
     const command = d.type.slice('music-player:'.length);
+    // ready, event and state all carry the player's full state; keep the
+    // latest for the watch remote, which needs the library to resolve a press.
+    if (d.state && command !== 'frequency') lastMusicState = d.state;
     if (command === 'ready' || command === 'register') {
       currentMusicPlayer = mframe.contentWindow;
       // A game asked for music before the frame finished booting — ask now.
-      if (musicAutostartWanted) postToMusicPlayer({ type: 'music-player:get-state' });
+      // Likewise a watch press that arrived first and has no state to go on.
+      if (musicAutostartWanted || (watchPendingPlay && !lastMusicState)) {
+        postToMusicPlayer({ type: 'music-player:get-state' });
+      }
+      if (watchMusicHeard()) { musicAutostartPlaying = true; musicAutostartWanted = false; }
       return;
     }
     if (command === 'event') {
       // Track changes, play/pause, ended. Whatever is on now is what we resume.
       rememberLastTrack(d.state);
       if (d.state && !d.state.paused) musicAutostartPlaying = true;
+      watchMusicHeard();
       return;
     }
     if (command === 'state') {
       // The get-state reply — the only place autostart picks and plays.
       rememberLastTrack(d.state);
+      // A watch press served off this reply is the listener choosing the music.
+      if (watchMusicHeard()) { musicAutostartPlaying = true; musicAutostartWanted = false; return; }
       if (!musicAutostartWanted) return;
       if (d.state && !d.state.paused) {
         // Something is already playing (the frame was up, or an earlier attempt
@@ -5202,6 +5393,8 @@
     window.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('message', onWindowMessage);
     window.addEventListener('message', onMusicPlayerMessage);
+    watchMusicOn = watchMusicEnabled();
+    startWatchMusic();
     window.addEventListener('message', onSoftmodMessage);
     window.addEventListener('message', onSpritePickerMessage);
     window.addEventListener('message', onSpritexAppMessage);
@@ -5384,6 +5577,8 @@
     window.removeEventListener('message', onSpritePickerMessage);
     window.removeEventListener('message', onSpritexAppMessage);
     window.removeEventListener('message', onTilemapBridgeMessage);
+    stopWatchMusic?.();
+    clearTimeout(watchPendingTimer);
     stopSpritexDelivery();
     stopTilemapDelivery();
     endStripDrag();
@@ -5926,7 +6121,7 @@
               onmouseenter={() => { if (i !== settingsSel) { settingsSel = i; sfx.nav(); } }}
               onclick={() => activateSettings(i)}
             >
-              <div class="game-icon"><div class="glass"><span class="ph">{it.id === 'theme' ? '◧' : it.id === 'oeimport' ? '⇩' : '⇄'}</span></div></div>
+              <div class="game-icon"><div class="glass"><span class="ph">{it.id === 'theme' ? '◧' : it.id === 'oeimport' ? '⇩' : it.id === 'watchmusic' ? '♪' : '⇄'}</span></div></div>
               <div class="game-bar">
                 <span class="name">{it.label}</span>
                 <span class="sub">{it.sub}</span>
