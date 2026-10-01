@@ -492,3 +492,36 @@ nearest-neighbour scaling, so pixels stay crisp at any window size. It is on by
 default; toggle it per player from the in-game OSD (SELECT + Down → Plugins →
 Pixellate Shader — the choice persists in `localStorage`), or pick any other
 shader from the EmulatorJS Settings → Graphics menu.
+
+## Watch remote — switching songs from a paired watch
+
+A watch can pick the song the docked music app plays. The watch end is the
+**Desktop music** screen of the [watchAmp](https://github.com/shmupX/watchAmp)
+Wear OS app; this end is [`static/watch-music.js`](static/watch-music.js) and
+its wiring in `svelte-src/Dashboard.svelte`.
+
+**To pair:** open **Settings → WATCH REMOTE** (or, mid-game, the Guide's **Music
+→ Watch remote** toggle) and switch it on. The row shows an eight-character
+code; type it into the watch app once. It is off by default, so a launcher
+nobody paired holds no stream open.
+
+The two never connect directly. Both talk to a Firebase Realtime Database, the
+same way shmupX's watch app starts a game on a desktop:
+
+```
+watch --> /builders/<code>/music/launch    one slot, latest press wins
+watch --> /builders/<code>/music/control   pause · resume · stop · next · prev · sync
+here  --> /builders/<code>/music/playing   what the player is doing
+here  --> /builders/<code>/music/library   the albums it can play
+```
+
+A press mounts the music app if it is not up (parked out of sight, as a game's
+autostart does), then sends it the ordinary `music-player:play`. The database is
+open to anyone who knows the code, so nothing a record says is passed through:
+actions are matched against a fixed list, and album/track ids are looked up in
+the library the player itself reported. Only ids and titles are published —
+never a track's URL.
+
+```
+deno test tests/watch_music_test.ts
+```
