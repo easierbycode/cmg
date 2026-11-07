@@ -28,7 +28,7 @@ jobs:
 
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          deno-version: v2.9.8
 
       # nodeModulesDir is "manual", so npm deps (vite, esbuild, svelte) must be
       # installed explicitly before `deno task build` runs.

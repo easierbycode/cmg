@@ -89,7 +89,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         if: steps.upstream.outputs.stale == 'true'
         with:
-          deno-version: v2.x
+          deno-version: v2.9.8
 
       - name: Build the browser bundle and the disc image
         if: steps.upstream.outputs.stale == 'true'
