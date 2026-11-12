@@ -1,18 +1,22 @@
 // Level subdomains (lib/level-subdomain.ts, wired in main.ts): the root of
-// `<name>.<site>` goes to the game with that level, or to the level editor's
-// NEW GAME named for the label when no game has the name. Pure functions and
-// injected fetchers — no server, no network.
+// `<name>.<site>` goes to the arcade board of that MAME short name, or to the
+// cloud game with that level, or to the level editor's NEW GAME named for the
+// label when nothing has the name. Pure functions and injected fetchers — no
+// server, no network.
 // node:assert (not @std/assert) so the file runs with zero remote deps.
 //
 // Run with: deno test -A tests/level_subdomain_test.ts
 
 import assert from "node:assert/strict";
 import {
+  type ArcadeGame,
+  arcadeGames,
   cloudLevelAliases,
   cloudLevelKeys,
   hostnameOf,
   isAliasName,
   levelSlug,
+  matchArcadeGame,
   matchLevelKey,
   planAliases,
   resetLevelKeysCache,
@@ -20,6 +24,7 @@ import {
   subdomainOf,
   subdomainRedirect,
   subdomainRootLabel,
+  subdomainRootRedirect,
   subdomainTarget,
 } from "../lib/level-subdomain.ts";
 
@@ -485,6 +490,268 @@ Deno.test("planAliases adds labels no game owns and refuses the rest", () => {
   // A name every object has is still just a free label.
   assert.deepEqual(planAliases("2028", ["constructor"], KEYS, {}).set, {
     constructor: "2028",
+  });
+});
+
+// ---- arcade boards (MAME) -------------------------------------------------------
+
+// The shipped row (static/arcade/manifest.json), a board with no BIOS sets, and
+// a romset whose short name no hostname could spell.
+const ARCADE: ArcadeGame[] = [
+  { rom: "sfex2", file: "sfex2.zip", bios: ["coh3002c", "qsound_hle"] },
+  { rom: "pacman", file: "pacman.zip", bios: [] },
+  { rom: "sf_alpha", file: "sf_alpha.zip", bios: [] },
+];
+
+const SFEX2_URL = "/arcade/play.html?rom=sfex2.zip&bios=coh3002c%2Cqsound_hle";
+
+Deno.test("an arcade manifest is read row by row, and a row that is not a board is dropped", () => {
+  assert.deepEqual(
+    arcadeGames([
+      {
+        file: "sfex2.zip",
+        rom: "sfex2",
+        name: "Street Fighter EX2",
+        url: "/arcade/sfex2.zip",
+        size: "16.2 MB",
+        date: "08.03.26",
+        bios: ["coh3002c", "qsound_hle"],
+      },
+      { file: "pacman.zip", rom: "pacman" },
+      { file: "mixed.zip", rom: "mixed", bios: ["ok", 7, "", null] },
+      { rom: "no-file" },
+      { file: "no-rom.zip" },
+      { rom: "", file: "empty.zip" },
+      "sfex2",
+      null,
+    ]),
+    [
+      { rom: "sfex2", file: "sfex2.zip", bios: ["coh3002c", "qsound_hle"] },
+      { rom: "pacman", file: "pacman.zip", bios: [] },
+      { rom: "mixed", file: "mixed.zip", bios: ["ok"] },
+    ],
+  );
+  for (const notAList of [null, undefined, {}, "sfex2", 7]) {
+    assert.deepEqual(arcadeGames(notAList), []);
+  }
+});
+
+Deno.test("the manifest this checkout ships reads as boards, each handed its own zip", async () => {
+  const manifest = JSON.parse(
+    await Deno.readTextFile(
+      new URL("../static/arcade/manifest.json", import.meta.url),
+    ),
+  );
+  const games = arcadeGames(manifest);
+  // Whatever romsets this machine has, every row made it through.
+  assert.equal(games.length, manifest.length);
+  for (const game of games) {
+    assert.equal(game.file.replace(/\.zip$/i, ""), game.rom);
+    assert.equal(matchArcadeGame(levelSlug(game.rom), games)?.rom, game.rom);
+  }
+});
+
+Deno.test("a board is found by its MAME short name: exactly, by case, by slug — and a BIOS set is no board", () => {
+  assert.equal(matchArcadeGame("sfex2", ARCADE)?.rom, "sfex2");
+  assert.equal(matchArcadeGame("SFEX2", ARCADE)?.rom, "sfex2");
+  assert.equal(matchArcadeGame("sf-alpha", ARCADE)?.rom, "sf_alpha");
+  assert.equal(matchArcadeGame("coh3002c", ARCADE), null);
+  assert.equal(matchArcadeGame("qsound-hle", ARCADE), null);
+  assert.equal(matchArcadeGame("sfex", ARCADE), null);
+  assert.equal(matchArcadeGame("sfex2", []), null);
+});
+
+Deno.test("sfex2's subdomain opens the MAME player on its zip and its BIOS sets", () => {
+  assert.equal(subdomainTarget("sfex2", KEYS, ALIASES, "", ARCADE), SFEX2_URL);
+  // A board that needs no BIOS is handed none.
+  assert.equal(
+    subdomainTarget("pacman", KEYS, ALIASES, "", ARCADE),
+    "/arcade/play.html?rom=pacman.zip",
+  );
+  // The player gets the file as stored, never the slug.
+  assert.equal(
+    subdomainTarget("sf-alpha", KEYS, ALIASES, "", ARCADE),
+    "/arcade/play.html?rom=sf_alpha.zip",
+  );
+  // A BIOS set is not a game: its name is as free as any other.
+  assert.equal(
+    subdomainTarget("coh3002c", KEYS, ALIASES, "", ARCADE),
+    "/editor/?new=coh3002c",
+  );
+  // With no boards handed over, the name is what it was before: a NEW GAME.
+  assert.equal(subdomainTarget("sfex2", KEYS, ALIASES), "/editor/?new=sfex2");
+  assert.equal(
+    location(
+      subdomainRedirect(
+        req("http://x/", "SFEX2.cmg.test:443"),
+        KEYS,
+        ALIASES,
+        SITES,
+        ARCADE,
+      ),
+    ),
+    SFEX2_URL,
+  );
+});
+
+// svelte-src/Dashboard.svelte launchArcade: the redirect has to hand the player
+// what a click on the board's tile hands it, or the two would boot differently.
+Deno.test("the board's URL is the one the dashboard builds for the same board", async () => {
+  const game = ARCADE[0];
+  const params = new URLSearchParams({ rom: game.file });
+  params.set("bios", game.bios.join(","));
+  assert.equal(
+    subdomainTarget("sfex2", [], {}, "", ARCADE),
+    "/arcade/play.html?" + params.toString(),
+  );
+  const dashboard = await Deno.readTextFile(
+    new URL("../svelte-src/Dashboard.svelte", import.meta.url),
+  );
+  for (
+    const line of [
+      "const params = new URLSearchParams({ rom: game.file });",
+      "if (Array.isArray(game.bios) && game.bios.length) params.set('bios', game.bios.join(','));",
+      "gameSrc = '/arcade/play.html?' + params.toString();",
+    ]
+  ) {
+    assert.ok(dashboard.includes(line), "launchArcade no longer has: " + line);
+  }
+});
+
+Deno.test("a board's query rides along, but not another board, its BIOS or the BYOB switch", () => {
+  assert.equal(
+    subdomainTarget(
+      "sfex2",
+      KEYS,
+      {},
+      "?video=soft&rom=other.zip&bios=x&byob=1&level=gs&new=y&args=-nothrottle",
+      ARCADE,
+    ),
+    SFEX2_URL + "&video=soft&args=-nothrottle",
+  );
+  // The same names are no part of a cloud game's or a new game's address.
+  assert.equal(
+    subdomainTarget(
+      "2019-ps2",
+      KEYS,
+      {},
+      "?rom=sfex2.zip&byob=1&god=1",
+      ARCADE,
+    ),
+    "/games/2028-ai?level=2019-PS2&god=1",
+  );
+});
+
+Deno.test("a board keeps its name from a cloud game, an alias, and an outage", () => {
+  // Someone saved a game called sfex2, and someone aliased the name as well.
+  const keys = [...KEYS, "sfex2"];
+  const aliases = { ...ALIASES, sfex2: "2028", pacman: "2019-PS2" };
+  assert.equal(subdomainTarget("sfex2", keys, aliases, "", ARCADE), SFEX2_URL);
+  assert.equal(
+    subdomainTarget("pacman", keys, aliases, "", ARCADE),
+    "/arcade/play.html?rom=pacman.zip",
+  );
+  // The boards ship with the build, so neither listing has to be readable.
+  assert.equal(subdomainTarget("sfex2", null, null, "", ARCADE), SFEX2_URL);
+  assert.equal(subdomainTarget("sfex2", KEYS, null, "", ARCADE), SFEX2_URL);
+  // Everything that is not a board is routed as it was.
+  assert.equal(
+    subdomainTarget("2019", KEYS, ALIASES, "", ARCADE),
+    "/games/2028-ai?level=2019-PS2",
+  );
+  assert.equal(
+    subdomainTarget("my-first-level", KEYS, ALIASES, "", ARCADE),
+    "/editor/?new=my-first-level",
+  );
+});
+
+Deno.test("the database is asked only when the answer depends on it", async () => {
+  let reads = 0;
+  const opts = (keys: string[] | null, aliases: typeof ALIASES | null) => ({
+    arcade: ARCADE,
+    sites: SITES,
+    levelKeys: () => (reads++, Promise.resolve(keys)),
+    levelAliases: () => (reads++, Promise.resolve(aliases)),
+  });
+  const go = async (
+    request: Request,
+    keys: string[] | null = KEYS,
+    aliases: typeof ALIASES | null = ALIASES,
+  ) => location(await subdomainRootRedirect(request, opts(keys, aliases)));
+
+  // Not a subdomain's root: nothing is read, nothing is redirected.
+  for (
+    const other of [
+      req("http://x/", "cmg.test"),
+      req("http://x/", "cmg.easierbycode.deno.net"),
+      req("http://127.0.0.1:5173/", "127.0.0.1:5173"),
+      req("http://x/arcade/play.html?rom=sfex2.zip", "sfex2.cmg.test"),
+      req("http://x/arcade/sfex2.zip", "sfex2.cmg.test"),
+      req("http://x/", "sfex2.cmg.test", {}, "POST"),
+    ]
+  ) {
+    assert.equal(await go(other), null, other.url);
+  }
+  assert.equal(reads, 0);
+
+  // A board: redirected without either listing being asked for.
+  assert.equal(
+    await go(req("http://x/?video=soft", "sfex2.cmg.test")),
+    SFEX2_URL + "&video=soft",
+  );
+  assert.equal(await go(req("http://x/", "sfex2.localhost:5173")), SFEX2_URL);
+  assert.equal(reads, 0);
+
+  // Anything else: both listings, once each.
+  assert.equal(
+    await go(req("http://x/", "2019.cmg.test")),
+    "/games/2028-ai?level=2019-PS2",
+  );
+  assert.equal(reads, 2);
+  assert.equal(
+    await go(req("http://x/", "my-first-level.cmg.test")),
+    "/editor/?new=my-first-level",
+  );
+  assert.equal(reads, 4);
+
+  // The database down: a board still opens, any other name goes to the game.
+  assert.equal(
+    await go(req("http://x/", "sfex2.cmg.test"), null, null),
+    SFEX2_URL,
+  );
+  assert.equal(
+    await go(req("http://x/", "my-first-level.cmg.test"), null, null),
+    "/games/2028-ai?level=my-first-level",
+  );
+  // No boards handed over at all: the name is routed like any other.
+  assert.equal(
+    location(
+      await subdomainRootRedirect(req("http://x/", "sfex2.cmg.test"), {
+        sites: SITES,
+        levelKeys: () => Promise.resolve(KEYS),
+        levelAliases: () => Promise.resolve(ALIASES),
+      }),
+    ),
+    "/editor/?new=sfex2",
+  );
+});
+
+Deno.test("an alias cannot be spelled like a board: the board would always answer first", () => {
+  const plan = planAliases(
+    "2019-PS2",
+    ["sfex2", "SF-Alpha", "sf2"],
+    KEYS,
+    {},
+    ARCADE,
+  );
+  assert.deepEqual(plan.set, { sf2: "2019-PS2" });
+  assert.deepEqual(plan.errors, [
+    '"sfex2" is an arcade board: its subdomain opens the board',
+    '"sf-alpha" is an arcade board: its subdomain opens the board',
+  ]);
+  // A caller that does not know the boards is not held to them.
+  assert.deepEqual(planAliases("2019-PS2", ["sfex2"], KEYS, {}).set, {
+    sfex2: "2019-PS2",
   });
 });
 

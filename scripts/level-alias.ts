@@ -11,7 +11,10 @@
 // `levelAliases/<alias>` = the game's key, beside `levels/`; the subdomain
 // redirect (lib/level-subdomain.ts) reads it and hands the game the key.
 // lib/level-subdomain.ts's planAliases has the rules: a lowercase DNS label,
-// never a name a game already has, never one another game holds.
+// never a name a game already has, never one another game holds, and never an
+// arcade board's short name — sfex2.<site> opens the board (the boards are
+// this checkout's static/arcade/manifest.json), so an alias spelled like one
+// would never be asked.
 //
 // The game can be named by an alias too (`deno task level:alias 2019` lists
 // 2019-PS2's), found the way a subdomain finds it.
@@ -21,6 +24,8 @@
 
 import {
   ALIASES_PATH,
+  type ArcadeGame,
+  arcadeGames,
   isAliasName,
   LEVELS_DB,
   LEVELS_PATH,
@@ -37,6 +42,20 @@ async function getJson(path: string): Promise<unknown> {
   const res = await fetch(`${LEVELS_DB}/${path}`);
   if (!res.ok) fail(`could not read ${path}: ${res.status}`);
   return await res.json();
+}
+
+// The boards this checkout would ship. No manifest (a tree that never ran
+// `deno task arcade:manifest`) is no boards, not an error.
+async function shippedBoards(): Promise<ArcadeGame[]> {
+  try {
+    return arcadeGames(JSON.parse(
+      await Deno.readTextFile(
+        new URL("../static/arcade/manifest.json", import.meta.url),
+      ),
+    ));
+  } catch {
+    return [];
+  }
 }
 
 async function patchAliases(body: Record<string, string | null>) {
@@ -108,7 +127,7 @@ const keys = Object.keys(
 const [asked, ...wanted] = names;
 // A game named by one of its aliases is the game the alias names.
 const level = matchLevelKey(asked, keys, aliases) ?? asked;
-const plan = planAliases(level, wanted, keys, aliases);
+const plan = planAliases(level, wanted, keys, aliases, await shippedBoards());
 if (plan.errors.length) fail(plan.errors.join("\n       "));
 if (wanted.length === 0) {
   list(plan.key!);

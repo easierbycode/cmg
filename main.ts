@@ -4,12 +4,15 @@ import {
   injectCaptureAgent,
   injectLauncherMarker,
 } from "./lib/launcher-inject.ts";
-import {
-  cloudLevelAliases,
-  cloudLevelKeys,
-  subdomainRedirect,
-  subdomainRootLabel,
-} from "./lib/level-subdomain.ts";
+import { arcadeGames, subdomainRootRedirect } from "./lib/level-subdomain.ts";
+// The arcade boards this build ships, for their subdomains (below). Imported,
+// not read from disk or fetched: `deno task build` regenerates the manifest
+// before `vite build` bundles it, so the server's copy is the one it serves at
+// /arcade/manifest.json — in a checkout, on Deploy and in a compiled launcher
+// alike, where a path into static/ would not resolve the same way.
+import arcadeManifest from "./static/arcade/manifest.json" with {
+  type: "json",
+};
 
 export const app = new App<State>();
 
@@ -77,25 +80,23 @@ app.use(async (ctx) => {
 });
 
 // `<name>.<site>/` is the game called <name>: a subdomain's root goes to the
-// game with that level (/games/2028-ai?level=<its key>), or — when no game has
-// the name — to the level editor's NEW GAME with the name filled in
-// (/editor/?new=<name>). Only the root; every other path on a subdomain serves
-// as the apex does. lib/level-subdomain.ts has the matching rules, the cached
-// listing of `levels/*` and the alias index beside it (2019.<site> is 2019-PS2
-// by alias), and which hosts count as a site: CMG_SITE_HOSTS, plus localhost.
-// Ahead of staticFiles() and the dashboard route, GET and HEAD only. The
-// database is read only for a request that is a subdomain's root, so the apex,
-// the deploy URL and a launcher on 127.0.0.1 never wait on it. A listing that
-// could not be read is handed over as null, not as an empty one: a name is
-// only offered as a NEW GAME when both said nobody has it.
-app.use(async (ctx) => {
-  if (subdomainRootLabel(ctx.req) === null) return ctx.next();
-  const [keys, aliases] = await Promise.all([
-    cloudLevelKeys(),
-    cloudLevelAliases(),
-  ]);
-  return subdomainRedirect(ctx.req, keys, aliases) ?? ctx.next();
-});
+// arcade board of that MAME short name (sfex2.<site> is
+// /arcade/play.html?rom=sfex2.zip&bios=…, the URL the dashboard opens), or to
+// the cloud game with that level (/games/2028-ai?level=<its key>), or — when
+// nothing has the name — to the level editor's NEW GAME with the name filled
+// in (/editor/?new=<name>). Only the root; every other path on a subdomain
+// serves as the apex does. lib/level-subdomain.ts has the matching rules, the
+// cached listing of `levels/*` and the alias index beside it (2019.<site> is
+// 2019-PS2 by alias), and which hosts count as a site: CMG_SITE_HOSTS, plus
+// localhost. Ahead of staticFiles() and the dashboard route, GET and HEAD
+// only. The database is read only for a subdomain's root that is not a board,
+// so the apex, the deploy URL and a launcher on 127.0.0.1 never wait on it,
+// and a board opens without it.
+const ARCADE_GAMES = arcadeGames(arcadeManifest);
+app.use(async (ctx) =>
+  (await subdomainRootRedirect(ctx.req, { arcade: ARCADE_GAMES })) ??
+    ctx.next()
+);
 
 app.use(staticFiles());
 

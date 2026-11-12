@@ -104,15 +104,33 @@ A visit to the **root** of a subdomain is routed by its label
 ([`lib/level-subdomain.ts`](lib/level-subdomain.ts), wired in
 [`main.ts`](main.ts) ahead of `staticFiles()` and the dashboard route):
 
-- `2019-ps2.<site>/` → `/games/2028-ai?level=2019-PS2` — a game that exists
-  opens straight away, the way `?level=` does.
+- `sfex2.<site>/` → `/arcade/play.html?rom=sfex2.zip&bios=coh3002c,qsound_hle` —
+  an **arcade board** (MAME) the build ships opens in the arcade player, with
+  the BIOS sets it needs. The label is the board's MAME short name.
+- `2019-ps2.<site>/` → `/games/2028-ai?level=2019-PS2` — a cloud game that
+  exists opens straight away, the way `?level=` does.
 - `my-first-level.<site>/` → `/editor/?new=my-first-level` — a name no game has
   yet opens the level editor on a blank **NEW GAME** with the name already
   filled in, so **SAVE GAME** publishes it as `levels/my-first-level` and the
   same address opens the game from then on.
 
-The visitor's own query rides along, minus the name the label decided (`level`,
-`new`): `gs.<site>/?god=1` is `/games/2028-ai?level=gs&god=1`.
+The visitor's own query rides along, minus the name the label decided (`level`
+and `new`; for a board `rom`, `bios` and `byob`): `gs.<site>/?god=1` is
+`/games/2028-ai?level=gs&god=1`, and `sfex2.<site>/?video=soft` is the same
+board with the player's `?video=soft`.
+
+**Arcade boards.** The boards are the MAME romsets in `static/arcade/`, as the
+manifest the build generates lists them (`deno task arcade:manifest`, run by
+`deno task build`; BIOS sets such as `coh3002c` are not on it, so they are not
+games). The redirect is the URL the dashboard's own tile builds (`launchArcade`
+in `svelte-src/Dashboard.svelte`), so a board boots the same way from either,
+and the label matches the short name exactly, by case, or by slug. They are
+asked **first**, from a copy of the manifest bundled into the server, so a board
+answers instantly, without the database, and with it down. The price is the
+other direction: a romset added later takes its short name's subdomain from a
+cloud game saved under the same name, which is then reached by `?level=` or an
+alias. `level:alias` refuses an alias spelled like a board, since the board
+would always answer first.
 
 Only the root is redirected; every other path on a subdomain serves exactly as
 the apex does, which is what lets the redirect stay relative (the game and its
@@ -165,13 +183,13 @@ deno task level:alias 2019-PS2 2019 streetfighter -- --write  # add them
 deno task level:alias -- --remove streetfighter --write       # take one back
 ```
 
-`planAliases` in `lib/level-subdomain.ts` refuses an alias another game holds or
-a game already owns as its own name.
+`planAliases` in `lib/level-subdomain.ts` refuses an alias another game holds, a
+game already owns as its own name, or an arcade board is called.
 [`tests/level_subdomain_test.ts`](tests/level_subdomain_test.ts) pins the rules
 (`deno test -A tests/level_subdomain_test.ts`), and
 [`tests/e2e/level_subdomain_test.ts`](tests/e2e/level_subdomain_test.ts) follows
-both redirects in a real browser, down to the editor opening the named blank
-game.
+the redirects in a real browser, down to the editor opening the named blank game
+and the arcade player asking for the board's recipe, romset and BIOS sets.
 
 ## Recording games for social
 
