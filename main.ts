@@ -4,6 +4,12 @@ import {
   injectCaptureAgent,
   injectLauncherMarker,
 } from "./lib/launcher-inject.ts";
+import {
+  cloudLevelAliases,
+  cloudLevelKeys,
+  subdomainRedirect,
+  subdomainRootLabel,
+} from "./lib/level-subdomain.ts";
 
 export const app = new App<State>();
 
@@ -68,6 +74,27 @@ app.use(async (ctx) => {
   headers.delete("etag");
   headers.delete("last-modified");
   return new Response(html, { status: res.status, headers });
+});
+
+// `<name>.<site>/` is the game called <name>: a subdomain's root goes to the
+// game with that level (/games/2028-ai?level=<its key>), or — when no game has
+// the name — to the level editor's NEW GAME with the name filled in
+// (/editor/?new=<name>). Only the root; every other path on a subdomain serves
+// as the apex does. lib/level-subdomain.ts has the matching rules, the cached
+// listing of `levels/*` and the alias index beside it (2019.<site> is 2019-PS2
+// by alias), and which hosts count as a site: CMG_SITE_HOSTS, plus localhost.
+// Ahead of staticFiles() and the dashboard route, GET and HEAD only. The
+// database is read only for a request that is a subdomain's root, so the apex,
+// the deploy URL and a launcher on 127.0.0.1 never wait on it. A listing that
+// could not be read is handed over as null, not as an empty one: a name is
+// only offered as a NEW GAME when both said nobody has it.
+app.use(async (ctx) => {
+  if (subdomainRootLabel(ctx.req) === null) return ctx.next();
+  const [keys, aliases] = await Promise.all([
+    cloudLevelKeys(),
+    cloudLevelAliases(),
+  ]);
+  return subdomainRedirect(ctx.req, keys, aliases) ?? ctx.next();
 });
 
 app.use(staticFiles());

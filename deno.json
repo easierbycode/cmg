@@ -32,6 +32,7 @@
     "openemu:import": "deno run -A scripts/import-openemu.ts",
     "phasereditor:vendor": "deno run -A scripts/vendor-phaser-editor.ts",
     "dezaemon:vendor": "deno run -A scripts/vendor-dezaemon-import.ts",
+    "level:alias": "deno run -A scripts/level-alias.ts",
     "arcade:core": "deno run -A scripts/vendor-arcade-core.ts",
     "arcade:configs": "deno run -A scripts/convert-mame-configs.ts",
     "arcade:bundle": "deno task arcade:core && deno task arcade:configs",
