@@ -368,6 +368,48 @@ Deno.test("an alias subdomain opens its game, even with the listing down", () =>
   );
 });
 
+// A partial outage: the games list, the alias index does not. `2019` is an
+// alias, but nobody can tell — and an editor opened on NEW GAME "2019" would
+// let a save take the name from the game it stands for.
+Deno.test("with the alias index unreadable, a name no game owns goes to the game, not to NEW GAME", () => {
+  assert.equal(
+    subdomainTarget("2019", KEYS, null),
+    "/games/2028-ai?level=2019",
+  );
+  assert.equal(
+    subdomainTarget("my-first-level", KEYS, null, "?god=1"),
+    "/games/2028-ai?level=my-first-level&god=1",
+  );
+  // A game's own name needs no alias index: exact, by case, by slug.
+  assert.equal(
+    subdomainTarget("2019-ps2", KEYS, null),
+    "/games/2028-ai?level=2019-PS2",
+  );
+  assert.equal(
+    subdomainTarget("master-arena-mod", KEYS, null),
+    "/games/2028-ai?level=Master+Arena+Mod",
+  );
+  // Neither readable: still the game.
+  assert.equal(
+    subdomainTarget("2019", null, null),
+    "/games/2028-ai?level=2019",
+  );
+  // An index that was read and is empty is a different answer: the name is free.
+  assert.equal(subdomainTarget("2019", KEYS, {}), "/editor/?new=2019");
+  assert.equal(
+    location(
+      subdomainRedirect(req("http://x/", "2019.cmg.test"), KEYS, null, SITES),
+    ),
+    "/games/2028-ai?level=2019",
+  );
+  assert.equal(
+    location(
+      subdomainRedirect(req("http://x/", "2019.cmg.test"), KEYS, {}, SITES),
+    ),
+    "/editor/?new=2019",
+  );
+});
+
 Deno.test("the alias index is one read, cached, and keeps only well-formed names", async () => {
   resetLevelKeysCache();
   const calls: string[] = [];

@@ -129,6 +129,9 @@ stored as `Master Arena Mod`. The game always gets the stored key, never the
 slug. If the database cannot be read at all, the label goes to the game rather
 than the editor: a shared link to a real game is the common case, and the
 loader's own fallback beats a stranger's editor opening over a name that exists.
+The alias index failing on its own is treated the same way for a name no game
+owns — it might be an alias nobody can check — so a name is only offered as a
+NEW GAME when both listings were read.
 
 **Which hosts are a site.** `<site>` has to be a host that can have subdomains,
 and the deploy's own URL cannot (nothing resolves under

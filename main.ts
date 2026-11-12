@@ -85,14 +85,16 @@ app.use(async (ctx) => {
 // by alias), and which hosts count as a site: CMG_SITE_HOSTS, plus localhost.
 // Ahead of staticFiles() and the dashboard route, GET and HEAD only. The
 // database is read only for a request that is a subdomain's root, so the apex,
-// the deploy URL and a launcher on 127.0.0.1 never wait on it.
+// the deploy URL and a launcher on 127.0.0.1 never wait on it. A listing that
+// could not be read is handed over as null, not as an empty one: a name is
+// only offered as a NEW GAME when both said nobody has it.
 app.use(async (ctx) => {
   if (subdomainRootLabel(ctx.req) === null) return ctx.next();
   const [keys, aliases] = await Promise.all([
     cloudLevelKeys(),
     cloudLevelAliases(),
   ]);
-  return subdomainRedirect(ctx.req, keys, aliases ?? {}) ?? ctx.next();
+  return subdomainRedirect(ctx.req, keys, aliases) ?? ctx.next();
 });
 
 app.use(staticFiles());

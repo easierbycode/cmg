@@ -42,7 +42,10 @@
 // /characters caches its listing. When the database cannot be read at all the
 // label is sent to the GAME, not the editor: a shared link to a real game is
 // the common case, and the loader's own fallback is a better failure than a
-// stranger's editor opening over a name that exists.
+// stranger's editor opening over a name that exists. The alias index failing
+// on its own is the same doubt, about fewer names: a label no game owns might
+// still be an alias nobody can check, so it goes to the game as well, rather
+// than offer NEW GAME under a name that a save would then take from the alias.
 
 export const DEFAULT_SITE_HOSTS: readonly string[] = ["localhost"];
 
@@ -236,21 +239,26 @@ function withQuery(
 }
 
 /**
- * Where a subdomain's root goes. `keys` null means the database was
- * unreachable. `search` is the visitor's own query, carried along (withQuery).
+ * Where a subdomain's root goes. `keys` null means the game listing could not
+ * be read, and `aliases` null that the alias index could not ({} is an index
+ * that was read and is empty). Either way a label nothing matched is not known
+ * to be free, so it goes to the game; only with both read is it a NEW GAME.
+ * `search` is the visitor's own query, carried along (withQuery).
  */
 export function subdomainTarget(
   label: string,
   keys: readonly string[] | null,
-  aliases: LevelAliases = {},
+  aliases: LevelAliases | null = {},
   search = "",
 ): string {
+  const known = aliases ?? {};
   if (keys === null) {
-    const aliased = Object.hasOwn(aliases, label) ? aliases[label] : label;
+    const aliased = Object.hasOwn(known, label) ? known[label] : label;
     return withQuery(GAME_URL, "level", aliased, search);
   }
-  const key = matchLevelKey(label, keys, aliases);
+  const key = matchLevelKey(label, keys, known);
   if (key !== null) return withQuery(GAME_URL, "level", key, search);
+  if (aliases === null) return withQuery(GAME_URL, "level", label, search);
   return withQuery(NEW_GAME_URL, "new", label, search);
 }
 
@@ -275,11 +283,15 @@ export function subdomainRootLabel(
   return subdomainOf(host, sites);
 }
 
-/** The redirect a request earns, or null when it is not a subdomain root. */
+/**
+ * The redirect a request earns, or null when it is not a subdomain root.
+ * `keys` and `aliases` are what cloudLevelKeys and cloudLevelAliases answered,
+ * null included (subdomainTarget).
+ */
 export function subdomainRedirect(
   req: Request,
   keys: readonly string[] | null,
-  aliases: LevelAliases = {},
+  aliases: LevelAliases | null = {},
   sites: readonly string[] = siteHosts(),
 ): Response | null {
   const label = subdomainRootLabel(req, sites);
