@@ -98,6 +98,78 @@ middleware in [`main.ts`](main.ts), so the cross-origin fetch from a launcher on
 `localhost` works. Regenerate it locally with `deno task games:manifest` (it
 also runs as the first step of `deno task build`).
 
+## Level subdomains — `<name>.<site>` is the game called `<name>`
+
+A visit to the **root** of a subdomain is routed by its label
+([`lib/level-subdomain.ts`](lib/level-subdomain.ts), wired in
+[`main.ts`](main.ts) ahead of `staticFiles()` and the dashboard route):
+
+- `2019-ps2.<site>/` → `/games/2028-ai?level=2019-PS2` — a game that exists
+  opens straight away, the way `?level=` does.
+- `my-first-level.<site>/` → `/editor/?new=my-first-level` — a name no game has
+  yet opens the level editor on a blank **NEW GAME** with the name already
+  filled in, so **SAVE GAME** publishes it as `levels/my-first-level` and the
+  same address opens the game from then on.
+
+The visitor's own query rides along, minus the name the label decided (`level`,
+`new`): `gs.<site>/?god=1` is `/games/2028-ai?level=gs&god=1`.
+
+Only the root is redirected; every other path on a subdomain serves exactly as
+the apex does, which is what lets the redirect stay relative (the game and its
+bundle load from the host the visitor typed). The lookup is one shallow REST
+read of the `levels/*` keys in the Realtime Database — the keys the level loader
+reads and the editor's SAVE GAME writes — cached for a minute like
+`/characters`, and made only for a request that is a subdomain's root. Hostnames
+are case-insensitive and database keys are not, so the label is matched exactly,
+then by case (`2019-ps2` finds `2019-PS2`; a tie between two keys that differ
+only in case resolves to the same one every time). A key the DNS cannot spell —
+a space, an underscore, an apostrophe — is reached by its **slug**: every run of
+such characters becomes one hyphen, so `master-arena-mod.<site>` opens the game
+stored as `Master Arena Mod`. The game always gets the stored key, never the
+slug. If the database cannot be read at all, the label goes to the game rather
+than the editor: a shared link to a real game is the common case, and the
+loader's own fallback beats a stranger's editor opening over a name that exists.
+
+**Which hosts are a site.** `<site>` has to be a host that can have subdomains,
+and the deploy's own URL cannot (nothing resolves under
+`cmg.easierbycode.deno.net`). So the list is configuration: set `CMG_SITE_HOSTS`
+to the apex host, or several separated by commas (`CMG_SITE_HOSTS=example.com`;
+`*.example.com` is read the same way). The apex itself and `www.` are never a
+game, and a nested label (`a.b.example.com`) is not one either. `localhost` is
+always on the list, so `gs.localhost:5173/` works under `deno task dev`, and
+against a local `deno task start`, with nothing set. The dev tunnel's rewritten
+`Host` is looked past to `X-Forwarded-Host`.
+
+**DNS and Deploy both have to know the wildcard.** Add `*.<site>` as a custom
+domain on the app in the Deploy dashboard (it issues the wildcard certificate),
+point a `*` DNS record at it beside the apex's, and set `CMG_SITE_HOSTS` in the
+app's environment variables — until all three exist a subdomain either does not
+resolve or serves the dashboard, and nothing in this repo can change that.
+
+**Aliases.** A game can answer to other names too: with `2019` and
+`streetfighter` aliased to `2019-PS2`, `2019.<site>` and `streetfighter.<site>`
+both open it. The names live in one small index beside the games, RTDB
+`levelAliases/<alias>` = the game's key, read whole and cached for a minute next
+to the key listing. An alias is a lowercase DNS label and never beats a game's
+own name or slug. The redirect resolves it, so only subdomains know aliases —
+`/games/2028-ai?level=2019` is still looked up as the key `2019`. Set them with
+the task, a dry run unless `--write`:
+
+```sh
+deno task level:alias                                         # every alias
+deno task level:alias 2019-PS2                                # one game's
+deno task level:alias 2019-PS2 2019 streetfighter -- --write  # add them
+deno task level:alias -- --remove streetfighter --write       # take one back
+```
+
+`planAliases` in `lib/level-subdomain.ts` refuses an alias another game holds or
+a game already owns as its own name.
+[`tests/level_subdomain_test.ts`](tests/level_subdomain_test.ts) pins the rules
+(`deno test -A tests/level_subdomain_test.ts`), and
+[`tests/e2e/level_subdomain_test.ts`](tests/e2e/level_subdomain_test.ts) follows
+both redirects in a real browser, down to the editor opening the named blank
+game.
+
 ## Recording games for social
 
 `tools/game-recorder` records any catalog game from a headless browser and posts

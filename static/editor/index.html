@@ -3909,7 +3909,7 @@
             let blank = null;
             if (window.Dezaemon) blank = window.Dezaemon.buildBlankGame(getDezaemonDefaults());
             else blank = createBlankGameFallback();
-            if (!blank) { alert('EDITOR DATA IS STILL LOADING — TRY AGAIN IN A MOMENT.'); return; }
+            if (!blank) { alert('EDITOR DATA IS STILL LOADING — TRY AGAIN IN A MOMENT.'); return false; }
             replacedFrames = {}; extraSprites = []; customFrameKeys = new Set();
             gameData = blank;
             enemyData = gameData.enemyData;
@@ -3926,6 +3926,30 @@
             if (nameInput) nameInput.value = '';
             setDezaStatus('NEW GAME (UNSAVED)');
             flash('NEW GAME — STAGE 00');
+            return true;
+        }
+
+        // ?new=<name>: a subdomain no game has claimed lands here (main.ts
+        // sends `<name>.<site>/` to /editor/?new=<name>, see
+        // lib/level-subdomain.ts) — a blank game already named for the label,
+        // so SAVE GAME publishes it as levels/<name> and the subdomain opens
+        // the game from then on. The name is made a legal cloud key the way
+        // the loader does it (sanitizeLevelName), spelled out here because
+        // that helper arrives through a module bridge that may have failed.
+        async function startNewGameNamed(rawName) {
+            const name = String(rawName || '').replace(/[.#$/\[\]]/g, '_').trim().slice(0, 64);
+            if (!name) return false;
+            // The blank game comes from the importer module, which can trail
+            // window.onload (see dezaemonReady).
+            await dezaemonReady();
+            const started = await startNewGame();
+            const nameInput = document.getElementById('firebase-level-name');
+            if (nameInput) nameInput.value = name;
+            if (started) {
+                setDezaStatus('NEW GAME "' + name + '" (UNSAVED)');
+                flash('NEW GAME — ' + name);
+            }
+            return started;
         }
 
         function setDezaStatus(text) {
@@ -8266,13 +8290,18 @@ if (!name) { name = prompt('Level name:'); if (!name) return; }
             updateToolUI();
             // Auto-load local data first so Firebase can override it
             await autoLoadFromServer();
-            const urlLevel = new URLSearchParams(window.location.search).get('level');
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlLevel = urlParams.get('level');
             if (urlLevel) {
                 document.getElementById('firebase-level-name').value = urlLevel;
                 initFirebase();
                 const tryLoad = () => { initFirebase(); loadFromFirebase(urlLevel); };
                 firebaseDb ? tryLoad() : setTimeout(tryLoad, 1000);
             }
+            // ?new=<name>: an unclaimed subdomain's NEW GAME (startNewGameNamed).
+            // A ?level= beside it wins — that game exists and is being loaded.
+            const urlNew = urlParams.get('new');
+            if (urlNew && !urlLevel) startNewGameNamed(urlNew);
         };
     </script>
 </body>
